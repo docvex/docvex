@@ -1,12 +1,27 @@
+// Fonts BUNDLED with the app (@fontsource) rather than a Google Fonts
+// <link>: that stylesheet was render-blocking, so every launch with a cold
+// HTTP cache waited a network round trip before the app's JS could run —
+// and an office behind a slow or filtering proxy waited longer.
+import '@fontsource/inter/400.css';
+import '@fontsource/inter/500.css';
+import '@fontsource/inter/600.css';
+import '@fontsource/plus-jakarta-sans/400.css';
+import '@fontsource/plus-jakarta-sans/500.css';
+import '@fontsource/plus-jakarta-sans/600.css';
 import './index.css';
 import './styles/tokens.css';
 import './styles/miniHeader.css';
 import './styles/designSystem.css';
+import './styles/perf.css';
 import { initDesignSystem } from './lib/designSystem';
+import { initPerf } from './lib/perf';
 
 // The design system's overrides (Settings → System → Design system) go on
 // <html> before anything renders, so the first frame already follows them.
 initDesignSystem();
+// The graphics preset (Settings → Optimization) likewise: data-perf on <html>
+// before the first frame, so a Low machine never paints the heavy look first.
+initPerf();
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import { MemoryRouter } from 'react-router-dom';
@@ -21,6 +36,7 @@ import NotificationCenter from './components/NotificationCenter';
 import AuthWindowGate from './components/AuthWindowGate';
 import { isElectron, isMac } from './lib/platform';
 import App from './App';
+import { preloadBootRoute } from './AppRoutes';
 
 // Document-viewer windows (opened from the Files page) boot straight into the
 // full-screen /doc-viewer route, carrying the file's path/name/mime through.
@@ -102,6 +118,7 @@ const initialEntries = isAuthWindow
 //                                 NotificationCenter renders inside it (toast
 //                                 stack at z 9999).
 //   ChatUnreadProvider          — chat unread badges.
+if (isMainWindow) preloadBootRoute();
 ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>
     <MemoryRouter initialEntries={initialEntries}>

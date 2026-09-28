@@ -159,6 +159,9 @@
   color: var(--text-primary); font-size: 9.6px; font-weight: 500;
   box-shadow: var(--shadow-elev);
 }
+/* Two lines or more: HALF the corner radius — a quarter of the one-line
+   pill's height (Tooltip.css .tooltip.is-multiline, Tooltip.jsx). */
+.dsg-pill-still.is-multiline { white-space: pre-line; line-height: 1.2; border-radius: calc((9.6px * 1.2 + 4.8px * 2 + 2px) / 4); }
 
 /* Status pill (the "up to date" shimmer, the plan pill). */
 .dsg-status {
@@ -505,31 +508,35 @@
 
 .dsg-refdoc .dv-lawref,
 .dsg-refs-photo .dv-textword.dv-lawref {
-  --lawref-1: 59, 130, 246; --lawref-2: 139, 92, 246; --lawref-3: 168, 85, 247;
-  --lawref-wash: 0.2;
+  --lawref: var(--cat-update);
+  --lawref-wash: 20%;
   background-image:
-    linear-gradient(115deg, rgba(var(--lawref-1), var(--lawref-wash)) 0%, rgba(var(--lawref-2), var(--lawref-wash)) 32%, rgba(var(--lawref-3), var(--lawref-wash)) 58%, rgba(var(--lawref-2), var(--lawref-wash)) 80%, rgba(var(--lawref-1), var(--lawref-wash)) 100%),
-    linear-gradient(115deg, rgb(var(--lawref-1)) 0%, rgb(var(--lawref-2)) 32%, rgb(var(--lawref-3)) 58%, rgb(var(--lawref-2)) 80%, rgb(var(--lawref-1)) 100%);
+    linear-gradient(115deg, color-mix(in srgb, var(--lawref) calc(var(--lawref-wash) * 0.6), transparent) 0%, color-mix(in srgb, var(--lawref) var(--lawref-wash), transparent) 32%, color-mix(in srgb, var(--lawref) calc(var(--lawref-wash) * 1.4), transparent) 58%, color-mix(in srgb, var(--lawref) var(--lawref-wash), transparent) 80%, color-mix(in srgb, var(--lawref) calc(var(--lawref-wash) * 0.6), transparent) 100%),
+    linear-gradient(115deg, color-mix(in srgb, var(--lawref) 55%, transparent) 0%, var(--lawref) 58%, color-mix(in srgb, var(--lawref) 55%, transparent) 100%);
   background-size: 300% 100%, 300% 1.6px;
   background-position: 0 0, 0 100%;
   background-repeat: repeat, repeat-x;
   animation: dsg-lawref-shimmer 5.5s linear infinite;
 }
-:root[data-theme='ink'] .dsg-refdoc .dv-lawref { --lawref-wash: 0.3; }
+:root[data-theme='ink'] .dsg-refdoc .dv-lawref { --lawref-wash: 30%; }
 @keyframes dsg-lawref-shimmer { to { background-position: -300% 0, -300% 100%; } }
 .dsg-refdoc .dv-ref.is-head { border-top-left-radius: 3px; border-bottom-left-radius: 3px; }
 .dsg-refdoc .dv-ref.is-tail { border-top-right-radius: 3px; border-bottom-right-radius: 3px; }
+/* Mirrors DocViewer.css: room around every mark that takes no width. */
+.dsg-refdoc .dv-ref { padding-top: 2.4px; padding-bottom: 2.4px; }
+.dsg-refdoc .dv-ref.is-head { padding-left: 3.2px; margin-left: -3.2px; }
+.dsg-refdoc .dv-ref.is-tail { padding-right: 3.2px; margin-right: -3.2px; }
 
 .dsg-refdoc .dv-caenref {
-  --caenref: 217, 119, 6; --caenref-wash: 0.18;
-  background-image: linear-gradient(rgb(var(--caenref)), rgb(var(--caenref)));
+  --caenref: var(--warning); --caenref-wash: 18%;
+  background-image: linear-gradient(var(--caenref), var(--caenref));
   background-size: 100% 1.6px; background-position: 0 100%; background-repeat: no-repeat;
-  background-color: rgba(var(--caenref), var(--caenref-wash));
+  background-color: color-mix(in srgb, var(--caenref) var(--caenref-wash), transparent);
 }
-:root[data-theme='ink'] .dsg-refdoc .dv-caenref { --caenref: 251, 191, 36; --caenref-wash: 0.24; }
+:root[data-theme='ink'] .dsg-refdoc .dv-caenref { --caenref-wash: 24%; }
 
 .dsg-refdoc .dv-cuiref {
-  --cuiref: var(--info);
+  --cuiref: var(--success);
   cursor: pointer;
   background-image: linear-gradient(var(--cuiref), var(--cuiref));
   background-size: 100% 1.6px; background-position: 0 100%; background-repeat: no-repeat;
@@ -537,48 +544,26 @@
 }
 .dsg-refdoc .dv-cuiref:hover { background-color: color-mix(in srgb, var(--cuiref) 28%, transparent); }
 
-.dsg-refdoc { --xref: 13, 148, 136; }
-:root[data-theme='ink'] .dsg-refdoc { --xref: 45, 212, 191; }
+/* The cross-reference: the law mark's look in grey (DocViewer.css). */
 .dsg-refdoc .dv-xref {
-  --xref-wash: 0.18;
-  --xref-ring: rgba(var(--xref), 0.55);
-  --xref-ring-l: transparent; --xref-ring-r: transparent;
-  --xref-inner: 0 0 0 0 transparent;
-  background-color: rgba(var(--xref), var(--xref-wash));
-  border-radius: 5.6px;
-  box-shadow:
-    inset 0 1px 0 0 var(--xref-ring), inset 0 -1px 0 0 var(--xref-ring),
-    inset 1px 0 0 0 var(--xref-ring-l), inset -1px 0 0 0 var(--xref-ring-r),
-    var(--xref-inner);
+  --lawref: #6B7280;
+  --lawref-wash: 16%;
+  background-image:
+    linear-gradient(115deg, color-mix(in srgb, var(--lawref) calc(var(--lawref-wash) * 0.6), transparent) 0%, color-mix(in srgb, var(--lawref) var(--lawref-wash), transparent) 32%, color-mix(in srgb, var(--lawref) calc(var(--lawref-wash) * 1.4), transparent) 58%, color-mix(in srgb, var(--lawref) var(--lawref-wash), transparent) 80%, color-mix(in srgb, var(--lawref) calc(var(--lawref-wash) * 0.6), transparent) 100%),
+    linear-gradient(115deg, color-mix(in srgb, var(--lawref) 55%, transparent) 0%, var(--lawref) 58%, color-mix(in srgb, var(--lawref) 55%, transparent) 100%);
+  background-size: 300% 100%, 300% 1.6px;
+  background-position: 0 0, 0 100%;
+  background-repeat: repeat, repeat-x;
+  animation: dsg-lawref-shimmer 5.5s linear infinite;
   cursor: pointer;
-  transition: background-color 120ms ease-out, box-shadow 120ms ease-out;
+
 }
-.dsg-refdoc .dv-xref.is-head { --xref-ring-l: var(--xref-ring); }
-.dsg-refdoc .dv-xref.is-tail { --xref-ring-r: var(--xref-ring); }
-:root[data-theme='ink'] .dsg-refdoc .dv-xref { --xref-wash: 0.22; }
 .dsg-refdoc .dv-xref:hover,
-.dsg-refdoc .dv-xref.is-hot { --xref-wash: 0.32; --xref-ring: rgba(var(--xref), 0.85); }
-.dsg-refdoc .dv-xref.is-press {
-  --xref-wash: 0.5; --xref-ring: rgba(var(--xref), 0.95);
-  --xref-inner: inset 0 2px 3px -1px rgba(var(--xref), 0.6);
-}
-.dsg-refdoc .is-xref-target {
-  --lit-lo: rgba(var(--xref), 0.12); --lit-hi: rgba(var(--xref), 0.46);
-  --lit-ring-lo: rgba(var(--xref), 0.1); --lit-ring-hi: rgba(var(--xref), 0.32);
-  border-radius: 4px;
-  background-color: var(--lit-hi);
-  box-shadow: 0 0 0 4px var(--lit-ring-hi);
-  animation: dsg-xref-pulse 1.4s ease-in-out infinite;
-}
-.dsg-refdoc .is-xref-exact {
-  --lit-lo: rgba(var(--xref), 0.2); --lit-hi: rgba(var(--xref), 0.66);
-  --lit-ring-lo: rgba(var(--xref), 0.16); --lit-ring-hi: rgba(var(--xref), 0.46);
-}
-.dsg-refdoc .is-xref-target:hover { animation: none; }
-@keyframes dsg-xref-pulse {
-  0%, 100% { background-color: var(--lit-lo); box-shadow: 0 0 0 1px var(--lit-ring-lo); }
-  50% { background-color: var(--lit-hi); box-shadow: 0 0 0 7px var(--lit-ring-hi); }
-}
+.dsg-refdoc .dv-xref.is-hot { --lawref-wash: 26%; }
+.dsg-refdoc .dv-xref.is-press { --lawref-wash: 36%; }
+/* The landing: everything but the target fades back (DocViewer.css
+   .has-xref-focus); here the sample's other lines. */
+.dsg-refdoc-land.has-xref-focus > :not(.is-xref-target) { opacity: 0.38; }
 
 /* A picture's extracted text: in the viewer the words are transparent over
    the photograph; here a dark photo-like ground with the words shown so the
@@ -589,20 +574,185 @@
   font-size: 15px; color: rgba(255, 255, 255, 0.85);
 }
 .dsg-refs-photo .dv-textword { display: inline-block; padding: 1px 2px; }
-.dsg-refs-photo .dv-textword.dv-lawref { --lawref-wash: 0.3; background-size: 300% 100%, 300% 2px; }
+.dsg-refs-photo .dv-textword.dv-lawref { --lawref-wash: 30%; background-size: 300% 100%, 300% 2px; }
 .dsg-refs-photo .dv-textword.dv-caenref {
-  background-image: linear-gradient(rgb(251, 191, 36), rgb(251, 191, 36));
+  background-image: linear-gradient(var(--warning), var(--warning));
   background-size: 100% 2px; background-position: 0 100%; background-repeat: no-repeat;
-  background-color: rgba(251, 191, 36, 0.28);
+  background-color: color-mix(in srgb, var(--warning) 28%, transparent);
 }
 .dsg-refs-photo .dv-textword.dv-cuiref {
-  background-image: linear-gradient(var(--info), var(--info));
+  background-image: linear-gradient(var(--success), var(--success));
   background-size: 100% 2px; background-position: 0 100%; background-repeat: no-repeat;
-  background-color: color-mix(in srgb, var(--info) 26%, transparent);
+  background-color: color-mix(in srgb, var(--success) 26%, transparent);
 }
 
 :root[data-reduce-motion='true'] .dsg-refs .dv-lawref,
 :root[data-reduce-motion='true'] .dsg-refs .is-xref-target { animation: none; }
 @media (prefers-reduced-motion: reduce) {
   .dsg-refs .dv-lawref, .dsg-refs .is-xref-target { animation: none; }
+}
+
+/* ── Platform colours (PlatformColoursSample): each platform's own colour,
+   then its filters as the result pills wear them (.lgb-pill, live). ── */
+.dsg-plat-site { display: inline-flex; align-items: center; gap: 7px; font-size: 12px; font-weight: 650; }
+.dsg-plat-name { font-size: 11.2px; color: var(--text-secondary); }
+.dsg-plat-pills { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+
+/* ── Empty fields (EmptyFieldsSample) ─────────────────────────────────────
+   The blanks of a Word document, MIRRORED from pages/DocViewer.css (bound to
+   the viewer window) under .dsg-fieldsdoc — keep in step with its .dv-field
+   rules. On a white sheet, as the page is in both themes. `.is-hover` stands
+   for the paragraph under the pointer. The inputs are DocConstructor.css's. */
+.dsg-fieldsdoc {
+  display: flex; flex-direction: column; gap: 10px;
+  padding: 14px 16px; border-radius: var(--ds-row-radius, 8px);
+  background: #fff;
+  --text-primary: #111; --text-muted: #6B7280; --ds-hairline: #e7e5e4;
+}
+.dsg-fieldsdoc .dsg-refs-text { color: #111; }
+.dsg-fieldsdoc .dv-field {
+  border-radius: 3.2px; padding: 0 3.2px; margin: 0 -3.2px;
+  background: transparent; box-shadow: none;
+}
+.dsg-fieldsdoc .dv-field:not(.is-filled) {
+  color: color-mix(in srgb, var(--color-ink) 62%, transparent);
+  border-bottom: 1.5px dotted color-mix(in srgb, var(--color-cognac) 65%, transparent);
+}
+.dsg-fieldsdoc .dv-field.is-chip:not(.is-filled):not(.is-preview) {
+  font-size: 0; padding: 0; margin: 0; border-bottom: 0; background: transparent; box-shadow: none; color: inherit;
+}
+.dsg-fieldsdoc .dv-field.is-chip:not(.is-filled):not(.is-preview)::before {
+  content: attr(data-label);
+  font-size: 15px; font-weight: 400; letter-spacing: 0; color: transparent;
+  background: color-mix(in srgb, var(--color-sand) 38%, #fff);
+  border-bottom: 1.5px solid color-mix(in srgb, var(--color-cognac) 70%, transparent);
+  border-radius: 3px 3px 0 0;
+  -webkit-box-decoration-break: clone; box-decoration-break: clone;
+}
+.dsg-fieldsdoc .dv-docx-para.is-hover .dv-field.is-chip:not(.is-filled):not(.is-preview)::before { background: color-mix(in srgb, var(--color-sand) 55%, #fff); }
+.dsg-fieldsdoc .dv-field.is-drawn:not(.is-filled) { border-bottom: 0; background: color-mix(in srgb, var(--color-sand) 34%, transparent); border-radius: 2px; }
+.dsg-fieldsdoc .dv-docx-para.is-hover .dv-field.is-drawn:not(.is-filled) { background: color-mix(in srgb, var(--color-sand) 52%, transparent); }
+.dsg-fieldsdoc .dsg-drawn { text-decoration: underline; white-space: pre; }
+.dsg-fieldsdoc .dv-field.is-filled {
+  background: color-mix(in srgb, var(--success) 20%, transparent);
+  box-shadow: inset 0 -1.6px 0 color-mix(in srgb, var(--success) 65%, transparent);
+}
+.dsg-fieldsdoc .dv-docx-para.is-selected .dv-field.is-filled {
+  background: color-mix(in srgb, var(--success) 26%, transparent);
+  box-shadow: inset 0 -2px 0 var(--success);
+}
+.dsg-fieldsdoc .dv-docx-para.is-selected .dv-field.is-active {
+  background: color-mix(in srgb, var(--accent) 30%, transparent);
+  box-shadow: 0 0 0 2px var(--accent), 0 2px 10px color-mix(in srgb, var(--accent) 45%, transparent);
+  border-radius: 4px;
+}
+.dsg-fieldsdoc .dv-docx-para.is-selected .dv-field.is-active.is-filled {
+  background: color-mix(in srgb, var(--success) 28%, transparent);
+  box-shadow: 0 0 0 2px var(--success), 0 2px 10px color-mix(in srgb, var(--success) 40%, transparent);
+}
+.dsg-fieldsdoc .dv-field.is-preview {
+  background: color-mix(in srgb, var(--accent) 22%, transparent);
+  box-shadow: none; border-bottom: 1.5px dashed var(--accent);
+  color: var(--color-ink);
+}
+.dsg-fieldsdoc .dcx-inline { font-size: 15px; }
+.dsg-fields-src { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; font-size: 11.2px; color: var(--text-muted); }
+.dsg-fields-src code {
+  padding: 2px 6px; border: 1px solid var(--ds-hairline, var(--border)); border-radius: 5px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 11.2px; color: var(--text-primary);
+}
+
+/* ── Tooltips (TooltipsSamples): the real .tooltip / morph-pill classes, stood
+   still — out of fixed positioning, no follow transform, no entry animation. */
+.dsg-tips .tooltip {
+  position: relative; top: auto; left: auto; z-index: auto;
+  transform: none !important; animation: none; transition: none; will-change: auto;
+  pointer-events: auto;
+}
+.dsg-tips .dsg-sample-frame { align-items: flex-start; }
+.dsg-tips-row { display: flex; flex-wrap: wrap; gap: 14px; align-items: flex-start; }
+.dsg-tips .project-files-morph-prompt-input { resize: none; }
+
+/* ── Notifications (NotificationsSample): the real toasts, in a grid, held —
+   no slide in, and dismissing one here does not take it away. */
+.dsg-toasts { display: grid; grid-template-columns: repeat(auto-fill, minmax(256px, 1fr)); gap: 12px; width: 100%; align-items: start; }
+.dsg-toasts .toast { width: auto; animation: none; }
+.dsg-toasts .toast.toast-leaving { animation: none; }
+
+/* Empty fields, HIGHLIGHTS OFF — DocViewer.css's `.dv-docx.is-plain` rules,
+   mirrored (keep in step). */
+.dsg-fieldsdoc.is-plain .dv-field:not(.is-preview):not(.is-active) {
+  background: transparent !important; box-shadow: none !important;
+  border-bottom: 0 !important; color: inherit !important;
+}
+.dsg-fieldsdoc.is-plain .dv-field.is-chip:not(.is-filled):not(.is-preview):not(.is-active)::before {
+  background: transparent !important; border-bottom: 0 !important; color: currentColor !important;
+}
+/* The autofill, on the ground it has in the viewer (.dv-docx-liftpanel.is-docked). */
+.dsg-autofill {
+  max-width: 760px; padding: 10px;
+  border: 1px solid var(--border); border-radius: 10px;
+  background: var(--bg-sidebar); box-shadow: var(--shadow-elev);
+}
+
+/* Mirrors DocViewer.css's "EMPTY FIELDS, NOT PICKED" (keep in step): the
+   picked slot's shape, desaturated to faded black. */
+.dsg-fieldsdoc .dv-field.is-chip:not(.is-filled):not(.is-preview)::before {
+  background: color-mix(in srgb, var(--color-ink) 6%, #fff);
+  border-bottom: 1.5px solid color-mix(in srgb, var(--color-ink) 32%, transparent);
+}
+.dsg-fieldsdoc .dv-docx-para.is-hover .dv-field.is-chip:not(.is-filled):not(.is-preview)::before {
+  background: color-mix(in srgb, var(--color-ink) 10%, #fff);
+}
+.dsg-fieldsdoc .dv-field.is-drawn:not(.is-filled) {
+  background: color-mix(in srgb, var(--color-ink) 6%, transparent);
+  border-radius: 3px 3px 0 0;
+}
+.dsg-fieldsdoc .dv-docx-para.is-hover .dv-field.is-drawn:not(.is-filled) {
+  background: color-mix(in srgb, var(--color-ink) 10%, transparent);
+}
+.dsg-fieldsdoc .dv-field:not(.is-filled):not(.is-chip):not(.is-drawn):not(.is-preview):not(.is-active) {
+  color: color-mix(in srgb, var(--color-ink) 55%, transparent);
+  background: color-mix(in srgb, var(--color-ink) 6%, transparent);
+  border-bottom: 1.5px solid color-mix(in srgb, var(--color-ink) 32%, transparent);
+  border-radius: 3px 3px 0 0;
+}
+/* …and its placeholder (mirrors DocViewer.css). */
+.dsg-fieldsdoc .dv-field.is-chip:not(.is-filled):not(.is-preview) { position: relative; }
+.dsg-fieldsdoc .dv-field.is-chip[data-hint]:not(.is-filled):not(.is-preview)::after {
+  content: attr(data-hint);
+  position: absolute; left: 0; right: 0; bottom: 0;
+  box-sizing: border-box; padding: 0 3px;
+  font-size: var(--dvf-size, 14.6px); line-height: 1.2;
+  font-style: italic; font-weight: 400; letter-spacing: 0;
+  color: color-mix(in srgb, var(--color-ink) 42%, transparent);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  pointer-events: none;
+}
+.dsg-fieldsdoc.is-plain .dv-field.is-chip::after { opacity: 0; }
+
+/* File pills sample — the rows the Advisor lays them in. */
+.dsg-filepills { display: flex; flex-direction: column; gap: 8px; }
+.dsg-filepills-row { display: flex; flex-wrap: wrap; gap: 4.8px; padding: 0; }
+.dsg-reply-text { margin: 0; font-size: 12.8px; line-height: 1.55; color: var(--text-primary); }
+
+/* Mirrors DocViewer.css "AN EMPTY FIELD, NOT PICKED = THE PICKED PARAGRAPH'S
+   INPUT" (keep in step). */
+.dsg-fieldsdoc .dv-field.is-chip:not(.is-filled):not(.is-preview)::before {
+  display: inline-block; box-sizing: content-box;
+  /* THE INPUT'S WIDTH, to the letter (DocConstructor renderInput): the
+     larger of the blank the document drew (its length in ch, less the
+     input's 8px) and the placeholder (its length + 2ch, at least 4ch). */
+  width: max(calc(var(--dvf-chars, 10) * 1ch - 8px), calc(var(--dvf-hint, 4) * 1ch));
+  overflow: hidden; text-overflow: ellipsis;
+  height: 1.2em; line-height: 1.2em; padding: 0 3px; margin: 0 1px;
+  vertical-align: baseline; white-space: nowrap;
+  font-style: italic; color: color-mix(in srgb, var(--color-ink) 42%, transparent);
+  border-radius: 3px 3px 0 0;
+}
+.dsg-fieldsdoc .dv-field.is-chip[data-hint]:not(.is-filled):not(.is-preview)::before { content: attr(data-hint); }
+.dsg-fieldsdoc .dv-field.is-chip:not([data-hint]):not(.is-filled):not(.is-preview)::before { content: ''; }
+.dsg-fieldsdoc .dv-field.is-chip[data-hint]:not(.is-filled):not(.is-preview)::after { content: none; }
+.dsg-fieldsdoc.is-plain .dv-field.is-chip:not(.is-filled):not(.is-preview):not(.is-active)::before {
+  content: attr(data-label) !important; font-style: normal; padding: 0; margin: 0; min-width: 0; height: auto; line-height: inherit;
 }

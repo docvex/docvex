@@ -11,6 +11,10 @@ import {
   hasLocalFolderApi,
   isElectronBranch,
   readLocalBlob,
+  hasProjectIndex,
+  projectIndexApi,
+  linkProjectFolder,
+  legacyProjectDir,
 } from '../../lib/localFolder';
 import { openDocx, isDocxFile, openFileWindow, canViewInBrowser, openDocViewerWindow, prepareWhatsAppZip, prepareWhatsAppFolder, detectWhatsApp, notifyFilesRemoved, onFilesRemoved, onFilesChanged, pathForFile } from '../../lib/platform';
 import { livePartnerOf, isLivpName, unpackLivp } from '../../lib/livePhoto';
@@ -19,14 +23,16 @@ import { emptyDocumentBlob, docKindFromName, mimeForKind } from '../../lib/docum
 import { clearConversation, migrateConversation, migrateConversationsUnder } from '../../lib/conversationHistory';
 import { readProjectsDir } from '../../lib/projectsDir';
 import {
-  loadSidecar,
-  saveSidecar,
-  emptySidecar,
-  addEntry as addSidecarEntry,
-  removeByFilename as removeSidecarByFilename,
-  renameEntry as renameSidecarEntry,
-  reconcileWithFilesystem,
-} from '../../lib/localBranchMeta';
+  applyOpsToListing,
+  applyOpsToAll,
+  applyOpsToTrash,
+  pendingPaths,
+  normPath,
+  samePath as sameOpPath,
+  baseName,
+  parentOf,
+  joinPath,
+} from '../../lib/optimisticFiles';
 // Data collections (`.dvc`) — the AI scan's output. The scanner itself
 // (lib/dataCollections: OCR, captions, face matching) is imported on press.
 const isCollectionFile = (name) => /\.dvc$/i.test(String(name || '').trim());
@@ -36,8 +42,19 @@ import { prefetchMetadata } from '../../lib/metadataPrefetch';
 import { extractTextOnImport } from '../../lib/autoExtract';
 import PhoneUploadModal from '../../components/PhoneUploadModal';
 import { subscribeIncoming, decideIncoming, fmtBytes as fmtIncomingBytes } from '../../lib/phoneUploadIncoming';
+import { useScanState, setScanState, requestScanStop, scanStopRequested, clearScanStop, finishScan, isScanRunning } from '../../lib/scanRunner';
 import './ProjectScoped.css';
 import './ProjectFiles.css';
+
+import { hasExtractedText, subscribeAiData } from '../../lib/aiData';
+import { loadCaptions } from '../../lib/captionsHistory';
+import { subscribeIndex } from '../../lib/projectIndexClient';
+
+// Which files can HAVE extracted text: a picture's or a scan's text (the AI
+// data store), a recording's captions. Recordings over this size are left out
+// of the check (it hashes the file the first time).
+const TEXT_EXT = /\.(png|jpe?g|gif|webp|bmp|tiff?|heic|heif|avif|pdf)$/i;
+const MEDIA_EXT = /\.(mp3|wav|ogg|oga|opus|m4a|aac|flac|wma|weba|aif|aiff|mp4|mov|avi|mkv|webm|m4v|3gp)$/i;
 
 // Recently-deleted retention window (mirrors the Electron main sweep).
 const TRASH_RETENTION_DAYS = 30;
@@ -101,6 +118,114 @@ function localUrlFor(path, cacheBust) {
   return `localfile://local/${encodeURIComponent(path)}${t}`;
 }
 
+// Ask the disk for something, never letting a thrown IPC error escape: an
+// optimistic op whose call threw would otherwise stay laid over the grid.
+async function callDisk(fn) {
+  try { return (await fn()) || {}; } catch (err) { return { error: err?.message || String(err) }; }
+}
+const diskFailed = (res) => !!res?.error || res?.ok === false;
+
+// ── The project index, held in memory (src/projectIndex/README.md) ─────
+// With the index, the listing is not read from the disk at all: the whole
+// project comes out of main's index once (`projectFiles`), and from then on
+// only the DIFFERENCES arrive (`project:delta`, from main's own watcher), so
+// a folder of thousands of files is never walked or re-sent to show it.
+// Rows and folders are keyed by their path inside the project, lower-cased
+// (Windows paths are case-insensitive), and a folder view is derived from
+// the rows' `dir` rather than listed.
+const EMPTY = [];
+const relKeyOf = (rel) => String(rel || '').replace(/\\/g, '/').replace(/^\/+|\/+$/g, '').toLowerCase();
+const parentRel = (rel) => { const i = rel.lastIndexOf('/'); return i >= 0 ? rel.slice(0, i) : ''; };
+const lastSegment = (rel) => rel.slice(rel.lastIndexOf('/') + 1);
+// `p`'s path inside `root`, as written (forward slashes), '' for the root
+// itself, null for anything outside it.
+function relOfPath(root, p) {
+  const r = String(root || '').replace(/\\/g, '/').replace(/\/+$/, '');
+  const q = String(p || '').replace(/\\/g, '/').replace(/\/+$/, '');
+  if (!r) return null;
+  const rl = r.toLowerCase();
+  const ql = q.toLowerCase();
+  if (ql === rl) return '';
+  if (!ql.startsWith(`${rl}/`)) return null;
+  return q.slice(r.length + 1);
+}
+const rowRel = (row) => row?.rel ?? (row?.folderPath ? `${row.folderPath}/${row.name}` : row?.name || '');
+// The PROJECT FILE (`<Project name>.docvex` at the folder's root) is how the
+// case opens from Explorer; inside the app it is not a document, so the grid
+// never shows it. (The index lists it — see src/projectIndex/README.md.)
+const isProjectFileRow = (row) => /\.docvex$/i.test(row?.name || '') && !String(rowRel(row)).includes('/');
+
+// A folder and every folder above it, so a file whose folder the index
+// didn't list separately still has one to be browsed into.
+function addDirChain(ix, rel) {
+  let r = rel;
+  while (r) {
+    const k = relKeyOf(r);
+    if (ix.dirs.has(k)) break;
+    ix.dirs.set(k, r);
+    r = parentRel(r);
+  }
+}
+function makeIndex(projectId, listing) {
+  const ix = { projectId, rev: listing?.rev || 0, rows: new Map(), dirs: new Map() };
+  for (const rel of listing?.dirs || []) addDirChain(ix, String(rel || ''));
+  for (const row of listing?.files || []) {
+    if (isProjectFileRow(row)) continue;
+    const rel = rowRel(row);
+    ix.rows.set(relKeyOf(rel), row);
+    addDirChain(ix, parentRel(rel));
+  }
+  return ix;
+}
+// Lay one `project:delta` onto the index (mutating it). Returns the rows
+// that already existed and came back with a new modified time — an edit made
+// on disk — as [before, after] pairs.
+function applyIndexDelta(ix, d) {
+  const edits = [];
+  for (const rel of d.removed || []) ix.rows.delete(relKeyOf(rel));
+  for (const rel of d.dirsRemoved || []) {
+    const k = relKeyOf(rel);
+    for (const key of [...ix.dirs.keys()]) if (key === k || key.startsWith(`${k}/`)) ix.dirs.delete(key);
+  }
+  for (const rel of d.dirsAdded || []) addDirChain(ix, String(rel || ''));
+  for (const row of d.upserted || []) {
+    if (isProjectFileRow(row)) continue;
+    const rel = rowRel(row);
+    const k = relKeyOf(rel);
+    const prev = ix.rows.get(k);
+    if (prev && prev.mtimeIso && row.mtimeIso && prev.mtimeIso !== row.mtimeIso) edits.push([prev, row]);
+    ix.rows.set(k, row);
+    addDirChain(ix, parentRel(rel));
+  }
+  if (typeof d.rev === 'number') ix.rev = Math.max(ix.rev, d.rev);
+  return edits;
+}
+// What the page reads off the index: every row, the rows of each folder, and
+// the folders inside each folder.
+function indexViews(ix) {
+  const files = [...ix.rows.values()];
+  const filesByDir = new Map();
+  for (const row of files) {
+    const k = relKeyOf(parentRel(rowRel(row)));
+    const list = filesByDir.get(k);
+    if (list) list.push(row); else filesByDir.set(k, [row]);
+  }
+  const childDirs = new Map();
+  for (const rel of ix.dirs.values()) {
+    const k = relKeyOf(parentRel(rel));
+    const list = childDirs.get(k);
+    if (list) list.push(rel); else childDirs.set(k, [rel]);
+  }
+  return { files, filesByDir, childDirs };
+}
+
+// “a.docx”, “b.pdf” and 3 more — names for a notification body.
+function fmtNames(names, max = 3) {
+  const list = (names || []).filter(Boolean);
+  const shown = list.slice(0, max).map((n) => `“${n}”`).join(', ');
+  return list.length > max ? `${shown} and ${list.length - max} more` : shown;
+}
+
 // Project-scoped Files page. Local-only: files come from a folder the user
 // picks on their computer ("My drafts"); deleting a file moves it into a
 // hidden `.docvex-trash` recycle bin ("Recently deleted") that auto-purges
@@ -126,9 +251,30 @@ export default function ProjectFiles({ embedded = false } = {}) {
   const seed = seedRef.current || null;
 
   // ── State ────────────────────────────────────────────────────────────
+  // Whether main has the project index (src/projectIndex/README.md). While it
+  // doesn't, the page lists the folder itself, as it always did.
+  const indexMode = hasProjectIndex();
   const [localFolder, setLocalFolder] = useState(seed?.folder || '');
-  const [localFiles, setLocalFiles] = useState(seed?.localFiles || []);      // recursive listing (counts + reconcile)
-  const [localLoading, setLocalLoading] = useState(false);
+  // The recursive listing when the folder is walked (no index): counts,
+  // folder metrics, the masthead.
+  const [listedFiles, setLocalFiles] = useState(seed && !seed.index ? (seed.localFiles || []) : []);
+  // The project index in memory (see makeIndex): rows + folders, mutated in
+  // place as deltas arrive, with `indexVersion` bumped so what is derived
+  // from it is worked out again. Seeded from the prefetch when there is one.
+  const indexRef = useRef(null);
+  if (indexRef.current === null) indexRef.current = seed?.index ? makeIndex(projectId, seed.index) : false;
+  const [indexVersion, setIndexVersion] = useState(0);
+  const indexViewsMemo = useMemo(
+    () => (indexRef.current ? indexViews(indexRef.current) : null),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [indexVersion],
+  );
+  const localFiles = indexMode ? (indexViewsMemo?.files || EMPTY) : listedFiles;
+  // The project's folder isn't where this machine last had it (moved,
+  // renamed, a drive not plugged in) — { dir } — or the folder picked for it
+  // belongs to another project — { mismatch: true }. The page asks where it is.
+  const [folderMissing, setFolderMissing] = useState(null);
+  const [localLoading, setLocalLoading] = useState(() => indexMode && !seed?.index);
   const [localError, setLocalError] = useState(null);
   const [needsReconnect, setNeedsReconnect] = useState(false);
   const [hydratedProjectId, setHydratedProjectId] = useState(seed ? projectId : null);
@@ -141,13 +287,29 @@ export default function ProjectFiles({ embedded = false } = {}) {
   // Folder navigation.
   const [folderStack, setFolderStack] = useState([]);    // [{ name, path }]
   const [browseCache, setBrowseCache] = useState(() => {
-    const m = new Map(); // dir → { files, dirs }
-    if (seed?.folder) m.set(seed.folder, { files: seed.rootListing.files, dirs: seed.rootListing.dirs });
+    const m = new Map(); // dir → { files, dirs } (folder-walking mode only)
+    if (seed?.folder && seed.rootListing) m.set(seed.folder, { files: seed.rootListing.files, dirs: seed.rootListing.dirs });
     return m;
   });
   const [browseTick, setBrowseTick] = useState(0);
 
-  const [sidecar, setSidecar] = useState(() => seed?.sidecar || emptySidecar(projectId, seed?.folder || ''));
+  // ── Optimistic operations (lib/optimisticFiles) ───────────────────────
+  // Every rename / move / delete / restore / new file the user makes is laid
+  // over the listings the moment it's made, and taken off once a listing
+  // taken AFTER the disk answered has landed (or at once when the disk says
+  // no — which is the whole rollback). `pendingOps` drives the render; the ref
+  // lets the handlers ask "is this path busy?" without re-binding.
+  const [pendingOps, setPendingOps] = useState([]);
+  const pendingOpsRef = useRef(pendingOps);
+  pendingOpsRef.current = pendingOps;
+  const opSeqRef = useRef(0);
+  // Listing responses can overtake each other (the watcher's relist, a
+  // refetch after an op, another window's broadcast). Each request is
+  // numbered and a response older than the last one applied is dropped, so a
+  // stale listing can't land after the op that it predates has been retired.
+  const listSeqRef = useRef(0);
+  const allAppliedSeqRef = useRef(0);
+  const dirAppliedSeqRef = useRef(new Map()); // normalised dir → last applied seq
 
   const [filesTab, setFilesTab] = useState('drafts');    // 'drafts' | 'trash'
   const [trashItems, setTrashItems] = useState([]);
@@ -161,10 +323,11 @@ export default function ProjectFiles({ embedded = false } = {}) {
   const [renameTargetPath, setRenameTargetPath] = useState(null);
   // True while "Create identity" is scanning — declared up here with the other
   // hooks, above the early returns (see the note above).
-  // The AI scan of the whole folder (lib/dataCollections) — { stage, index,
-  // total, name } while it runs, null otherwise. `scanStopRef` cancels it.
-  const [filesScan, setFilesScan] = useState(null);
-  const scanStopRef = useRef(false);
+  // The AI scan of the whole folder (lib/dataCollections) — its progress while
+  // it runs, null otherwise. Kept in lib/scanRunner, NOT in this page: the scan
+  // goes on when the Files tab is left, and its progress is here on return
+  // (the app sidebar shows a spinner beside Files meanwhile).
+  const filesScan = useScanState(localFolder);
   // Files tagged for the AI scan (lib/scanTags) — only these are scanned, and
   // each wears the AI mark in the listing.
   const [scanTags, setScanTagsState] = useState(() => loadScanTags(''));
@@ -203,9 +366,91 @@ export default function ProjectFiles({ embedded = false } = {}) {
 
   const atRoot = folderStack.length === 0;
   const currentDir = atRoot ? localFolder : folderStack[folderStack.length - 1].path;
-  const browseListing = browseCache.get(currentDir);
-  const browseFiles = browseListing?.files || [];
-  const browseDirs = browseListing?.dirs || [];
+  // With the index, the folder on show is read off it: its files are the rows
+  // whose folder it is, its folders the index's folders directly inside it.
+  // Same order the folder listing had (files newest first, folders A→Z) and
+  // the same entry shape (a folder's `empty` = nothing visible inside).
+  const indexListing = useMemo(() => {
+    if (!indexMode || !indexViewsMemo || !localFolder) return undefined;
+    const rel = relOfPath(localFolder, currentDir);
+    if (rel == null) return { files: EMPTY, dirs: EMPTY };
+    const key = relKeyOf(rel);
+    const { filesByDir, childDirs } = indexViewsMemo;
+    const files = (filesByDir.get(key) || EMPTY).slice()
+      .sort((a, b) => (a.mtimeIso < b.mtimeIso ? 1 : a.mtimeIso > b.mtimeIso ? -1 : 0));
+    const dirs = (childDirs.get(key) || EMPTY).map((r) => {
+      const k = relKeyOf(r);
+      return {
+        name: lastSegment(r),
+        path: joinPath(localFolder, ...r.split('/')),
+        rel: r,
+        empty: !(filesByDir.has(k) || childDirs.has(k)),
+      };
+    }).sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }));
+    return { files, dirs };
+  }, [indexMode, indexViewsMemo, localFolder, currentDir]);
+  const browseListing = indexMode ? indexListing : browseCache.get(currentDir);
+  // What the grid draws: the disk's last word with the in-flight ops laid
+  // over it (see the optimistic block above). Only ops that actually touch
+  // listings count here — the memo keys stay stable while none are pending.
+  const browseView = useMemo(
+    () => applyOpsToListing(browseListing, currentDir, pendingOps),
+    [browseListing, currentDir, pendingOps],
+  );
+  const browseFiles = browseView.files;
+  const browseDirs = browseView.dirs;
+  const viewLocalFiles = useMemo(() => applyOpsToAll(localFiles, pendingOps), [localFiles, pendingOps]);
+  const viewTrashItems = useMemo(() => applyOpsToTrash(trashItems, pendingOps), [trashItems, pendingOps]);
+  const busyPaths = useMemo(() => pendingPaths(pendingOps), [pendingOps]);
+  // EXTRACTED TEXT — which files on show have any (the mark on their
+  // thumbnail). Re-read when the store changes anywhere (a reading saved,
+  // a file's knowledge arriving from the index), at most every 250ms.
+  const [textTick, setTextTick] = useState(0);
+  useEffect(() => {
+    let t = 0;
+    const bump = () => { if (!t) t = window.setTimeout(() => { t = 0; setTextTick((n) => n + 1); }, 250); };
+    const offAi = subscribeAiData(bump);
+    const offIndex = subscribeIndex((ev) => { if (ev?.type === 'knowledge') bump(); });
+    return () => { offAi(); offIndex(); window.clearTimeout(t); };
+  }, []);
+  const hasTextOf = useMemo(() => {
+    const out = new Set();
+    for (const lf of browseFiles) {
+      const p = lf?.path;
+      if (!p) continue;
+      try {
+        if (TEXT_EXT.test(lf.name || p) ? hasExtractedText(p)
+          : MEDIA_EXT.test(lf.name || p) && (Number(lf.sizeBytes) || 0) <= 500 * 1024 * 1024 && !!String(loadCaptions(p)?.text || '').trim()) out.add(p);
+      } catch { /* unknown — no mark */ }
+    }
+    return out;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [browseFiles, textTick]);
+  const browseCacheRef = useRef(browseCache);
+  browseCacheRef.current = browseCache;
+  const currentDirRef = useRef(currentDir);
+  currentDirRef.current = currentDir;
+  const trashItemsRef = useRef(trashItems);
+  trashItemsRef.current = trashItems;
+
+  // Numbered listing requests (see listSeqRef): the answer comes back marked
+  // `stale` when a newer request has already been applied, and the caller
+  // drops it.
+  const listAllFresh = useCallback(async (dir) => {
+    const seq = ++listSeqRef.current;
+    const res = (await localFolderApi.listAll(dir)) || {};
+    if (seq < allAppliedSeqRef.current) return { ...res, stale: true };
+    allAppliedSeqRef.current = seq;
+    return res;
+  }, []);
+  const listDirFresh = useCallback(async (dir) => {
+    const seq = ++listSeqRef.current;
+    const res = (await localFolderApi.list(dir)) || {};
+    const key = normPath(dir);
+    if (seq < (dirAppliedSeqRef.current.get(key) || 0)) return { ...res, stale: true };
+    dirAppliedSeqRef.current.set(key, seq);
+    return res;
+  }, []);
 
   // ── WhatsApp-export recognition (content-based) ────────────────────────
   // Probe the folders + .zip archives at the current browse level for a chat
@@ -237,70 +482,245 @@ export default function ProjectFiles({ embedded = false } = {}) {
   }, [waCandidatesKey]);
 
 
-  // ── Hydrate the chosen folder when the project switches ───────────────
+  // ── Open the project's folder when the project switches ───────────────
+  // With the project index, the folder is found by its PROJECT FILE: main's
+  // registry knows where this machine has it. A project this machine has
+  // never linked is linked where the app used to keep its folder (main's old
+  // per-project registry, which also makes a folder for a new project) — so
+  // an existing project gets its project file the first time it is opened
+  // here. A project the registry DOES know, whose folder isn't there any more
+  // (moved, renamed, a drive not plugged in), is never handed a new empty
+  // folder: the page asks where it went (folderMissing).
+  // Without the index (an older main process), the fixed per-project folder
+  // is resolved and listed, as before.
+  const projectIdRef = useRef(projectId);
+  projectIdRef.current = projectId;
+  const localFolderRef = useRef(localFolder);
+  localFolderRef.current = localFolder;
+  // Deltas that arrive while the index is being read are kept, and the ones
+  // newer than the listing laid on it once it lands.
+  const deltaBufRef = useRef([]);
+  const loadingIndexRef = useRef(false);
+  const indexWaitersRef = useRef([]);
+  // Every settle waiting on the index (settleOps) is asked again after each
+  // change: an op comes off the grid once the index shows what it did.
+  const runIndexWaiters = useCallback(() => {
+    const list = indexWaitersRef.current;
+    if (!list.length) return;
+    indexWaitersRef.current = list.filter((w) => {
+      let ok = false;
+      try { ok = w.check(); } catch { ok = true; }
+      if (ok) { clearTimeout(w.timer); w.resolve(true); }
+      return !ok;
+    });
+  }, []);
+  // Resolves once `check()` holds against the index, or after `ms` whatever
+  // it says (main may have named the result differently — "scan (2).jpg" —
+  // or the watcher missed it; the grid then shows what the index has).
+  const waitForIndex = useCallback((check, ms = 4000) => new Promise((resolve) => {
+    let ok = false;
+    try { ok = check(); } catch { ok = true; }
+    if (ok) { resolve(true); return; }
+    const w = { check, resolve, timer: 0 };
+    w.timer = setTimeout(() => {
+      indexWaitersRef.current = indexWaitersRef.current.filter((x) => x !== w);
+      resolve(false);
+    }, ms);
+    indexWaitersRef.current.push(w);
+  }), []);
+  // Is there a file (or folder) at this absolute path in the index?
+  const indexHas = useCallback((path, isDir) => {
+    const ix = indexRef.current;
+    if (!ix) return false;
+    const rel = relOfPath(localFolderRef.current, path);
+    if (rel == null) return false;
+    if (rel === '') return !!isDir;
+    const k = relKeyOf(rel);
+    return isDir ? ix.dirs.has(k) : ix.rows.has(k);
+  }, []);
+  const loadIndexListing = useCallback(async (pid) => {
+    loadingIndexRef.current = true;
+    const res = await projectIndexApi.files({ projectId: pid });
+    loadingIndexRef.current = false;
+    if (pid !== projectIdRef.current) return;
+    const buffered = deltaBufRef.current;
+    deltaBufRef.current = [];
+    if (!res?.ok) {
+      setLocalError(res?.error || 'Could not read the project listing.');
+      setLocalLoading(false);
+      return;
+    }
+    const ix = makeIndex(pid, res);
+    for (const d of buffered) {
+      if (d?.projectId !== pid) continue;
+      if (typeof d.rev === 'number' && d.rev <= ix.rev) continue;
+      applyIndexDelta(ix, d);
+    }
+    indexRef.current = ix;
+    setIndexVersion((v) => v + 1);
+    setLocalLoading(false);
+    runIndexWaiters();
+  }, [runIndexWaiters]);
+
   useEffect(() => {
     if (!projectId) {
       setLocalFolder('');
       setLocalFiles([]);
       setLocalError(null);
       setNeedsReconnect(false);
+      setFolderMissing(null);
       setHydratedProjectId(null);
       return undefined;
     }
-    if (isElectronBranch) {
-      // Auto-bind to the fixed per-project directory (Documents/Docvex/<id>).
-      // No manual folder picking — the directory IS the project's directory.
-      let cancelled = false;
-      // While we're still showing the warm-seeded project the listing state is
-      // already populated from the prefetch cache — don't blank it (that would
-      // re-introduce the "Loading…" flash). The projectDir refresh below still
-      // runs to reconcile against the live folder. A switch to a different
-      // project (id ≠ the seeded one) blanks normally.
-      if (projectId !== seedProjectIdRef.current) setLocalFiles([]);
-      setLocalError(null);
-      setFolderError(null);
-      setNeedsReconnect(false);
-      Promise.resolve(localFolderApi.projectDir(projectId, selectedProject?.name, readProjectsDir(userId) || undefined))
-        .then(({ path, error }) => {
+    let cancelled = false;
+    // While we're still showing the warm-seeded project the listing is
+    // already populated from the prefetch cache — don't blank it (that would
+    // re-introduce the "Loading…" flash). A switch to a different project
+    // (id ≠ the seeded one) blanks normally.
+    if (projectId !== seedProjectIdRef.current) {
+      setLocalFiles([]);
+      if (indexRef.current && indexRef.current.projectId !== projectId) {
+        indexRef.current = false;
+        setIndexVersion((v) => v + 1);
+      }
+    }
+    setLocalError(null);
+    setFolderError(null);
+    setFolderMissing(null);
+    setNeedsReconnect(false);
+    if (!isElectronBranch) {
+      setLocalFolder('');
+      setFolderError('Project folders are available in the desktop app.');
+      setHydratedProjectId(projectId);
+      return undefined;
+    }
+    if (indexMode) {
+      if (!(indexRef.current && indexRef.current.projectId === projectId)) setLocalLoading(true);
+      (async () => {
+        const known = await projectIndexApi.locate(projectId);
+        if (cancelled) return;
+        let res = await projectIndexApi.open({ projectId });
+        if (cancelled) return;
+        if (!res?.ok && res?.error === 'not_found' && !known?.dir) {
+          // Never linked on this machine: link it where its folder was kept.
+          const legacy = await legacyProjectDir({ projectId, name: selectedProject?.name, baseDir: readProjectsDir(userId) || undefined });
           if (cancelled) return;
-          if (path) {
-            setLocalFolder(path);
-          } else {
-            setLocalFolder('');
-            setFolderError(error || 'Could not open the project folder.');
-          }
-          setHydratedProjectId(projectId);
-        })
-        .catch((err) => {
+          res = legacy?.path
+            ? await linkProjectFolder({ projectId, name: selectedProject?.name, dir: legacy.path })
+            : { ok: false, error: legacy?.error || 'Could not open the project folder.' };
           if (cancelled) return;
-          // Most common cause: the Electron main process is still the old one
-          // (it doesn't hot-reload) and lacks the project-dir handler. Surface
-          // it instead of hanging on the "Setting up…" placeholder.
+        }
+        if (!res?.ok) {
           setLocalFolder('');
-          setFolderError(err?.message || 'Could not open the project folder. Restart the app and try again.');
+          setLocalLoading(false);
+          if (res?.error === 'not_found' && known?.dir) setFolderMissing({ dir: known.dir });
+          else if (res?.error === 'project_mismatch') setFolderMissing({ mismatch: true });
+          else setFolderError(res?.error || 'Could not open the project folder. Restart the app and try again.');
           setHydratedProjectId(projectId);
-        });
+          return;
+        }
+        setLocalFolder(res.dir);
+        setHydratedProjectId(projectId);
+        await loadIndexListing(projectId);
+      })().catch((err) => {
+        if (cancelled) return;
+        setLocalFolder('');
+        setLocalLoading(false);
+        setFolderError(err?.message || 'Could not open the project folder. Restart the app and try again.');
+        setHydratedProjectId(projectId);
+      });
       return () => { cancelled = true; };
     }
-    // Web restore path.
-    let cancelled = false;
-    setLocalFolder('');
-    setLocalFiles([]);
-    setLocalError(null);
-    setNeedsReconnect(false);
-    localFolderApi.restorePersistedHandle(projectId).then((restored) => {
-      if (cancelled) return;
-      if (restored) {
-        setLocalFolder(restored.name);
-        setNeedsReconnect(Boolean(restored.needsPermission));
-      }
-      setHydratedProjectId(projectId);
-    });
+    Promise.resolve(localFolderApi.projectDir(projectId, selectedProject?.name, readProjectsDir(userId) || undefined))
+      .then(({ path, error }) => {
+        if (cancelled) return;
+        if (path) {
+          setLocalFolder(path);
+        } else {
+          setLocalFolder('');
+          setFolderError(error || 'Could not open the project folder.');
+        }
+        setHydratedProjectId(projectId);
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        // Most common cause: the Electron main process is still the old one
+        // (it doesn't hot-reload) and lacks the project-dir handler. Surface
+        // it instead of hanging on the "Setting up…" placeholder.
+        setLocalFolder('');
+        setFolderError(err?.message || 'Could not open the project folder. Restart the app and try again.');
+        setHydratedProjectId(projectId);
+      });
     return () => { cancelled = true; };
-  }, [projectId, folderRetry]);
+  }, [projectId, folderRetry]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // A project file opened from the OS (App.jsx → ProjectFileOpened) may point
+  // at a different folder than the one on show: open the project again.
+  useEffect(() => {
+    const onChanged = (e) => { if (e?.detail?.projectId === projectIdRef.current) setFolderRetry((t) => t + 1); };
+    window.addEventListener('docvex:project-folder-changed', onChanged);
+    return () => window.removeEventListener('docvex:project-folder-changed', onChanged);
+  }, []);
+
+  // Show DocVex where the project's folder is now (it moved), or pick one for
+  // a project whose folder belonged to another project. Linking writes the
+  // project file there; the page then opens it like any other.
+  const handleLinkFolder = useCallback(async () => {
+    if (!projectId) return;
+    const picked = await localFolderApi.pick();
+    if (!picked) return;
+    const res = await linkProjectFolder({ projectId, name: selectedProject?.name, dir: picked });
+    if (!res?.ok) {
+      notify({
+        category: 'file',
+        variant: 'error',
+        title: 'Couldn’t use that folder',
+        body: res?.error === 'project_mismatch'
+          ? 'That folder already belongs to another DocVex project. Pick this project’s own folder.'
+          : (res?.error || 'The folder could not be linked to this project.'),
+        dedupeKey: `fx-link-folder:${projectId}`,
+      });
+      return;
+    }
+    setFolderRetry((t) => t + 1);
+  }, [projectId, selectedProject?.name, notify]);
+
+  // ── The index's differences, as they happen ───────────────────────────
+  // Main watches the open project and reconciles it itself; every change
+  // reaches every window as one delta, laid on the rows here. Nothing is
+  // listed again. A delta also refreshes the Trash (a file that left the
+  // folder may have gone into it), asks any settle waiting on it, and records
+  // files changed on disk (not the catch-up after opening: those were edited
+  // while nothing was watching, not just now).
+  const recordExternalEditsRef = useRef(null);
+  const trashRefreshTimerRef = useRef(0);
+  const refetchTrashRef = useRef(null);
+  useEffect(() => {
+    if (!indexMode || !projectId) return undefined;
+    deltaBufRef.current = [];
+    const off = projectIndexApi.onDelta((d) => {
+      if (!d || d.projectId !== projectIdRef.current) return;
+      if (loadingIndexRef.current) deltaBufRef.current.push(d);
+      const ix = indexRef.current;
+      if (!ix || ix.projectId !== d.projectId) {
+        if (!loadingIndexRef.current) deltaBufRef.current.push(d);
+        return;
+      }
+      if (typeof d.rev === 'number' && d.rev <= ix.rev) return;
+      const edits = applyIndexDelta(ix, d);
+      setIndexVersion((v) => v + 1);
+      if (!d.reconciled && edits.length) recordExternalEditsRef.current?.(edits.map((e) => e[0]), edits.map((e) => e[1]));
+      clearTimeout(trashRefreshTimerRef.current);
+      trashRefreshTimerRef.current = setTimeout(() => refetchTrashRef.current?.({ quiet: true }), 250);
+      runIndexWaiters();
+    });
+    return () => { off?.(); clearTimeout(trashRefreshTimerRef.current); };
+  }, [indexMode, projectId, runIndexWaiters]);
 
   // ── Refresh the recursive listing when the folder resolves ────────────
+  // Folder-walking mode only; with the index the listing is already there.
   useEffect(() => {
+    if (indexMode) return undefined;
     if (!projectId) return undefined;
     if (!hasLocalFolderApi || !localFolder) {
       setLocalFiles([]);
@@ -319,28 +739,34 @@ export default function ProjectFiles({ embedded = false } = {}) {
       // yet. A warm-seeded open already has a populated grid, so it refreshes
       // silently rather than flashing the spinner over it; a cold open (empty
       // list) shows the spinner as before.
-      if (localFiles.length === 0) setLocalLoading(true);
+      if (listedFiles.length === 0) setLocalLoading(true);
       setLocalError(null);
-      const { files: list, error } = await localFolderApi.listAll(localFolder);
+      const { files: list, error, stale } = await listAllFresh(localFolder);
       if (cancelled) return;
       setLocalLoading(false);
+      if (stale) return;
       if (error) { setLocalError(error); setLocalFiles([]); }
       else setLocalFiles(list || []);
-    }, 300);
+    // Debounced only when there is a grid to keep: a cold open has nothing
+    // on screen, so waiting 300 ms first was pure delay.
+    }, listedFiles.length === 0 ? 0 : 300);
     return () => {
       cancelled = true;
       if (localFolderDebounceRef.current) clearTimeout(localFolderDebounceRef.current);
     };
-  }, [projectId, localFolder, hydratedProjectId, needsReconnect]);
+  }, [projectId, localFolder, hydratedProjectId, needsReconnect]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Recently deleted: sweep expired entries on folder open, then list ──
-  const refetchTrash = useCallback(async () => {
+  // `quiet` refreshes without the Trash's "Loading…" state — used after an
+  // operation, where the bin is already on screen and must not blank.
+  const refetchTrash = useCallback(async ({ quiet = false } = {}) => {
     if (!hasLocalFolderApi || !localFolder) { setTrashItems([]); return; }
-    setTrashLoading(true);
+    if (!quiet) setTrashLoading(true);
     const { items } = await localFolderApi.listTrash(localFolder);
     setTrashItems(items || []);
-    setTrashLoading(false);
+    if (!quiet) setTrashLoading(false);
   }, [localFolder]);
+  refetchTrashRef.current = refetchTrash;
 
   useEffect(() => {
     if (!hasLocalFolderApi || !localFolder || needsReconnect) { setTrashItems([]); return undefined; }
@@ -389,9 +815,14 @@ export default function ProjectFiles({ embedded = false } = {}) {
   // skipped inside prefetchMetadata, so a steady folder does no work at all.
   const localFilesRef = useRef(localFiles);
   localFilesRef.current = localFiles;
+  // With the index a new listing only ever means a delta changed something,
+  // so its version is the key — joining a string of every file in a large
+  // project on each delta would cost more than the sweep it guards.
   const metaSweepKey = useMemo(
-    () => (localFiles || []).map((f) => `${f.path}:${f.sizeBytes}:${f.mtimeIso}`).join('|'),
-    [localFiles],
+    () => (indexMode
+      ? `ix:${indexVersion}:${localFiles.length}`
+      : (localFiles || []).map((f) => `${f.path}:${f.sizeBytes}:${f.mtimeIso}`).join('|')),
+    [indexMode, indexVersion, localFiles],
   );
   useEffect(() => {
     const files = localFilesRef.current;
@@ -425,43 +856,50 @@ export default function ProjectFiles({ embedded = false } = {}) {
       });
     }
   }, [notify, actMeta]);
+  recordExternalEditsRef.current = recordExternalEdits;
 
-  // ── Live-reload on disk change (Electron fs.watch / web poll) ──────────
+  // ── Live-reload on disk change (folder-walking mode) ──────────────────
+  // With the index, main watches the project itself and its deltas arrive
+  // above; this is the older main process's watcher, which only says "the
+  // folder changed", so everything is listed again.
   useEffect(() => {
-    if (!hasLocalFolderApi || !localFolder) return undefined;
+    if (indexMode || !hasLocalFolderApi || !localFolder) return undefined;
     localFolderApi.watch(localFolder);
     const unsub = localFolderApi.onChange((changedDir) => {
       if (changedDir && changedDir !== localFolder) return;
-      localFolderApi.listAll(localFolder).then(({ files: list, error }) => {
-        if (!error) {
+      listAllFresh(localFolder).then(({ files: list, error, stale }) => {
+        if (!error && !stale) {
           recordExternalEdits(prevFilesRef.current, list || []);
           setLocalFiles(list || []);
         }
       });
       setBrowseTick((t) => t + 1);
-      refetchTrash();
+      refetchTrash({ quiet: true });
     });
     return () => { unsub?.(); localFolderApi.unwatch(); };
-  }, [localFolder, refetchTrash, recordExternalEdits]);
+  }, [localFolder, refetchTrash, recordExternalEdits, listAllFresh]);
 
   // ── Cross-window change sync ──────────────────────────────────────────
   // The disk watcher only ever pings the main window, so a delete or rename in
   // another window (or the doc-viewer's tab sidebar) leaves other Files tabs —
   // notably the doc-viewer's embedded one — stale. These broadcasts re-list
   // every instance: files:removed after a trash, files:changed after a rename.
+  // With the index every window already gets main's deltas, so only the Trash
+  // (which the index doesn't hold) is refreshed.
   useEffect(() => {
     if (!hasLocalFolderApi || !localFolder) return undefined;
     const relist = () => {
-      localFolderApi.listAll(localFolder).then(({ files: list, error }) => {
-        if (!error) setLocalFiles(list || []);
+      if (indexMode) { refetchTrash({ quiet: true }); return; }
+      listAllFresh(localFolder).then(({ files: list, error, stale }) => {
+        if (!error && !stale) setLocalFiles(list || []);
       });
       setBrowseTick((t) => t + 1);
-      refetchTrash();
+      refetchTrash({ quiet: true });
     };
     const unsubRemoved = onFilesRemoved(relist);
     const unsubChanged = onFilesChanged(relist);
     return () => { unsubRemoved?.(); unsubChanged?.(); };
-  }, [localFolder, refetchTrash]);
+  }, [indexMode, localFolder, refetchTrash, listAllFresh]);
 
   // Reset folder navigation when the project / picked folder changes.
   useEffect(() => {
@@ -479,14 +917,11 @@ export default function ProjectFiles({ embedded = false } = {}) {
     clearUndo(); // undo history is folder-scoped — a switch starts fresh
   }, [projectId, localFolder, clearUndo]);
 
-  // ── Browse listing for the CURRENT directory (drafts grid) ────────────
-  // Runs on BOTH backends: Electron lists the actual currentDir (real
-  // subfolder navigation); the web backend's list() ignores the dir argument
-  // and returns the flat folder listing (no subfolders on web) — without this
-  // the web grid rendered permanently empty, since draftItems reads only this
-  // browse cache (the recursive `localFiles` listing feeds counts, not the grid).
+  // ── Browse listing for the CURRENT directory (folder-walking mode) ─────
+  // Lists the folder on show into the browse cache. With the index the
+  // folder view is derived from the index (indexListing) instead.
   useEffect(() => {
-    if (!localFolder) return undefined;
+    if (indexMode || !localFolder) return undefined;
     let cancelled = false;
     const writeCache = (files, dirs) => {
       setBrowseCache((prev) => {
@@ -495,75 +930,194 @@ export default function ProjectFiles({ embedded = false } = {}) {
         return next;
       });
     };
-    localFolderApi.list(currentDir).then(({ files: bf, dirs: bd }) => {
-      if (!cancelled) writeCache(bf, bd);
+    listDirFresh(currentDir).then(({ files: bf, dirs: bd, stale }) => {
+      if (!cancelled && !stale) writeCache(bf, bd);
     }).catch(() => { if (!cancelled) writeCache([], []); });
     return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [localFolder, currentDir, browseTick]);
 
-  // ── Sidecar: load on folder change, reconcile on listing change ───────
-  useEffect(() => {
-    if (!projectId || !localFolder) { setSidecar(emptySidecar(projectId, '')); return undefined; }
-    let cancelled = false;
-    loadSidecar(projectId, localFolder).then((sc) => { if (!cancelled) setSidecar(sc); });
-    return () => { cancelled = true; };
-  }, [projectId, localFolder]);
-
-  useEffect(() => {
-    if (!localFolder) return;
-    setSidecar((prev) => {
-      if (prev.localFolder !== localFolder) return prev; // not loaded for this folder yet
-      const { sidecar: next, changed } = reconcileWithFilesystem(prev, localFiles, [], new Map(), new Map());
-      if (changed) saveSidecar(next);
-      return next;
-    });
-  }, [localFiles, localFolder]);
+  // File identity: every index Row carries its portable `id` (main keeps
+  // `.docvex/ids.json` and imports the old `.docvex.json` sidecars), so the
+  // grid keys files by it and a rename keeps the tile, its selection and its
+  // thumbnail. There is no sidecar to load, reconcile or save here any more.
 
   // ── Folder actions ────────────────────────────────────────────────────
   const refetchLocalFiles = useCallback(async () => {
-    if (!hasLocalFolderApi || !localFolder) return;
-    const { files: list, error } = await localFolderApi.listAll(localFolder);
-    if (!error) setLocalFiles(list || []);
-  }, [localFolder]);
+    if (indexMode || !hasLocalFolderApi || !localFolder) return;
+    const { files: list, error, stale } = await listAllFresh(localFolder);
+    if (!error && !stale) setLocalFiles(list || []);
+  }, [indexMode, localFolder, listAllFresh]);
 
-  // ── Primitive operations (no undo bookkeeping) ────────────────────────
-  // These do the actual filesystem work + sidecar/refetch side-effects and
-  // return a small result. The public handlers below call a primitive and
-  // then record an inverse on the undo stack; the undo/redo thunks call the
-  // primitives directly so they don't push new history.
-  const primTrash = useCallback(async (filePath, fileName) => {
-    const { ok, stored, error } = await localFolderApi.trashFile({ dir: localFolder, path: filePath });
-    if (error || ok === false) return { ok: false, error };
-    if (fileName) {
-      setSidecar((prev) => {
-        const next = removeSidecarByFilename(prev, fileName);
-        if (next !== prev) saveSidecar(next);
+  // Re-list one folder straight into the browse cache (numbered, like every
+  // other listing, so an older answer can't overwrite it).
+  const relistDir = useCallback(async (dir) => {
+    try {
+      const { files, dirs, stale } = await listDirFresh(dir);
+      if (stale) return;
+      setBrowseCache((prev) => {
+        const next = new Map(prev);
+        next.set(dir, { files: files || [], dirs: dirs || [] });
         return next;
       });
+    } catch { /* the watcher catches up */ }
+  }, [listDirFresh]);
+
+  // ── Optimistic op bookkeeping ─────────────────────────────────────────
+  // beginOps lays ops over the listings (called BEFORE the first await, so
+  // the grid changes in the same frame as the click); endOps takes them off —
+  // on failure that is the entire rollback, since the listings underneath
+  // were never touched. settleOps is the success path: retire the op only once
+  // the listing shows what it did, so the old state never shows through in
+  // between. With the index that means waiting for the delta main's watcher
+  // sends for it (nothing is listed again); without, re-listing what it
+  // touched.
+  const opsByIdRef = useRef(new Map());
+  const beginOps = useCallback((ops) => {
+    const stamped = (ops || [])
+      .filter(Boolean)
+      .map((op) => ({ ...op, id: `op${opSeqRef.current += 1}` }));
+    for (const op of stamped) opsByIdRef.current.set(op.id, op);
+    if (stamped.length) setPendingOps((prev) => [...prev, ...stamped]);
+    return stamped.map((op) => op.id);
+  }, []);
+  const endOps = useCallback((ids) => {
+    if (!ids?.length) return;
+    const gone = new Set(ids);
+    for (const id of ids) opsByIdRef.current.delete(id);
+    setPendingOps((prev) => prev.filter((op) => !gone.has(op.id)));
+  }, []);
+  // What the index must show before an op can come off the grid.
+  const opLanded = useCallback((op) => {
+    if (op.type === 'remove') return () => !indexHas(op.path, op.isDir);
+    if (op.type === 'move') return () => indexHas(op.to, op.isDir) && (sameOpPath(op.from, op.to) || !indexHas(op.from, op.isDir));
+    if (op.type === 'add') return () => indexHas(op.path, op.isDir);
+    return () => true; // trash-remove: settled by the Trash refetch
+  }, [indexHas]);
+  // `expect` = paths the disk said it wrote (they may be named differently
+  // from the op — "scan (2).jpg" beside an existing "scan.jpg").
+  const settleOps = useCallback(async (ids, { dirs = [], trash = false, expect = [] } = {}) => {
+    if (indexMode) {
+      const checks = (ids || []).map((id) => opsByIdRef.current.get(id)).filter(Boolean).map(opLanded);
+      for (const p of expect || []) if (p) checks.push(() => indexHas(p, false));
+      try {
+        await Promise.all([
+          waitForIndex(() => checks.every((c) => c())),
+          trash ? refetchTrash({ quiet: true }) : null,
+        ]);
+      } finally {
+        endOps(ids);
+      }
+      return;
     }
+    // The folders to re-list: the one on show, plus any the op touched that
+    // the browse cache already holds (an uncached one is listed when opened).
+    const cache = browseCacheRef.current;
+    const keys = [];
+    const seen = new Set();
+    for (const d of [currentDirRef.current, ...dirs]) {
+      if (!d) continue;
+      const n = normPath(d);
+      if (seen.has(n)) continue;
+      seen.add(n);
+      let key = null;
+      for (const k of cache.keys()) { if (normPath(k) === n) { key = k; break; } }
+      if (key == null && n === normPath(currentDirRef.current)) key = currentDirRef.current;
+      if (key != null) keys.push(key);
+    }
+    try {
+      await Promise.all([
+        refetchLocalFiles(),
+        ...keys.map(relistDir),
+        trash ? refetchTrash({ quiet: true }) : null,
+      ]);
+    } finally {
+      endOps(ids);
+    }
+  }, [indexMode, opLanded, indexHas, waitForIndex, refetchLocalFiles, relistDir, refetchTrash, endOps]);
+  // Is an op already in flight on this path? The handlers refuse a second
+  // destructive action on it (the tile is dimmed and inert meanwhile).
+  const isBusy = useCallback((path) => !!path && pendingPaths(pendingOpsRef.current).has(normPath(path)), []);
+  // The listing row for a path — carried by a move / rename op so the item
+  // keeps its size, date and thumbnail while it is in flight.
+  const entryFor = useCallback((path, isDir) => {
+    const n = normPath(path);
+    const ix = indexRef.current;
+    if (indexMode && ix) {
+      const rel = relOfPath(localFolderRef.current, path);
+      if (rel == null || rel === '') return null;
+      const k = relKeyOf(rel);
+      if (!isDir) return ix.rows.get(k) || null;
+      const dirRel = ix.dirs.get(k);
+      return dirRel ? { name: lastSegment(dirRel), path, rel: dirRel, empty: false } : null;
+    }
+    for (const listing of browseCacheRef.current.values()) {
+      const hit = (isDir ? listing?.dirs : listing?.files)?.find((e) => normPath(e.path) === n);
+      if (hit) return hit;
+    }
+    if (!isDir) return (localFilesRef.current || []).find((f) => normPath(f.path) === n) || null;
+    return null;
+  }, []);
+  // A Trash record put back: it leaves the bin, and its file (plus any
+  // folder that has to be recreated for it) appears where it lived.
+  const restoreOps = useCallback((rec, dirsSeen = new Set()) => {
+    const ops = [{ type: 'trash-remove', stored: rec.stored }];
+    if (!rec?.originalName || !localFolder) return ops;
+    const rel = String(rec.originalRelDir || '').split(/[\\/]+/).filter(Boolean);
+    for (let i = 1; i <= rel.length; i += 1) {
+      const p = joinPath(localFolder, ...rel.slice(0, i));
+      if (dirsSeen.has(normPath(p))) continue;
+      dirsSeen.add(normPath(p));
+      ops.push({ type: 'add', isDir: true, path: p, entry: { empty: false } });
+    }
+    ops.push({
+      type: 'add',
+      isDir: false,
+      path: joinPath(localFolder, ...rel, rec.originalName),
+      entry: { sizeBytes: rec.sizeBytes, mimeType: rec.mimeType, mtimeIso: new Date().toISOString() },
+    });
+    return ops;
+  }, [localFolder]);
+  const trashRecord = (stored) => (trashItemsRef.current || []).find((t) => t.stored === stored) || { stored };
+
+  // ── Primitive operations (no undo bookkeeping) ────────────────────────
+  // These do the actual filesystem work + settle side-effects and
+  // return a small result. The public handlers below call a primitive and
+  // then record an inverse on the undo stack; the undo/redo thunks call the
+  // primitives directly so they don't push new history. Each one is
+  // optimistic: its op goes on before the disk is asked, so an undo or redo
+  // shows at once too.
+  const primTrash = useCallback(async (filePath, fileName) => {
+    const ids = beginOps([{ type: 'remove', path: filePath, isDir: false }]);
+    const res = await callDisk(() => localFolderApi.trashFile({ dir: localFolder, path: filePath }));
+    if (diskFailed(res)) { endOps(ids); return { ok: false, error: res.error }; }
     // Let the doc-viewer close any tab showing this now-deleted file (and any
     // other Files tab re-list).
     notifyFilesRemoved([filePath]);
-    setBrowseTick((t) => t + 1);
-    await refetchLocalFiles();
-    await refetchTrash();
-    return { ok: true, stored };
-  }, [localFolder, refetchLocalFiles, refetchTrash]);
+    await settleOps(ids, { dirs: [parentOf(filePath)], trash: true });
+    return { ok: true, stored: res.stored };
+  }, [localFolder, beginOps, endOps, settleOps]);
 
   const primRestore = useCallback(async (stored) => {
-    const { ok, restoredPath, error } = await localFolderApi.restoreFromTrash({ dir: localFolder, stored });
-    if (error || ok === false) return { ok: false, error };
-    setBrowseTick((t) => t + 1);
-    await refetchLocalFiles();
-    await refetchTrash();
-    return { ok: true, restoredPath };
-  }, [localFolder, refetchLocalFiles, refetchTrash]);
+    const ids = beginOps(restoreOps(trashRecord(stored)));
+    const res = await callDisk(() => localFolderApi.restoreFromTrash({ dir: localFolder, stored }));
+    if (diskFailed(res)) { endOps(ids); return { ok: false, error: res.error }; }
+    await settleOps(ids, { dirs: res.restoredPath ? [parentOf(res.restoredPath)] : [], trash: true });
+    return { ok: true, restoredPath: res.restoredPath };
+  }, [localFolder, beginOps, endOps, settleOps, restoreOps]);
 
-  const primRename = useCallback(async (dir, fromName, toName, { syncSidecar = true } = {}) => {
+  const primRename = useCallback(async (dir, fromName, toName, { isDir = false } = {}) => {
     if (!fromName || !toName || fromName === toName) return { ok: false };
-    const { error } = await localFolderApi.renameFile({ dir, fromName, toName });
-    if (error) return { ok: false, error };
+    // The op carries the file's listing row — and with it its portable id —
+    // so the renamed tile keeps its key, selection and thumbnail while the
+    // disk catches up, and the delta that lands brings the same id back.
+    const entry = entryFor(joinPath(dir, fromName), isDir);
+    const ids = beginOps([{ type: 'move', from: entry?.path || joinPath(dir, fromName), to: joinPath(dir, toName), isDir, entry }]);
+    const res = await callDisk(() => localFolderApi.renameFile({ dir, fromName, toName }));
+    if (diskFailed(res)) {
+      endOps(ids);
+      return { ok: false, error: res.error };
+    }
     // Keep the AI chat (and any saved versions) with the file across the rename.
     // Clear any ORPHANED chat sitting at the destination name first — a since-
     // deleted file of the same name may have left a stale thread there, and
@@ -574,62 +1128,89 @@ export default function ProjectFiles({ embedded = false } = {}) {
       clearConversation(`${dir}/${toName}`);
       migrateConversation(`${dir}/${fromName}`, `${dir}/${toName}`);
     } catch { /* non-fatal */ }
-    if (syncSidecar) {
-      setSidecar((prev) => {
-        const next = renameSidecarEntry(prev, fromName, toName);
-        if (next !== prev) saveSidecar(next);
-        return next;
-      });
-    }
-    setBrowseTick((t) => t + 1);
-    await refetchLocalFiles();
+    await settleOps(ids, { dirs: [dir] });
     return { ok: true };
-  }, [refetchLocalFiles]);
+  }, [beginOps, endOps, settleOps, entryFor]);
+
+  // Move one file / folder into another folder. `defer` leaves the settling
+  // to the caller, so a batch re-lists once rather than per item.
+  const primMove = useCallback(async (fromPath, toDir, { isDir = false, defer = false } = {}) => {
+    const to = joinPath(toDir, baseName(fromPath));
+    const ids = beginOps([{ type: 'move', from: fromPath, to, isDir, entry: entryFor(fromPath, isDir) }]);
+    const res = await callDisk(() => localFolderApi.move({ root: localFolder, fromPath, toDir }));
+    if (diskFailed(res)) { endOps(ids); return { ok: false, error: res.error, opIds: [] }; }
+    if (!defer) await settleOps(ids, { dirs: [parentOf(fromPath), toDir] });
+    return { ok: true, path: res.path || to, opIds: defer ? ids : [] };
+  }, [localFolder, beginOps, endOps, settleOps, entryFor]);
+
+  // A batch of moves: every item leaves at once, each failure is put back on
+  // its own, and the folders are re-listed once at the end.
+  // `list` = [{ fromPath, toDir, isDir }] → per-item results, in order.
+  const moveBatch = useCallback(async (list) => {
+    const results = await Promise.all((list || []).map((m) => primMove(m.fromPath, m.toDir, { isDir: m.isDir, defer: true })));
+    const ids = results.flatMap((r) => r.opIds || []);
+    const dirs = (list || []).flatMap((m) => [parentOf(m.fromPath), m.toDir]);
+    await settleOps(ids, { dirs });
+    return results;
+  }, [primMove, settleOps]);
 
   const primCreateFolder = useCallback(async (dir, name) => {
-    const { error } = await localFolderApi.createFolder({ dir, name });
-    if (error) return { ok: false, error };
-    setBrowseTick((t) => t + 1);
-    return { ok: true };
-  }, []);
+    const ids = beginOps([{ type: 'add', isDir: true, path: joinPath(dir, name), entry: { empty: true, mtimeIso: new Date().toISOString() } }]);
+    const res = await callDisk(() => localFolderApi.createFolder({ dir, name }));
+    if (diskFailed(res)) { endOps(ids); return { ok: false, error: res.error }; }
+    // Main may have tidied the name (characters Windows refuses) — the
+    // re-list brings the real one, and the caller is told it.
+    await settleOps(ids, { dirs: [dir] });
+    return { ok: true, name: res.name || name, path: res.path || joinPath(dir, name) };
+  }, [beginOps, endOps, settleOps]);
 
   const primDeleteFolder = useCallback(async (dir, name) => {
-    const { error } = await localFolderApi.deleteFolder({ dir, name });
-    if (error) return { ok: false, error };
-    setBrowseTick((t) => t + 1);
-    await refetchLocalFiles();
+    const ids = beginOps([{ type: 'remove', isDir: true, path: joinPath(dir, name) }]);
+    const res = await callDisk(() => localFolderApi.deleteFolder({ dir, name }));
+    if (diskFailed(res)) { endOps(ids); return { ok: false, error: res.error }; }
+    await settleOps(ids, { dirs: [dir] });
     return { ok: true };
-  }, [refetchLocalFiles]);
+  }, [beginOps, endOps, settleOps]);
 
   // Move a whole folder into the recycle bin (every file inside is trashed,
   // recoverable for 30 days). Returns the stored names so an undo can restore
-  // the lot — mirrors primTrash but for a directory.
-  const primTrashFolder = useCallback(async (folderPath) => {
-    const { ok, stored, error } = await localFolderApi.trashFolder({ dir: localFolder, path: folderPath });
-    if (error || ok === false) return { ok: false, error };
+  // the lot — mirrors primTrash but for a directory. `defer` as primMove.
+  const primTrashFolder = useCallback(async (folderPath, { defer = false } = {}) => {
+    const ids = beginOps([{ type: 'remove', path: folderPath, isDir: true }]);
+    const res = await callDisk(() => localFolderApi.trashFolder({ dir: localFolder, path: folderPath }));
+    if (diskFailed(res)) { endOps(ids); return { ok: false, error: res.error, opIds: [] }; }
     // Close doc-viewer tabs for any file that lived inside this folder.
     notifyFilesRemoved([folderPath]);
-    setSidecar((prev) => {
-      // Drop any sidecar entries whose files just went to the bin.
-      let next = prev;
-      for (const s of stored || []) {
-        const original = String(s).replace(/^\d+__/, '');
-        const after = removeSidecarByFilename(next, original);
-        if (after !== next) next = after;
-      }
-      if (next !== prev) saveSidecar(next);
-      return next;
-    });
-    setBrowseTick((t) => t + 1);
-    await refetchLocalFiles();
-    await refetchTrash();
-    return { ok: true, stored: stored || [] };
-  }, [localFolder, refetchLocalFiles, refetchTrash]);
+    if (!defer) await settleOps(ids, { dirs: [parentOf(folderPath)], trash: true });
+    return { ok: true, stored: res.stored || [], opIds: defer ? ids : [] };
+  }, [localFolder, beginOps, endOps, settleOps]);
+
+  // A file to the bin, deferred — the batch delete's per-item step.
+  const primTrashDeferred = useCallback(async (filePath, fileName) => {
+    const ids = beginOps([{ type: 'remove', path: filePath, isDir: false }]);
+    const res = await callDisk(() => localFolderApi.trashFile({ dir: localFolder, path: filePath }));
+    if (diskFailed(res)) { endOps(ids); return { ok: false, error: res.error, opIds: [] }; }
+    return { ok: true, stored: res.stored, opIds: ids };
+  }, [localFolder, beginOps, endOps]);
+
+  // Delete a set of files / folders together: all leave the grid at once,
+  // each failure comes back on its own, one re-list at the end.
+  // `list` = [{ path, name, isDir }] → per-item results, in order.
+  const trashBatch = useCallback(async (list) => {
+    const results = await Promise.all((list || []).map((e) => (e.isDir
+      ? primTrashFolder(e.path, { defer: true })
+      : primTrashDeferred(e.path, e.name))));
+    const okPaths = (list || []).filter((_, i) => results[i]?.ok).map((e) => e.path);
+    if (okPaths.length) notifyFilesRemoved(okPaths);
+    await settleOps(results.flatMap((r) => r.opIds || []), { dirs: (list || []).map((e) => parentOf(e.path)), trash: true });
+    return results;
+  }, [primTrashFolder, primTrashDeferred, settleOps]);
 
   // Unpack a compressed file. A .zip lands in a sibling "<name> - unzipped"
   // folder; every other format is handed to the OS archiver by main, which
   // comes back as { extracted: false } — nothing changed on disk here, so
-  // there's nothing to refetch or undo.
+  // there's nothing to refetch or undo. Not optimistic: what it will create
+  // (and under which name) is only known once it has done it.
   const primExtractArchive = useCallback(async (srcPath) => {
     const res = await localFolderApi.extractArchive(srcPath);
     if (!res || res.ok === false) return { ok: false, error: res?.error };
@@ -641,18 +1222,25 @@ export default function ProjectFiles({ embedded = false } = {}) {
   }, [refetchLocalFiles]);
 
   // Restore a batch of binned files (the inverse of primTrashFolder). Best-
-  // effort: keeps going if one item can't be restored.
-  const primRestoreMany = useCallback(async (storedList) => {
+  // effort: keeps going if one item can't be restored. All of them leave the
+  // bin (and reappear in the folders) at once; a failure goes back on its own.
+  // `out`, when given, collects { stored, restoredPath } for each one put back.
+  const primRestoreMany = useCallback(async (storedList, out = null) => {
+    const dirsSeen = new Set();
+    const plan = (storedList || []).map((s) => ({ stored: s, ids: beginOps(restoreOps(trashRecord(s), dirsSeen)) }));
     let okAll = true;
-    for (const s of (storedList || [])) {
-      const r = await localFolderApi.restoreFromTrash({ dir: localFolder, stored: s });
-      if (r.error || r.ok === false) okAll = false;
+    const dirs = [];
+    const keep = [];
+    for (const p of plan) {
+      const r = await callDisk(() => localFolderApi.restoreFromTrash({ dir: localFolder, stored: p.stored }));
+      if (diskFailed(r)) { okAll = false; endOps(p.ids); continue; }
+      keep.push(...p.ids);
+      if (r.restoredPath) dirs.push(parentOf(r.restoredPath));
+      if (out) out.push({ stored: p.stored, restoredPath: r.restoredPath });
     }
-    setBrowseTick((t) => t + 1);
-    await refetchLocalFiles();
-    await refetchTrash();
+    await settleOps(keep, { dirs, trash: true });
     return okAll;
-  }, [localFolder, refetchLocalFiles, refetchTrash]);
+  }, [localFolder, beginOps, endOps, settleOps, restoreOps]);
 
   // ── Undo / redo drivers ───────────────────────────────────────────────
   const handleUndo = useCallback(async () => {
@@ -716,12 +1304,14 @@ export default function ProjectFiles({ embedded = false } = {}) {
     if (!trimmed) return;
     const dir = currentDir;
     const res = await primCreateFolder(dir, trimmed);
-    if (!res.ok) { notify({ category: 'file', variant: 'error', title: 'Couldn’t create folder', body: res.error || 'Failed to create folder', dedupeKey: 'folder-create-error' }); return; }
-    notify({ category: 'file', variant: 'success', icon: 'folder-plus', title: 'Folder created', body: `“${trimmed}” added to this folder.`, silent: true, payload: actMeta('create-folder', trimmed, { folder: true }) });
+    if (!res.ok) { notify({ category: 'file', variant: 'error', title: `Couldn’t create “${trimmed}”`, body: res.error || 'The folder could not be made here.', dedupeKey: `folder-create-error:${trimmed}` }); return; }
+    // Main may have tidied the name; undo / redo work on the one on disk.
+    const made = res.name || trimmed;
+    notify({ category: 'file', variant: 'success', icon: 'folder-plus', title: 'Folder created', body: `“${made}” added to this folder.`, silent: true, payload: actMeta('create-folder', made, { folder: true }) });
     pushAction({
-      label: `New folder “${trimmed}”`,
-      undo: async () => (await primDeleteFolder(dir, trimmed)).ok,
-      redo: async () => (await primCreateFolder(dir, trimmed)).ok,
+      label: `New folder “${made}”`,
+      undo: async () => (await primDeleteFolder(dir, made)).ok,
+      redo: async () => (await primCreateFolder(dir, made)).ok,
     });
   }, [currentDir, notify, actMeta, primCreateFolder, primDeleteFolder, pushAction]);
 
@@ -730,24 +1320,25 @@ export default function ProjectFiles({ embedded = false } = {}) {
     const from = folder?.name;
     const to = (newName || '').trim();
     if (!from || !to || to === from) return;
-    const res = await primRename(parent, from, to, { syncSidecar: false });
-    if (!res.ok) { notify({ category: 'file', variant: 'error', title: 'Couldn’t rename folder', body: res.error || 'Failed to rename folder', dedupeKey: 'folder-rename-error' }); return; }
+    if (isBusy(folder?.path)) return;
+    const res = await primRename(parent, from, to, { isDir: true });
+    if (!res.ok) { notify({ category: 'file', variant: 'error', title: `Couldn’t rename “${from}”`, body: `A file inside it may be open in another program, or “${to}” is already taken. It kept its old name.`, dedupeKey: `folder-rename-error:${folder?.path || from}` }); return; }
     notify({ category: 'file', variant: 'success', icon: 'edit', title: 'Folder renamed', body: `“${from}” is now “${to}”.`, silent: true, payload: actMeta('rename', to, { detail: `from “${from}”`, folder: true }) });
     // Move every conversation saved for files inside the folder to the new path.
     try { migrateConversationsUnder(`${parent}/${from}`, `${parent}/${to}`); } catch { /* non-fatal */ }
     pushAction({
       label: `Rename “${from}” → “${to}”`,
-      undo: async () => { const ok = (await primRename(parent, to, from, { syncSidecar: false })).ok; if (ok) { try { migrateConversationsUnder(`${parent}/${to}`, `${parent}/${from}`); } catch { /* non-fatal */ } } return ok; },
-      redo: async () => { const ok = (await primRename(parent, from, to, { syncSidecar: false })).ok; if (ok) { try { migrateConversationsUnder(`${parent}/${from}`, `${parent}/${to}`); } catch { /* non-fatal */ } } return ok; },
+      undo: async () => { const ok = (await primRename(parent, to, from, { isDir: true })).ok; if (ok) { try { migrateConversationsUnder(`${parent}/${to}`, `${parent}/${from}`); } catch { /* non-fatal */ } } return ok; },
+      redo: async () => { const ok = (await primRename(parent, from, to, { isDir: true })).ok; if (ok) { try { migrateConversationsUnder(`${parent}/${from}`, `${parent}/${to}`); } catch { /* non-fatal */ } } return ok; },
     });
-  }, [currentDir, notify, actMeta, primRename, pushAction]);
+  }, [currentDir, notify, actMeta, primRename, pushAction, isBusy]);
 
   const handleDeleteFolder = useCallback(async (dir) => {
     const folderPath = dir?.path;
     const parent = currentDir;
-    if (!folderPath) return;
+    if (!folderPath || isBusy(folderPath)) return;
     const res = await primTrashFolder(folderPath);
-    if (!res.ok) { notify({ category: 'file', variant: 'error', title: 'Couldn’t delete folder', body: res.error || 'Failed to delete folder', dedupeKey: 'folder-delete-error' }); return; }
+    if (!res.ok) { notify({ category: 'file', variant: 'error', title: `Couldn’t delete “${dir.name}”`, body: 'A file inside it may be open in another program. The folder was left where it was.', dedupeKey: `folder-delete-error:${folderPath}` }); return; }
     // variant 'error' paints the toast/row red (destructive action); explicit
     // normal priority keeps it from being escalated like a real failure.
     notify({ category: 'file', variant: 'error', priority: 'normal', icon: 'trash', title: 'Moved to Trash', body: `“${dir.name}” will be removed for good in ${TRASH_RETENTION_DAYS} days.`, dedupeKey: `fx-trash-folder:${folderPath}`, payload: actMeta('delete', dir.name, { folder: true }) });
@@ -766,23 +1357,14 @@ export default function ProjectFiles({ embedded = false } = {}) {
         return r.ok;
       },
     });
-  }, [currentDir, notify, actMeta, primTrashFolder, primRestoreMany, primCreateFolder, pushAction]);
+  }, [currentDir, notify, actMeta, primTrashFolder, primRestoreMany, primCreateFolder, pushAction, isBusy]);
 
-  const handleBrowseFolder = useCallback(async () => {
-    if (!hasLocalFolderApi) return;
-    const picked = await localFolderApi.pick();
-    if (!picked) return;
-    setLocalFolder(picked);
-    setNeedsReconnect(false);
-    if (projectId) await localFolderApi.persistPickedHandle(projectId);
-  }, [projectId]);
-
-  const handleReconnect = useCallback(async () => {
-    if (!hasLocalFolderApi) return;
-    const ok = await localFolderApi.reconnectHandle();
-    if (ok) setNeedsReconnect(false);
-    else notify({ category: 'file', variant: 'error', title: 'Folder access denied', body: 'Pick the folder again to reconnect.', dedupeKey: 'reconnect-folder-denied' });
-  }, [notify]);
+  // With no folder to work in, the import buttons ask for one — only when the
+  // project's folder has gone missing; otherwise the folder is still being
+  // opened and there is nothing to ask.
+  const handleBrowseFolder = useCallback(() => {
+    if (folderMissing) handleLinkFolder();
+  }, [folderMissing, handleLinkFolder]);
 
   // Double-click / "Open" — render the file inside its OWN DocVex window
   // instead of handing it to the OS default app. Routing:
@@ -847,110 +1429,118 @@ export default function ProjectFiles({ embedded = false } = {}) {
   // drag-and-drop from the OS file manager — both just hand off a file list.
   const importFiles = useCallback(async (picked) => {
     if (!picked || picked.length === 0 || !localFolder) return;
-    // A `.livp` (the ZIP iOS wraps an exported Live Photo in) is unpacked:
-    // its picture is written, and its video rides along as the partner below.
-    const entries = [];
-    for (const file of picked.filter((f) => f && f.name)) {
-      if (isLivpName(file.name)) {
-        try {
-          const u = await unpackLivp(file, file.name);
-          if (u?.image) {
-            entries.push({ filename: u.image.name, blob: u.image.blob, src: null, video: u.video });
-            continue;
-          }
-        } catch { /* not a readable .livp — written as it is */ }
-      }
-      entries.push({ filename: file.name, blob: file, src: file, video: null });
+    const dir = currentDir;
+    // Every picked file shows in the folder at once, dimmed until written
+    // (a `.livp` excepted — what it unpacks to is only known once it has).
+    // Keyed by name so each write's result can settle or drop its own tile.
+    const opByName = new Map();
+    for (const f of picked) {
+      if (!f?.name || isLivpName(f.name) || opByName.has(f.name)) continue;
+      const [id] = beginOps([{ type: 'add', isDir: false, path: joinPath(dir, f.name), entry: { sizeBytes: f.size, mimeType: f.type || undefined, mtimeIso: new Date().toISOString() } }]);
+      if (id) opByName.set(f.name, id);
     }
-    const payload = entries.map(({ filename, blob }) => ({ filename, blob }));
-    if (payload.length === 0) return;
-    const { results, error } = await localFolderApi.writeFiles({ dir: currentDir, files: payload });
-    if (error) { notify({ category: 'file', variant: 'error', title: 'Could not add files', body: error, dedupeKey: 'fab-write-error' }); return; }
-    // LIVE PHOTOS: an iPhone Live Photo on a computer is a picture plus a
-    // same-name video (IMG_1234.JPG + IMG_1234.MOV). Importing the picture
-    // brings its video along — named after the picture AS WRITTEN (it may
-    // have become "IMG_1234 (2).JPG"), so the Doc Viewer still pairs them
-    // (lib/livePhoto). Skipped when the video was picked as well.
-    const pickedNames = new Set(picked.map((f) => String(f?.name || '').toLowerCase()));
-    const partners = [];
-    const stemOfWritten = (r) => String(r.filename).replace(/\.[^./\\]+$/, '');
-    for (let i = 0; i < entries.length; i += 1) {
-      const r = results?.[i];
-      if (!r?.ok || !r.filename) continue;
-      const e = entries[i];
-      if (e.video) { partners.push({ filename: `${stemOfWritten(r)}.${String(e.video.name).split('.').pop()}`, blob: e.video.blob }); continue; }
-      const src = e.src ? pathForFile(e.src) : null;
-      const partner = src ? await livePartnerOf(src, e.filename) : null;
-      if (!partner || pickedNames.has(String(partner.name).toLowerCase())) continue;
-      try {
-        const blob = await readLocalBlob(partner.path);
-        if (blob) partners.push({ filename: `${stemOfWritten(r)}.${String(partner.name).split('.').pop()}`, blob });
-      } catch { /* the picture came across; its movement did not */ }
-    }
-    if (partners.length) {
-      const pr = await localFolderApi.writeFiles({ dir: currentDir, files: partners });
-      for (const x of pr?.results || []) if (x.ok) results.push(x);
-    }
-    const okCount = (results || []).filter((r) => r.ok).length;
-    const failCount = (results || []).length - okCount;
-    const importedNames = (results || []).filter((r) => r.ok && r.filename).map((r) => r.filename);
-    // Pictures have their text read in the background (lib/autoExtract).
-    extractTextOnImport((results || []).filter((r) => r.ok && r.path).map((r) => ({ path: r.path, name: r.filename })), projectId);
-    notify({
-      category: 'file',
-      variant: failCount > 0 ? 'error' : 'success',
-      title: failCount > 0 ? 'Added with errors' : 'Files added',
-      body: failCount > 0 ? `${okCount} of ${results.length} added · ${failCount} failed` : `${okCount} file${okCount === 1 ? '' : 's'} added.`,
-      dedupeKey: 'fab-write-result',
-      payload: okCount > 0
-        ? actMeta('import', importedNames.length === 1 ? importedNames[0] : null, { count: okCount, files: importedNames })
-        : undefined,
-    });
-    if (okCount > 0) {
-      setSidecar((prev) => {
-        let next = prev;
-        for (const r of results || []) {
-          if (!r.ok || !r.filename) continue;
-          const lc = r.filename.toLowerCase();
-          if (next.byFilename.has(lc)) continue;
-          const id = (typeof crypto !== 'undefined' && crypto.randomUUID)
-            ? crypto.randomUUID()
-            : `local-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-          next = addSidecarEntry(next, id, { filename: r.filename, contentHash: null, mtime: new Date().toISOString() });
+    const allOpIds = [...opByName.values()];
+    // Anything thrown on the way (a .livp that won't unpack, a Live Photo
+    // partner that can't be read) must not leave the tiles hanging dimmed.
+    try {
+      // A `.livp` (the ZIP iOS wraps an exported Live Photo in) is unpacked:
+      // its picture is written, and its video rides along as the partner below.
+      const entries = [];
+      for (const file of picked.filter((f) => f && f.name)) {
+        if (isLivpName(file.name)) {
+          try {
+            const u = await unpackLivp(file, file.name);
+            if (u?.image) {
+              entries.push({ filename: u.image.name, blob: u.image.blob, src: null, video: u.video });
+              continue;
+            }
+          } catch { /* not a readable .livp — written as it is */ }
         }
-        if (next !== prev) saveSidecar(next);
-        return next;
+        entries.push({ filename: file.name, blob: file, src: file, video: null });
+      }
+      const payload = entries.map(({ filename, blob }) => ({ filename, blob }));
+      if (payload.length === 0) { endOps(allOpIds); return; }
+      const { results, error } = await callDisk(() => localFolderApi.writeFiles({ dir, files: payload }));
+      if (error) {
+        endOps(allOpIds);
+        notify({ category: 'file', variant: 'error', title: payload.length === 1 ? `Couldn’t add “${payload[0].filename}”` : 'Couldn’t add the files', body: `Nothing was added. ${error}`, dedupeKey: 'fab-write-error' });
+        return;
+      }
+      // A file that failed on its own comes off the grid now; the rest stay
+      // dimmed until the re-list below shows them under their real names
+      // (main may have written "scan (2).jpg" beside an existing "scan.jpg").
+      entries.forEach((e, i) => { if (!results?.[i]?.ok && opByName.has(e.filename)) endOps([opByName.get(e.filename)]); });
+      // LIVE PHOTOS: an iPhone Live Photo on a computer is a picture plus a
+      // same-name video (IMG_1234.JPG + IMG_1234.MOV). Importing the picture
+      // brings its video along — named after the picture AS WRITTEN (it may
+      // have become "IMG_1234 (2).JPG"), so the Doc Viewer still pairs them
+      // (lib/livePhoto). Skipped when the video was picked as well.
+      const pickedNames = new Set(picked.map((f) => String(f?.name || '').toLowerCase()));
+      const partners = [];
+      const stemOfWritten = (r) => String(r.filename).replace(/\.[^./\\]+$/, '');
+      for (let i = 0; i < entries.length; i += 1) {
+        const r = results?.[i];
+        if (!r?.ok || !r.filename) continue;
+        const e = entries[i];
+        if (e.video) { partners.push({ filename: `${stemOfWritten(r)}.${String(e.video.name).split('.').pop()}`, blob: e.video.blob }); continue; }
+        const src = e.src ? pathForFile(e.src) : null;
+        const partner = src ? await livePartnerOf(src, e.filename) : null;
+        if (!partner || pickedNames.has(String(partner.name).toLowerCase())) continue;
+        try {
+          const blob = await readLocalBlob(partner.path);
+          if (blob) partners.push({ filename: `${stemOfWritten(r)}.${String(partner.name).split('.').pop()}`, blob });
+        } catch { /* the picture came across; its movement did not */ }
+      }
+      if (partners.length) {
+        const pr = await callDisk(() => localFolderApi.writeFiles({ dir, files: partners }));
+        for (const x of pr?.results || []) if (x.ok) results.push(x);
+      }
+      const okCount = (results || []).filter((r) => r.ok).length;
+      const failCount = (results || []).length - okCount;
+      const importedNames = (results || []).filter((r) => r.ok && r.filename).map((r) => r.filename);
+      // Pictures have their text read in the background (lib/autoExtract).
+      extractTextOnImport((results || []).filter((r) => r.ok && r.path).map((r) => ({ path: r.path, name: r.filename })), projectId);
+      notify({
+        category: 'file',
+        variant: failCount > 0 ? 'error' : 'success',
+        title: failCount > 0 ? 'Added with errors' : 'Files added',
+        body: failCount > 0 ? `${okCount} of ${results.length} added · ${failCount} failed` : `${okCount} file${okCount === 1 ? '' : 's'} added.`,
+        dedupeKey: 'fab-write-result',
+        payload: okCount > 0
+          ? actMeta('import', importedNames.length === 1 ? importedNames[0] : null, { count: okCount, files: importedNames })
+          : undefined,
       });
-    }
-    setBrowseTick((t) => t + 1);
-    await refetchLocalFiles();
+      // (New files get their portable id from main as the index picks them up.)
+      await settleOps(allOpIds, { dirs: [dir], expect: (results || []).filter((r) => r.ok && r.path).map((r) => r.path) });
 
-    // Record an undo: imported files go to the recycle bin (recoverable),
-    // and redo restores them. Each entry's identifiers move with it.
-    const added = (results || []).filter((r) => r.ok && r.path).map((r) => ({ path: r.path, name: r.filename, stored: null }));
-    if (added.length > 0) {
-      pushAction({
-        label: added.length === 1 ? `Import “${added[0].name}”` : `Import ${added.length} files`,
-        undo: async () => {
-          let allOk = true;
-          for (const ent of added) {
-            const r = await primTrash(ent.path, ent.name);
-            if (r.ok) ent.stored = r.stored; else allOk = false;
-          }
-          return allOk;
-        },
-        redo: async () => {
-          let allOk = true;
-          for (const ent of added) {
-            if (!ent.stored) { allOk = false; continue; }
-            const r = await primRestore(ent.stored);
-            if (r.ok && r.restoredPath) ent.path = r.restoredPath; else allOk = false;
-          }
-          return allOk;
-        },
-      });
+      // Record an undo: imported files go to the recycle bin (recoverable),
+      // and redo restores them. Each entry's identifiers move with it.
+      const added = (results || []).filter((r) => r.ok && r.path).map((r) => ({ path: r.path, name: r.filename, stored: null }));
+      if (added.length > 0) {
+        pushAction({
+          label: added.length === 1 ? `Import “${added[0].name}”` : `Import ${added.length} files`,
+          undo: async () => {
+            const res = await trashBatch(added.map((ent) => ({ path: ent.path, name: ent.name, isDir: false })));
+            res.forEach((r, i) => { if (r.ok) added[i].stored = r.stored; });
+            return res.every((r) => r.ok);
+          },
+          redo: async () => {
+            const back = added.filter((ent) => ent.stored);
+            const out = [];
+            const ok = await primRestoreMany(back.map((ent) => ent.stored), out);
+            for (const r of out) {
+              const ent = back.find((x) => x.stored === r.stored);
+              if (ent && r.restoredPath) ent.path = r.restoredPath;
+            }
+            return ok && back.length === added.length;
+          },
+        });
+      }
+    } catch (err) {
+      endOps(allOpIds);
+      notify({ category: 'file', variant: 'error', title: 'Couldn’t add the files', body: err?.message || String(err), dedupeKey: 'fab-write-error' });
     }
-  }, [localFolder, currentDir, notify, actMeta, refetchLocalFiles, pushAction, primTrash, primRestore, projectId]);
+  }, [localFolder, currentDir, notify, actMeta, pushAction, trashBatch, primRestoreMany, beginOps, endOps, settleOps, projectId]);
 
   // "Import" button → hidden <input type=file>.
   const handleLocalFilesPicked = useCallback(async (e) => {
@@ -982,13 +1572,20 @@ export default function ProjectFiles({ embedded = false } = {}) {
       groups.get(relDir).push({ filename: base, blob: f });
     }
     if (groups.size === 0) return;
+    const base = currentDir;
+    // The imported folder(s) show at once, dimmed, where they will land — the
+    // top level of each relative path (that is all this folder's grid shows);
+    // the files themselves arrive with the re-list at the end.
+    const tops = new Set();
+    for (const relDir of groups.keys()) { const top = relDir.split('/')[0]; if (top) tops.add(top); }
+    const opIds = beginOps([...tops].map((top) => ({ type: 'add', isDir: true, path: joinPath(base, top), entry: { empty: false, mtimeIso: new Date().toISOString() } })));
     let ok = 0;
     let fail = 0;
     // Forward slashes in the appended relDir are normalised by Node's path on
     // the main side, so this works regardless of the OS separator in currentDir.
     for (const [relDir, groupFiles] of groups) {
-      const dir = relDir ? `${currentDir}/${relDir}` : currentDir;
-      const { results, error } = await localFolderApi.writeFiles({ dir, files: groupFiles });
+      const dir = relDir ? `${base}/${relDir}` : base;
+      const { results, error } = await callDisk(() => localFolderApi.writeFiles({ dir, files: groupFiles }));
       if (error) { fail += groupFiles.length; continue; }
       ok += (results || []).filter((r) => r.ok).length;
       fail += (results || []).filter((r) => !r.ok).length;
@@ -1004,13 +1601,12 @@ export default function ProjectFiles({ embedded = false } = {}) {
       dedupeKey: 'fx-folder-import',
       payload: ok > 0 ? actMeta('import', null, { count: ok, detail: 'folder import' }) : undefined,
     });
-    setBrowseTick((t) => t + 1);
-    await refetchLocalFiles();
-  }, [localFolder, currentDir, notify, actMeta, refetchLocalFiles, projectId]);
+    await settleOps(opIds, { dirs: [base] });
+  }, [localFolder, currentDir, notify, actMeta, beginOps, settleOps, projectId]);
 
   // Drag-and-drop from the OS file manager → copy the dropped files into the
   // current folder. Each entry is { file, relPath }; loose files (no folder in
-  // relPath) keep the sidecar/undo handling of importFiles, while anything
+  // relPath) keep the undo handling of importFiles, while anything
   // dropped inside a folder is routed through importFolderEntries so its nested
   // structure is recreated. (Earlier this only read a flat FileList and so
   // silently dropped folders on the floor.)
@@ -1046,24 +1642,27 @@ export default function ProjectFiles({ embedded = false } = {}) {
   const handleRenameLocalFile = useCallback(async (file, newName) => {
     const trimmed = (newName || '').trim();
     if (!trimmed || !file?.name || trimmed === file.name) return;
+    if (isBusy(file.path)) return;
     const parent = currentDir;
     const from = file.name;
     const res = await primRename(parent, from, trimmed);
-    if (!res.ok) { notify({ category: 'file', variant: 'error', title: 'Couldn’t rename', body: res.error || 'Failed to rename', dedupeKey: 'fx-rename-err' }); return; }
+    if (!res.ok) { notify({ category: 'file', variant: 'error', title: `Couldn’t rename “${from}”`, body: `It may be open in another program, or a file called “${trimmed}” already exists. It kept its old name.`, dedupeKey: `fx-rename-err:${file.path || from}` }); return; }
     notify({ category: 'file', variant: 'success', icon: 'edit', title: 'File renamed', body: `“${from}” is now “${trimmed}”.`, silent: true, payload: actMeta('rename', trimmed, { detail: `from “${from}”` }) });
     pushAction({
       label: `Rename “${from}” → “${trimmed}”`,
       undo: async () => (await primRename(parent, trimmed, from)).ok,
       redo: async () => (await primRename(parent, from, trimmed)).ok,
     });
-  }, [currentDir, notify, actMeta, primRename, pushAction]);
+  }, [currentDir, notify, actMeta, primRename, pushAction, isBusy]);
 
   // ── Copy / paste ──────────────────────────────────────────────────────
   // Paste copies the clipboard's source files (read by their on-disk path)
   // into the CURRENT folder, minting a non-clobbering "… copy" name when a
-  // file of the same name already lives here.
+  // file of the same name already lives here. The copies show at once,
+  // dimmed, while their bytes are read and written.
   const handlePasteItems = useCallback(async (clipItems) => {
     if (!localFolder || !Array.isArray(clipItems) || clipItems.length === 0) return;
+    const dir = currentDir;
     const taken = new Set(browseFiles.map((f) => (f.name || '').toLowerCase()));
     const uniqueName = (name) => {
       if (!taken.has((name || '').toLowerCase())) return name;
@@ -1075,109 +1674,156 @@ export default function ProjectFiles({ embedded = false } = {}) {
       while (taken.has(candidate.toLowerCase())) { candidate = `${base} copy ${n}${ext}`; n += 1; }
       return candidate;
     };
-    const toWrite = [];
+    const now = new Date().toISOString();
+    const plan = [];
     for (const it of clipItems) {
       if (!it?.path) continue;
+      const filename = uniqueName(it.name || 'file');
+      taken.add(filename.toLowerCase());
+      const src = entryFor(it.path, false);
+      const [id] = beginOps([{ type: 'add', isDir: false, path: joinPath(dir, filename), entry: { sizeBytes: src?.sizeBytes, mimeType: src?.mimeType, mtimeIso: now } }]);
+      plan.push({ it, filename, id });
+    }
+    const toWrite = [];
+    const writeIds = [];
+    const unreadable = [];
+    for (const p of plan) {
       try {
-        const blob = await readLocalBlob(it.path);
-        const filename = uniqueName(it.name || 'file');
-        taken.add(filename.toLowerCase());
-        toWrite.push({ filename, blob });
-      } catch { /* unreadable source — skip */ }
+        const blob = await readLocalBlob(p.it.path);
+        toWrite.push({ filename: p.filename, blob });
+        writeIds.push(p.id);
+      } catch {
+        // Unreadable source — its tile comes off, the rest carry on.
+        if (p.id) endOps([p.id]);
+        unreadable.push(p.it.name || p.filename);
+      }
     }
     if (toWrite.length === 0) {
-      notify({ category: 'file', variant: 'error', title: 'Couldn’t paste', body: 'The copied file(s) could not be read.', dedupeKey: 'fx-paste-err' });
+      notify({ category: 'file', variant: 'error', title: 'Couldn’t paste', body: `${fmtNames(unreadable)} could not be read — ${unreadable.length === 1 ? 'it may have been moved, or be open in another program' : 'they may have been moved, or be open in another program'}.`, dedupeKey: 'fx-paste-err' });
       return;
     }
-    const { results, error } = await localFolderApi.writeFiles({ dir: currentDir, files: toWrite });
-    if (error) { notify({ category: 'file', variant: 'error', title: 'Couldn’t paste', body: error, dedupeKey: 'fx-paste-err' }); return; }
+    const { results, error } = await callDisk(() => localFolderApi.writeFiles({ dir, files: toWrite }));
+    if (error) {
+      endOps(writeIds.filter(Boolean));
+      notify({ category: 'file', variant: 'error', title: 'Couldn’t paste', body: `Nothing was pasted. ${error}`, dedupeKey: 'fx-paste-err' });
+      return;
+    }
+    (results || []).forEach((r, i) => { if (!r?.ok && writeIds[i]) endOps([writeIds[i]]); });
     const written = (results || []).filter((r) => r.ok && r.path);
-    setBrowseTick((t) => t + 1);
-    await refetchLocalFiles();
-    notify({ category: 'file', variant: 'success', icon: 'copy', title: written.length > 1 ? 'Files pasted' : 'File pasted', body: `${written.length} file${written.length === 1 ? '' : 's'} added to this folder.`, dedupeKey: 'fx-paste', payload: actMeta('import', written.length === 1 ? written[0].filename : null, { count: written.length, files: written.map((r) => r.filename), detail: 'pasted' }) });
+    const failedNames = [...unreadable, ...toWrite.filter((_, i) => !results?.[i]?.ok).map((w) => w.filename)];
+    await settleOps(writeIds.filter(Boolean), { dirs: [dir], expect: (results || []).filter((r) => r.ok && r.path).map((r) => r.path) });
+    if (written.length === 0) {
+      notify({ category: 'file', variant: 'error', title: 'Couldn’t paste', body: `${fmtNames(failedNames)} could not be written here.`, dedupeKey: 'fx-paste-err' });
+      return;
+    }
+    notify(failedNames.length
+      ? { category: 'file', variant: 'error', title: `Pasted ${written.length} of ${written.length + failedNames.length}`, body: `${fmtNames(failedNames)} could not be copied — ${failedNames.length === 1 ? 'it' : 'they'} may be open in another program.`, dedupeKey: 'fx-paste', payload: actMeta('import', null, { count: written.length, files: written.map((r) => r.filename), detail: 'pasted' }) }
+      : { category: 'file', variant: 'success', icon: 'copy', title: written.length > 1 ? 'Files pasted' : 'File pasted', body: `${written.length} file${written.length === 1 ? '' : 's'} added to this folder.`, dedupeKey: 'fx-paste', payload: actMeta('import', written.length === 1 ? written[0].filename : null, { count: written.length, files: written.map((r) => r.filename), detail: 'pasted' }) });
+    const copies = written.map((r) => ({ path: r.path, name: r.filename }));
+    const blobs = toWrite.filter((_, i) => results?.[i]?.ok);
     pushAction({
       label: `Paste ${written.length} file${written.length === 1 ? '' : 's'}`,
-      undo: async () => { for (const r of written) await primTrash(r.path, r.filename); setBrowseTick((t) => t + 1); await refetchLocalFiles(); return true; },
-      redo: async () => { await localFolderApi.writeFiles({ dir: currentDir, files: toWrite }); setBrowseTick((t) => t + 1); await refetchLocalFiles(); return true; },
+      undo: async () => (await trashBatch(copies.map((c) => ({ ...c, isDir: false })))).every((r) => r.ok),
+      redo: async () => {
+        const ids = beginOps(blobs.map((b) => ({ type: 'add', isDir: false, path: joinPath(dir, b.filename), entry: { sizeBytes: b.blob?.size, mtimeIso: new Date().toISOString() } })));
+        const r = await callDisk(() => localFolderApi.writeFiles({ dir, files: blobs }));
+        (r.results || []).forEach((x, i) => { if (x?.ok && x.path && copies[i]) copies[i].path = x.path; });
+        await settleOps(ids, { dirs: [dir] });
+        return !r.error && (r.results || []).every((x) => x?.ok);
+      },
     });
-  }, [localFolder, currentDir, browseFiles, notify, actMeta, refetchLocalFiles, primTrash, pushAction]);
+  }, [localFolder, currentDir, browseFiles, notify, actMeta, pushAction, beginOps, endOps, settleOps, trashBatch, entryFor]);
+
+  // ── Moves (cut + paste, drag onto a folder or a breadcrumb) ───────────
+  // Every item leaves at once and shows, dimmed, in the target if that's the
+  // folder on screen; each one the disk refuses goes back on its own. One
+  // notification for the lot.
+  const runMoves = useCallback(async (list) => {
+    const res = await moveBatch(list);
+    const moved = [];
+    const failedNames = [];
+    res.forEach((r, i) => {
+      const m = list[i];
+      if (!r.ok) { failedNames.push(m.name); return; }
+      moved.push({ name: m.name, isDir: m.isDir, origDir: parentOf(m.fromPath), fromPath: m.fromPath, path: r.path });
+      // Keep the AI chat with the file/folder across the move. Drop any
+      // orphaned chat left at the destination path by a since-gone file of
+      // the same name before moving this file's thread in.
+      try {
+        if (m.isDir) migrateConversationsUnder(m.fromPath, r.path);
+        else { clearConversation(r.path); migrateConversation(m.fromPath, r.path); }
+      } catch { /* non-fatal */ }
+    });
+    return { moved, failedNames };
+  }, [moveBatch]);
+  const pushMoveUndo = useCallback((moved, targetDir, label) => {
+    pushAction({
+      label,
+      undo: async () => {
+        const r = await moveBatch(moved.map((m) => ({ fromPath: m.path, toDir: m.origDir, isDir: m.isDir })));
+        r.forEach((x, i) => { if (x.ok) moved[i].fromPath = x.path; });
+        return r.every((x) => x.ok);
+      },
+      redo: async () => {
+        const r = await moveBatch(moved.map((m) => ({ fromPath: m.fromPath, toDir: targetDir, isDir: m.isDir })));
+        r.forEach((x, i) => { if (x.ok) moved[i].path = x.path; });
+        return r.every((x) => x.ok);
+      },
+    });
+  }, [pushAction, moveBatch]);
+  const notifyMoves = useCallback((moved, failedNames, whereLabel) => {
+    const total = moved.length + failedNames.length;
+    const why = `${failedNames.length === 1 ? 'It' : 'They'} may be open in another program, or ${whereLabel ? `“${whereLabel}”` : 'this folder'} already has an item with that name.`;
+    if (moved.length === 0) {
+      notify({ category: 'file', variant: 'error', title: failedNames.length === 1 ? `Couldn’t move “${failedNames[0]}”` : `Couldn’t move ${failedNames.length} items`, body: `${why} Nothing was moved.`, dedupeKey: 'fx-move-err' });
+      return;
+    }
+    const payload = actMeta('move', moved.length === 1 ? moved[0].name : null, { count: moved.length, files: moved.map((m) => m.name), ...(whereLabel ? { detail: `to “${whereLabel}”` } : {}) });
+    if (failedNames.length) {
+      notify({ category: 'file', variant: 'error', title: `Moved ${moved.length} of ${total} items`, body: `${fmtNames(failedNames)} stayed where ${failedNames.length === 1 ? 'it was' : 'they were'}. ${why}`, dedupeKey: 'fx-move', payload });
+      return;
+    }
+    notify({ category: 'file', variant: 'success', icon: 'folder', title: moved.length > 1 ? 'Files moved' : 'File moved', body: whereLabel ? `${moved.length} item${moved.length === 1 ? '' : 's'} moved to “${whereLabel}”.` : `${moved.length} file${moved.length === 1 ? '' : 's'} moved here.`, dedupeKey: 'fx-move', payload });
+  }, [notify, actMeta]);
 
   // Paste of CUT files — move each from its source folder into the current
   // folder. Inverse moves files back to where they came from.
   const handlePasteCut = useCallback(async (clipItems) => {
     if (!localFolder || !Array.isArray(clipItems) || clipItems.length === 0) return;
     const target = currentDir;
-    const join = (d, n) => `${d}/${n}`;
-    const parentOf = (p) => { const i = Math.max(p.lastIndexOf('/'), p.lastIndexOf('\\')); return i >= 0 ? p.slice(0, i) : p; };
-    const moved = [];
-    let fail = 0;
-    for (const it of clipItems) {
-      if (!it?.path) { fail += 1; continue; }
-      const { ok } = await localFolderApi.move({ root: localFolder, fromPath: it.path, toDir: target });
-      if (ok) moved.push({ name: it.name, origDir: parentOf(it.path) }); else fail += 1;
-    }
-    setBrowseTick((t) => t + 1);
-    await refetchLocalFiles();
-    if (moved.length === 0) {
-      notify({ category: 'file', variant: 'error', title: 'Couldn’t move', body: 'The file(s) could not be moved here (a file with that name may already exist).', dedupeKey: 'fx-move-err' });
-      return;
-    }
-    notify({ category: 'file', variant: 'success', icon: 'folder', title: moved.length > 1 ? 'Files moved' : 'File moved', body: `${moved.length} file${moved.length === 1 ? '' : 's'} moved here.`, dedupeKey: 'fx-move', payload: actMeta('move', moved.length === 1 ? moved[0].name : null, { count: moved.length, files: moved.map((m) => m.name) }) });
-    pushAction({
-      label: `Move ${moved.length} file${moved.length === 1 ? '' : 's'}`,
-      undo: async () => { for (const m of moved) await localFolderApi.move({ root: localFolder, fromPath: join(target, m.name), toDir: m.origDir }); setBrowseTick((t) => t + 1); await refetchLocalFiles(); return true; },
-      redo: async () => { for (const m of moved) await localFolderApi.move({ root: localFolder, fromPath: join(m.origDir, m.name), toDir: target }); setBrowseTick((t) => t + 1); await refetchLocalFiles(); return true; },
-    });
-  }, [localFolder, currentDir, notify, actMeta, refetchLocalFiles, pushAction]);
+    const list = clipItems
+      .filter((it) => it?.path && !isBusy(it.path) && !sameOpPath(parentOf(it.path), target))
+      .map((it) => ({ fromPath: it.path, toDir: target, isDir: false, name: it.name || baseName(it.path) }));
+    if (list.length === 0) return;
+    const { moved, failedNames } = await runMoves(list);
+    notifyMoves(moved, failedNames, null);
+    if (moved.length) pushMoveUndo(moved, target, `Move ${moved.length} file${moved.length === 1 ? '' : 's'}`);
+  }, [localFolder, currentDir, isBusy, runMoves, notifyMoves, pushMoveUndo]);
 
   // ── Move (drag a file onto a folder) ──────────────────────────────────
   // Dragged items always come from the CURRENT folder, so the inverse of a
   // move is just moving them back into `currentDir`.
   const handleMoveItems = useCallback(async (items, targetFolder) => {
     const toDir = targetFolder?._dir?.path || targetFolder?.path;
-    const origDir = currentDir;
     if (!localFolder || !toDir || !Array.isArray(items) || items.length === 0) return;
-    if (toDir === origDir) return;
-    const join = (d, n) => `${d}/${n}`;
-    const moved = [];
-    let fail = 0;
-    for (const it of items) {
-      // Files carry their path on `_raw`, folders on `_dir`. The main-process
-      // move handler renames either kind by basename, so both work the same.
-      const fromPath = it?._raw?.path || it?._dir?.path;
-      if (!fromPath) { fail += 1; continue; }
-      const { ok, error } = await localFolderApi.move({ root: localFolder, fromPath, toDir });
-      if (ok) {
-        moved.push({ name: it.name });
-        // Keep the AI chat with the file/folder across the move.
-        try {
-          const toPath = join(toDir, it.name);
-          if (it?._dir) migrateConversationsUnder(fromPath, toPath);
-          // Drop any orphaned chat left at the destination path by a since-gone
-          // file of the same name before moving this file's thread in.
-          else { clearConversation(toPath); migrateConversation(fromPath, toPath); }
-        } catch { /* non-fatal */ }
-      } else fail += 1;
-    }
-    setBrowseTick((t) => t + 1);
-    await refetchLocalFiles();
-    if (moved.length === 0) {
-      notify({ category: 'file', variant: 'error', title: 'Couldn’t move', body: fail ? 'The item(s) could not be moved (a file with that name may already exist there).' : 'Nothing to move.', dedupeKey: 'fx-move-err' });
-      return;
-    }
-    notify({ category: 'file', variant: 'success', icon: 'folder', title: moved.length > 1 ? 'Files moved' : 'File moved', body: `${moved.length} item${moved.length === 1 ? '' : 's'} moved to “${targetFolder.name}”.`, dedupeKey: 'fx-move', payload: actMeta('move', moved.length === 1 ? moved[0].name : null, { count: moved.length, files: moved.map((m) => m.name), detail: `to “${targetFolder.name}”` }) });
-    pushAction({
-      label: `Move ${moved.length} item${moved.length === 1 ? '' : 's'} to “${targetFolder.name}”`,
-      undo: async () => { for (const m of moved) await localFolderApi.move({ root: localFolder, fromPath: join(toDir, m.name), toDir: origDir }); setBrowseTick((t) => t + 1); await refetchLocalFiles(); return true; },
-      redo: async () => { for (const m of moved) await localFolderApi.move({ root: localFolder, fromPath: join(origDir, m.name), toDir }); setBrowseTick((t) => t + 1); await refetchLocalFiles(); return true; },
-    });
-  }, [localFolder, currentDir, notify, actMeta, refetchLocalFiles, pushAction]);
+    if (sameOpPath(toDir, currentDir)) return;
+    // Files carry their path on `_raw`, folders on `_dir`. The main-process
+    // move handler renames either kind by basename, so both work the same.
+    const list = items
+      .map((it) => ({ fromPath: it?._raw?.path || it?._dir?.path, toDir, isDir: !!it?._dir, name: it?.name }))
+      .filter((m) => m.fromPath && !isBusy(m.fromPath))
+      .map((m) => ({ ...m, name: m.name || baseName(m.fromPath) }));
+    if (list.length === 0) return;
+    const { moved, failedNames } = await runMoves(list);
+    notifyMoves(moved, failedNames, targetFolder.name);
+    if (moved.length) pushMoveUndo(moved, toDir, `Move ${moved.length} item${moved.length === 1 ? '' : 's'} to “${targetFolder.name}”`);
+  }, [localFolder, currentDir, isBusy, runMoves, notifyMoves, pushMoveUndo]);
 
   // ── Recently deleted actions ──────────────────────────────────────────
   const handleDeleteLocalCard = useCallback(async (file) => {
-    if (!file?.path) return;
+    if (!file?.path || isBusy(file.path)) return;
     const res = await primTrash(file.path, file.name);
-    if (!res.ok) { notify({ category: 'file', variant: 'error', title: 'Couldn’t delete', body: res.error || 'Failed to delete', dedupeKey: 'fx-trash-err' }); return; }
+    if (!res.ok) { notify({ category: 'file', variant: 'error', title: `Couldn’t delete “${file.name}”`, body: 'It may be open in another program. The file was left where it was.', dedupeKey: `fx-trash-err:${file.path}` }); return; }
     // variant 'error' paints the toast/row red (destructive action); explicit
     // normal priority keeps it from being escalated like a real failure.
     notify({ category: 'file', variant: 'error', priority: 'normal', icon: 'trash', title: 'Moved to Trash', body: `"${file.name}" will be removed for good in ${TRASH_RETENTION_DAYS} days.`, dedupeKey: `fx-trash:${file.path}`, payload: actMeta('delete', file.name, { filePath: file.path }) });
@@ -1195,12 +1841,59 @@ export default function ProjectFiles({ embedded = false } = {}) {
         return r.ok;
       },
     });
-  }, [notify, actMeta, primTrash, primRestore, pushAction]);
+  }, [notify, actMeta, primTrash, primRestore, pushAction, isBusy]);
+
+  // Delete a multi-selection (or a drop of several items on the Trash): all
+  // of them leave the grid at once, each failure comes back on its own, and
+  // there is one notification and one undo for the lot.
+  const handleDeleteMany = useCallback(async (items) => {
+    const list = (items || [])
+      .map((it) => (it?.kind === 'folder'
+        ? (it._dir?.path ? { path: it._dir.path, name: it.name || it._dir.name, isDir: true } : null)
+        : (it?._raw?.path ? { path: it._raw.path, name: it.name || it._raw.name, isDir: false } : null)))
+      .filter(Boolean)
+      .filter((e) => !isBusy(e.path));
+    if (list.length === 0) return;
+    if (list.length === 1) {
+      const [only] = list;
+      if (only.isDir) handleDeleteFolder({ path: only.path, name: only.name });
+      else handleDeleteLocalCard({ path: only.path, name: only.name });
+      return;
+    }
+    const res = await trashBatch(list);
+    const done = list.map((e, i) => ({ ...e, ok: !!res[i]?.ok, stored: res[i]?.ok ? (e.isDir ? (res[i].stored || []) : [res[i].stored].filter(Boolean)) : [] }));
+    const gone = done.filter((d) => d.ok);
+    const failedNames = done.filter((d) => !d.ok).map((d) => d.name);
+    if (gone.length === 0) {
+      notify({ category: 'file', variant: 'error', title: `Couldn’t delete ${failedNames.length} items`, body: 'They may be open in another program. Everything was left where it was.', dedupeKey: 'fx-trash-many-err' });
+      return;
+    }
+    notify(failedNames.length
+      ? { category: 'file', variant: 'error', title: `Moved ${gone.length} of ${list.length} to Trash`, body: `${fmtNames(failedNames)} could not be deleted — ${failedNames.length === 1 ? 'it' : 'they'} may be open in another program.`, dedupeKey: 'fx-trash-many', payload: actMeta('delete', null, { count: gone.length, files: gone.map((d) => d.name) }) }
+      : { category: 'file', variant: 'error', priority: 'normal', icon: 'trash', title: 'Moved to Trash', body: `${gone.length} items will be removed for good in ${TRASH_RETENTION_DAYS} days.`, dedupeKey: 'fx-trash-many', payload: actMeta('delete', null, { count: gone.length, files: gone.map((d) => d.name) }) });
+    pushAction({
+      label: `Delete ${gone.length} items`,
+      undo: async () => {
+        const stored = gone.flatMap((d) => d.stored);
+        let ok = stored.length ? await primRestoreMany(stored) : true;
+        // An empty folder left nothing in the bin — undo recreates it.
+        for (const d of gone) {
+          if (d.isDir && d.stored.length === 0) ok = (await primCreateFolder(parentOf(d.path), d.name)).ok && ok;
+        }
+        return ok;
+      },
+      redo: async () => {
+        const r = await trashBatch(gone);
+        r.forEach((x, i) => { if (x.ok) gone[i].stored = gone[i].isDir ? (x.stored || []) : [x.stored].filter(Boolean); });
+        return r.every((x) => x.ok);
+      },
+    });
+  }, [notify, actMeta, pushAction, isBusy, trashBatch, primRestoreMany, primCreateFolder, handleDeleteFolder, handleDeleteLocalCard]);
 
   const handleRestoreFromTrash = useCallback(async (trash) => {
     if (!trash?.stored) return;
     const res = await primRestore(trash.stored);
-    if (!res.ok) { notify({ category: 'file', variant: 'error', title: 'Couldn’t restore', body: res.error || 'Failed to restore', dedupeKey: 'fx-restore-err' }); return; }
+    if (!res.ok) { notify({ category: 'file', variant: 'error', title: `Couldn’t restore “${trash.originalName}”`, body: 'It is still in the Trash. The folder it came from may be open in another program — try again in a moment.', dedupeKey: `fx-restore-err:${trash.stored}` }); return; }
     notify({ category: 'file', variant: 'success', icon: 'check', title: 'Restored', body: `"${trash.originalName}" is back in your folder.`, dedupeKey: `fx-restore:${trash.stored}`, payload: actMeta('restore', trash.originalName) });
     const state = { stored: trash.stored, path: res.restoredPath, name: trash.originalName };
     pushAction({
@@ -1218,28 +1911,73 @@ export default function ProjectFiles({ embedded = false } = {}) {
     });
   }, [notify, actMeta, primTrash, primRestore, pushAction]);
 
+  // Restore a multi-selection from the bin — loose files and deleted
+  // folders alike, one notification and one undo.
+  const handleRestoreMany = useCallback(async (items) => {
+    const recs = (items || []).flatMap((it) => it?._trashGroup || (it?._trash ? [it._trash] : []));
+    if (recs.length === 0) return;
+    const out = [];
+    await primRestoreMany(recs.map((r) => r.stored), out);
+    const back = new Set(out.map((o) => o.stored));
+    const failedNames = [...new Set(recs.filter((r) => !back.has(r.stored)).map((r) => r.originalName))];
+    if (out.length === 0) {
+      notify({ category: 'file', variant: 'error', title: `Couldn’t restore ${recs.length === 1 ? `“${recs[0].originalName}”` : `${recs.length} files`}`, body: 'Everything is still in the Trash. Try again in a moment.', dedupeKey: 'fx-restore-many-err' });
+      return;
+    }
+    notify(failedNames.length
+      ? { category: 'file', variant: 'error', title: `Restored ${out.length} of ${recs.length}`, body: `${fmtNames(failedNames)} ${failedNames.length === 1 ? 'is' : 'are'} still in the Trash.`, dedupeKey: 'fx-restore-many', payload: actMeta('restore', null, { count: out.length }) }
+      : { category: 'file', variant: 'success', icon: 'check', title: 'Restored', body: `${out.length} file${out.length === 1 ? ' is' : 's are'} back in your folder.`, dedupeKey: 'fx-restore-many', payload: actMeta('restore', null, { count: out.length }) });
+    const nameOf = new Map(recs.map((r) => [r.stored, r.originalName]));
+    const state = out.map((o) => ({ path: o.restoredPath, name: nameOf.get(o.stored), stored: o.stored })).filter((s) => s.path);
+    if (state.length === 0) return;
+    pushAction({
+      label: `Restore ${state.length} file${state.length === 1 ? '' : 's'}`,
+      undo: async () => {
+        const r = await trashBatch(state.map((s) => ({ path: s.path, name: s.name, isDir: false })));
+        r.forEach((x, i) => { if (x.ok) state[i].stored = x.stored; });
+        return r.every((x) => x.ok);
+      },
+      redo: async () => {
+        const again = [];
+        const ok = await primRestoreMany(state.map((s) => s.stored), again);
+        for (const a of again) { const s = state.find((x) => x.stored === a.stored); if (s && a.restoredPath) s.path = a.restoredPath; }
+        return ok;
+      },
+    });
+  }, [notify, actMeta, pushAction, primRestoreMany, trashBatch]);
+
+  // Delete Trash records for good. They leave the bin at once; any the disk
+  // refuses come back. Returns the records that could NOT be deleted.
+  const purgeRecords = useCallback(async (recs) => {
+    const plan = (recs || []).filter((r) => r?.stored).map((r) => ({ rec: r, ids: beginOps([{ type: 'trash-remove', stored: r.stored }]) }));
+    const res = await Promise.all(plan.map((p) => callDisk(() => localFolderApi.deleteFromTrash({ dir: localFolder, stored: p.rec.stored }))));
+    const failed = [];
+    const keep = [];
+    res.forEach((r, i) => {
+      if (diskFailed(r)) { endOps(plan[i].ids); failed.push(plan[i].rec); } else keep.push(...plan[i].ids);
+    });
+    try { await refetchTrash({ quiet: true }); } finally { endOps(keep); }
+    return failed;
+  }, [localFolder, beginOps, endOps, refetchTrash]);
+
   // Empty the whole bin — permanently delete every trashed file. Not
   // undoable (mirrors single permanent delete).
   const handleEmptyBin = useCallback(async () => {
-    if (!localFolder || trashItems.length === 0) return;
-    const count = trashItems.length;
-    const results = await Promise.all(
-      trashItems.map((t) => localFolderApi.deleteFromTrash({ dir: localFolder, stored: t.stored })),
-    );
-    const failed = results.filter((r) => r && r.error).length;
-    notify(failed > 0
-      ? { category: 'file', variant: 'error', title: 'Couldn’t empty the bin', body: `${failed} of ${count} could not be deleted.`, dedupeKey: 'fx-empty-bin' }
+    const all = viewTrashItems;
+    if (!localFolder || all.length === 0) return;
+    const count = all.length;
+    const failed = await purgeRecords(all);
+    notify(failed.length > 0
+      ? { category: 'file', variant: 'error', title: 'Couldn’t empty the Trash', body: `${failed.length} of ${count} could not be deleted (${fmtNames(failed.map((r) => r.originalName))}) — they are still in the Trash.`, dedupeKey: 'fx-empty-bin' }
       : { category: 'file', variant: 'success', icon: 'trash', title: 'Trash emptied', body: `${count} file${count === 1 ? '' : 's'} permanently deleted.`, dedupeKey: 'fx-empty-bin', payload: actMeta('purge', null, { count }) });
-    await refetchTrash();
-  }, [localFolder, trashItems, notify, actMeta, refetchTrash]);
+  }, [localFolder, viewTrashItems, notify, actMeta, purgeRecords]);
 
   const handlePermanentDelete = useCallback(async (trash) => {
     if (!trash?.stored) return;
-    const { error } = await localFolderApi.deleteFromTrash({ dir: localFolder, stored: trash.stored });
-    if (error) { notify({ category: 'file', variant: 'error', title: 'Couldn’t delete', body: error, dedupeKey: 'fx-perm-del-err' }); return; }
+    const failed = await purgeRecords([trash]);
+    if (failed.length) { notify({ category: 'file', variant: 'error', title: `Couldn’t delete “${trash.originalName}”`, body: 'It is still in the Trash. Try again in a moment.', dedupeKey: `fx-perm-del-err:${trash.stored}` }); return; }
     notify({ category: 'file', variant: 'success', icon: 'trash', title: 'Permanently deleted', body: `"${trash.originalName}" is gone for good.`, dedupeKey: `fx-perm-del:${trash.stored}`, payload: actMeta('purge', trash.originalName) });
-    await refetchTrash();
-  }, [localFolder, notify, actMeta, refetchTrash]);
+  }, [notify, actMeta, purgeRecords]);
 
   // Restore every file of a deleted folder back to where it lived.
   const handleRestoreGroup = useCallback(async (item) => {
@@ -1248,19 +1986,74 @@ export default function ProjectFiles({ embedded = false } = {}) {
     const okAll = await primRestoreMany(recs.map((r) => r.stored));
     notify(okAll
       ? { category: 'file', variant: 'success', icon: 'check', title: 'Restored', body: `“${item.name}” is back in your folder.`, dedupeKey: `fx-restore-grp:${item.id}`, payload: actMeta('restore', item.name) }
-      : { category: 'file', variant: 'error', title: 'Some files couldn’t be restored', body: `Part of “${item.name}” could not be put back.`, dedupeKey: `fx-restore-grp-err:${item.id}` });
+      : { category: 'file', variant: 'error', title: 'Some files couldn’t be restored', body: `Part of “${item.name}” could not be put back — the rest is still in the Trash.`, dedupeKey: `fx-restore-grp-err:${item.id}` });
   }, [primRestoreMany, notify, actMeta]);
 
   // Permanently delete every file of a deleted folder.
   const handlePermanentDeleteGroup = useCallback(async (item) => {
     const recs = item?._trashGroup || [];
     if (!recs.length) return;
-    for (const r of recs) {
-      await localFolderApi.deleteFromTrash({ dir: localFolder, stored: r.stored });
+    const failed = await purgeRecords(recs);
+    notify(failed.length
+      ? { category: 'file', variant: 'error', title: `Couldn’t delete all of “${item.name}”`, body: `${failed.length} of ${recs.length} files are still in the Trash. Try again in a moment.`, dedupeKey: `fx-perm-del-grp-err:${item.id}` }
+      : { category: 'file', variant: 'success', icon: 'trash', title: 'Permanently deleted', body: `“${item.name}” is gone for good.`, dedupeKey: `fx-perm-del-grp:${item.id}`, payload: actMeta('purge', item.name) });
+  }, [notify, actMeta, purgeRecords]);
+
+  // Delete a multi-selection in the bin for good — one notification.
+  const handlePermanentDeleteMany = useCallback(async (items) => {
+    const recs = (items || []).flatMap((it) => it?._trashGroup || (it?._trash ? [it._trash] : []));
+    if (recs.length === 0) return;
+    const failed = await purgeRecords(recs);
+    notify(failed.length
+      ? { category: 'file', variant: 'error', title: `Couldn’t delete ${failed.length} of ${recs.length}`, body: `${fmtNames(failed.map((r) => r.originalName))} ${failed.length === 1 ? 'is' : 'are'} still in the Trash. Try again in a moment.`, dedupeKey: 'fx-perm-del-many-err' }
+      : { category: 'file', variant: 'success', icon: 'trash', title: 'Permanently deleted', body: `${recs.length} file${recs.length === 1 ? ' is' : 's are'} gone for good.`, dedupeKey: 'fx-perm-del-many', payload: actMeta('purge', null, { count: recs.length }) });
+  }, [notify, actMeta, purgeRecords]);
+
+  // PERFORMANCE — folder metrics. Every folder on show is matched against the
+  // whole recursive listing (path-prefix), which is folders × files of work;
+  // it only changes with those two, so it isn't redone on renders that touch
+  // neither (a scan's progress, a notification, the Import window).
+  // One pass over the files, each adding itself to every folder above it
+  // (keyed by path inside the project), rather than every folder scanning
+  // every file — the difference matters on a project of tens of thousands.
+  // The folder is read off the PATH, not a row's `dir`: a file with a move
+  // in flight carries its old row but already has its new path.
+  const statsByRel = useMemo(() => {
+    const out = new Map();
+    if (!localFolder) return out;
+    for (const f of viewLocalFiles) {
+      if (typeof f.path !== 'string') continue;
+      const rel = relOfPath(localFolder, f.path);
+      if (!rel) continue;
+      const bytes = Number(f.sizeBytes) || 0;
+      const t = f.mtimeIso ? Date.parse(f.mtimeIso) || 0 : 0;
+      let dir = relKeyOf(parentRel(rel));
+      while (dir) {
+        const s = out.get(dir);
+        if (s) { s.bytes += bytes; if (t > s.latest) s.latest = t; }
+        else out.set(dir, { bytes, latest: t });
+        dir = parentRel(dir);
+      }
     }
-    notify({ category: 'file', variant: 'success', icon: 'trash', title: 'Permanently deleted', body: `“${item.name}” is gone for good.`, dedupeKey: `fx-perm-del-grp:${item.id}`, payload: actMeta('purge', item.name) });
-    await refetchTrash();
-  }, [localFolder, notify, actMeta, refetchTrash]);
+    return out;
+  }, [viewLocalFiles, localFolder]);
+  const dirStatsByPath = useMemo(() => {
+    const out = new Map();
+    for (const dir of browseDirs) {
+      const dirPath = dir?.path;
+      if (typeof dirPath !== 'string' || !dirPath || out.has(dirPath)) continue;
+      const rel = relOfPath(localFolder, dirPath);
+      out.set(dirPath, rel ? (statsByRel.get(relKeyOf(rel)) || null) : null);
+    }
+    return out;
+  }, [browseDirs, statsByRel, localFolder]);
+  // The item models below are rebuilt on every render of this page, and the
+  // Files grid memoises its tiles on the item objects. An item whose every
+  // field came out the same as last time is handed back as LAST time's object
+  // (and a list whose items all did, as last time's list), so a render of this
+  // page that changes nothing about a file doesn't redraw its tile. Values are
+  // still computed each render — labels like "today" stay exactly as fresh.
+  const itemReuseRef = useRef({ items: new Map(), lists: {} });
 
   // ── Guards (after all hooks) ──────────────────────────────────────────
   if (projLoading && !selectedProject) return null;
@@ -1281,18 +2074,7 @@ export default function ProjectFiles({ embedded = false } = {}) {
   // prefix-matched) so the row falls back to its '—' placeholders.
   const statsForDir = (dirPath) => {
     if (typeof dirPath !== 'string' || !dirPath) return null;
-    let bytes = 0;
-    let latest = 0;
-    let count = 0;
-    for (const f of localFiles) {
-      if (typeof f.path !== 'string') continue;
-      if (!(f.path.startsWith(`${dirPath}\\`) || f.path.startsWith(`${dirPath}/`))) continue;
-      count += 1;
-      bytes += Number(f.sizeBytes) || 0;
-      const t = f.mtimeIso ? new Date(f.mtimeIso).getTime() : 0;
-      if (t > latest) latest = t;
-    }
-    return count > 0 ? { bytes, latest } : null;
+    return dirStatsByPath.has(dirPath) ? dirStatsByPath.get(dirPath) : null;
   };
   const realDraftFolders = browseDirs.map((dir) => {
     const stats = statsForDir(dir.path);
@@ -1311,6 +2093,9 @@ export default function ProjectFiles({ embedded = false } = {}) {
       // export folder keeps its mark whatever it's renamed to.
       isWhatsApp: waByPath[dir.path] === true,
       scanTagged: !!localFolder && isScanTagged(scanTags, `${scanRel(localFolder, dir.path)}/`),
+      // In flight (renamed, moved or created, the disk not done yet) — the
+      // workspace dims it and keeps hands off until it settles.
+      pending: !!dir._pending || busyPaths.has(normPath(dir.path)),
       _dir: dir,
     };
   });
@@ -1323,7 +2108,7 @@ export default function ProjectFiles({ embedded = false } = {}) {
   const trashDisplayCount = (() => {
     const groups = new Set();
     let loose = 0;
-    for (const t of trashItems) {
+    for (const t of viewTrashItems) {
       if (t.folderGroup) groups.add(t.folderGroup);
       else loose += 1;
     }
@@ -1333,24 +2118,25 @@ export default function ProjectFiles({ embedded = false } = {}) {
   // their contents, and — since neither has a filesystem mtime of its own —
   // the PROJECT's creation date as their date column.
   const projectCreatedLabel = selectedProject?.created_at ? formatDate(selectedProject.created_at) : '';
-  const trashBytes = trashItems.reduce((sum, t) => sum + (Number(t.sizeBytes) || 0), 0);
+  const trashBytes = viewTrashItems.reduce((sum, t) => sum + (Number(t.sizeBytes) || 0), 0);
   const binEntryItem = {
     id: '__recycle-bin',
     kind: 'folder',
     name: 'Trash',
-    empty: trashItems.length === 0,
+    empty: viewTrashItems.length === 0,
     status: 'synced',
     binEntry: true,
     binCount: trashDisplayCount,
-    sizeLabel: trashItems.length > 0 ? formatBytes(trashBytes) : '',
+    sizeLabel: viewTrashItems.length > 0 ? formatBytes(trashBytes) : '',
     modifiedLabel: projectCreatedLabel,
   };
-  const draftItems = browseFiles.map((lf) => {
-    const fid = sidecar.byFilename.get((lf.name || '').toLowerCase());
+  const toDraftItem = (lf) => {
     // A Data collection wears its own glyph (extCategory 'collection').
     const isDvc = isCollectionFile(lf.name);
     return {
-      id: fid || lf.path || lf.name,
+      // The index Row's portable id (survives rename / move); the path for a
+      // file the index hasn't reached yet, or without the index.
+      id: lf.id || lf.path || lf.name,
       kind: 'file',
       name: lf.name,
       ext: fileExtOf(lf.name),
@@ -1366,9 +2152,12 @@ export default function ProjectFiles({ embedded = false } = {}) {
       isWhatsApp: lf.path ? waByPath[lf.path] : undefined,
       descriptor: isDvc ? null : describeLocalFile({ localFile: lf }),
       scanTagged: !!localFolder && isScanTagged(scanTags, scanRel(localFolder, lf.path || lf.name)),
+      hasText: !!lf.path && hasTextOf.has(lf.path),
+      pending: !!lf._pending || busyPaths.has(normPath(lf.path)),
       _raw: lf,
     };
-  });
+  };
+  const draftItems = browseFiles.map(toDraftItem);
 
   // Waiting phone files whose destination is the folder on show, first.
   const samePath = (a, b) => String(a || '').replace(/[\\/]+$/, '').toLowerCase() === String(b || '').replace(/[\\/]+$/, '').toLowerCase();
@@ -1422,7 +2211,7 @@ export default function ProjectFiles({ embedded = false } = {}) {
   const binFolderItems = [];
   const binFileItems = [];
   const trashGroups = new Map();
-  for (const t of trashItems) {
+  for (const t of viewTrashItems) {
     if (t.folderGroup) {
       if (!trashGroups.has(t.folderGroup)) trashGroups.set(t.folderGroup, []);
       trashGroups.get(t.folderGroup).push(t);
@@ -1552,12 +2341,15 @@ export default function ProjectFiles({ embedded = false } = {}) {
     handleNavigateCrumb(folderStack.length - 2);
   };
   const fxRename = (item, newName) => {
+    if (item?.pending) return;
     if (item.kind === 'folder') { if (item._dir?.name) handleRenameFolder(item._dir, (newName || '').trim()); return; }
     handleRenameLocalFile(item._raw, newName);
   };
   const fxDelete = (item) => {
     // A waiting phone file isn't a project file yet: "delete" means reject it.
     if (item?.incoming) { fxIncoming(item, 'reject'); return; }
+    // Already on its way somewhere (renamed, moved, created) — hands off.
+    if (item?.pending) return;
     if (filesTab === 'trash') {
       if (item?._trashGroup) { handlePermanentDeleteGroup(item); return; }
       handlePermanentDelete(item._trash);
@@ -1569,6 +2361,22 @@ export default function ProjectFiles({ embedded = false } = {}) {
   const fxRestore = (item) => {
     if (item?._trashGroup) { handleRestoreGroup(item); return; }
     if (item?._trash) handleRestoreFromTrash(item._trash);
+  };
+  // Multi-selection delete / restore — one batch, one notification (the
+  // single-item paths above stay as they were for a lone item).
+  const fxDeleteMany = (items) => {
+    const list = (items || []).filter(Boolean);
+    if (list.length <= 1) { if (list[0]) fxDelete(list[0]); return; }
+    // Waiting phone files aren't project files: each is rejected on its own.
+    list.filter((it) => it.incoming).forEach((it) => fxIncoming(it, 'reject'));
+    const rest = list.filter((it) => !it.incoming && !it.pending);
+    if (filesTab === 'trash') handlePermanentDeleteMany(rest);
+    else handleDeleteMany(rest);
+  };
+  const fxRestoreMany = (items) => {
+    const list = (items || []).filter(Boolean);
+    if (list.length <= 1) { if (list[0]) fxRestore(list[0]); return; }
+    handleRestoreMany(list);
   };
   const fxOpenLocation = (item) => {
     const p = item?.kind === 'folder' ? item?._dir?.path : item?._raw?.path;
@@ -1591,16 +2399,20 @@ export default function ProjectFiles({ embedded = false } = {}) {
     // advisor infers the real kind from what the user describes and renames the
     // file to the matching extension when it generates the document.
     const kind = docKindFromName(filename);
+    const dir = currentDir;
+    // The new file shows at once, dimmed, while its empty document is built
+    // and written.
+    const ids = beginOps([{ type: 'add', isDir: false, path: joinPath(dir, filename), entry: { sizeBytes: 0, mtimeIso: new Date().toISOString() } }]);
     try {
       const blob = kind ? await emptyDocumentBlob(kind) : new Blob([''], { type: 'application/octet-stream' });
-      const { results, error } = await localFolderApi.writeFiles({ dir: currentDir, files: [{ filename, blob }] });
-      setBrowseTick((t) => t + 1);
+      const { results, error } = await callDisk(() => localFolderApi.writeFiles({ dir, files: [{ filename, blob }] }));
       const res = results?.[0];
       if (error || !res?.ok || !res?.path) {
-        notify({ category: 'file', variant: 'error', title: 'Couldn’t create file', body: error || res?.error || 'Failed to create the file', dedupeKey: 'fx-newfile-error' });
+        endOps(ids);
+        notify({ category: 'file', variant: 'error', title: `Couldn’t create “${filename}”`, body: error || res?.error || 'The file could not be written in this folder.', dedupeKey: 'fx-newfile-error' });
         return;
       }
-      await refetchLocalFiles();
+      await settleOps(ids, { dirs: [dir], expect: [res.path] });
       notify({ category: 'file', variant: 'success', icon: 'plus', title: 'File created', body: `“${filename}” added to this folder.`, silent: true, payload: actMeta('create', filename, { filePath: res.path }) });
       // A brand-new file must start with a clean AI thread — drop any stale
       // conversation saved at this exact path by a previous, since-renamed file
@@ -1610,6 +2422,7 @@ export default function ProjectFiles({ embedded = false } = {}) {
       // Leave the new file in place (selected for rename) — don't auto-open a
       // Doc Viewer window. The user opens it themselves when ready.
     } catch (err) {
+      endOps(ids);
       notify({ category: 'file', variant: 'error', title: 'Couldn’t create file', body: err?.message || String(err), dedupeKey: 'fx-newfile-error' });
     }
   };
@@ -1628,13 +2441,23 @@ export default function ProjectFiles({ embedded = false } = {}) {
   // audio or video file's captions), have the AI understand each one, connect
   // them into Data collections. A second run only reads what is new or changed
   // since — with nothing new it costs nothing. One progress toast, updated.
-  const fxScanFiles = async () => {
-    if (filesScan) { scanStopRef.current = true; return; }   // pressed again = stop
+  // `opts` (the scan button's card): `features` — which kinds of file are read
+  // and which steps run (lib/dataCollections SCAN_FEATURES); `force` — read
+  // and understand everything again.
+  const fxScanFiles = async (opts = {}) => {
+    if (isScanRunning(filesScan)) { requestScanStop(localFolder); return; }   // pressed again = stop
     if (!localFolder) {
       notify({ category: 'file', variant: 'info', title: 'Connect a folder first', body: 'Choose a folder on your computer, then the AI can scan it.', dedupeKey: 'fx-scan-nofolder' });
       return;
     }
-    scanStopRef.current = false;
+    // The folder this scan belongs to — fixed now, whatever the page shows
+    // later (it may be left, or switched to another project).
+    const scanDir = localFolder;
+    clearScanStop(scanDir);
+    const setFilesScan = (next) => setScanState(scanDir, next);
+    // How it ended — the gauges jump to 100% or drop back and say so for a
+    // moment (lib/scanRunner finishScan); null = nothing to show (not started).
+    let outcome = null;
     const say = (body, extra = {}) => notify({
       category: 'file', variant: 'info', icon: 'sparkles', title: 'Scanning the files', body,
       dedupeKey: 'fx-files-scan', dedupeStrategy: 'replace', persistent: true, ...extra,
@@ -1645,26 +2468,43 @@ export default function ProjectFiles({ embedded = false } = {}) {
       understand: (p) => `Understanding the files — ${Math.min(p.index + 1, p.total)} of ${p.total}…`,
       connect: (p) => (p.incremental ? `Fitting ${p.total} new file${p.total === 1 ? '' : 's'} into the collections…` : 'Connecting what the files say…'),
       faces: (p) => (p.total ? `Comparing faces with the identity documents — ${p.index + 1} of ${p.total} (on this computer)…` : 'Comparing faces with the identity documents (on this computer)…'),
+      links: (p) => (p.total ? `Cross-referencing the files — ${Math.min(p.index + 1, p.total)} of ${p.total} group${p.total === 1 ? '' : 's'}…` : 'Cross-referencing the files…'),
       save: () => 'Writing the data collections…',
     };
-    setFilesScan({ stage: 'list' });
+    setFilesScan({ stage: 'list', overall: 0, startedAt: Date.now() });
     say(STAGE.list());
     try {
       const { scanProjectFiles } = await import('../../lib/dataCollections');
-      const tags = loadScanTags(localFolder);
+      const tags = loadScanTags(scanDir);
       if (!tags.size) {
         notify({ category: 'file', variant: 'info', icon: 'sparkles', title: 'Tag files for the scan first', body: 'Right-click a file or a folder and choose \u201cTag for AI scan\u201d. Only tagged files are scanned; they show the AI mark.', dedupeKey: 'fx-files-scan', dedupeStrategy: 'replace' });
         return;
       }
-      const res = await scanProjectFiles(localFolder, {
+      const res = await scanProjectFiles(scanDir, {
         tags,
         projectId,
         projectName: selectedProject?.name,
-        isCancelled: () => scanStopRef.current,
-        onProgress: (p) => { setFilesScan(p); const line = STAGE[p.stage]?.(p); if (line) say(line); },
+        features: opts.features,
+        force: !!opts.force,
+        isCancelled: () => scanStopRequested(scanDir),
+        // The scan button's gauges read this: the latest event, plus what is
+        // kept across events (when it started, how many files there are).
+        onProgress: (p) => {
+          setFilesScan((prev) => ({
+            ...p,
+            startedAt: prev?.startedAt || Date.now(),
+            files: p.stage === 'read' ? p.total : prev?.files,
+            done: p.done ?? prev?.done,
+            skipped: p.skipped ?? prev?.skipped,
+            understood: p.understood ?? prev?.understood,
+          }));
+          // Files that needed no work pass silently (no toast per file).
+          if (p.quiet) return;
+          const line = STAGE[p.stage]?.(p); if (line) say(line);
+        },
       });
       const WHY = {
-        no_speech: 'no speech in it', no_text: 'no text in it', too_large: 'too large to transcribe here', decode_failed: 'the picture couldn\u2019t be opened',
+        timed_out: 'took too long \u2014 tried again next scan', no_speech: 'no speech in it', no_text: 'no text in it', too_large: 'too large to transcribe here', decode_failed: 'the picture couldn\u2019t be opened',
         unsupported: 'this file type can\u2019t be read', ocr_failed: 'the AI service couldn\u2019t be reached', ai_failed: 'the AI couldn\u2019t understand it',
       };
       const skippedNote = res.skipped?.length
@@ -1679,11 +2519,15 @@ export default function ProjectFiles({ embedded = false } = {}) {
           no_folder: 'No project folder is connected.',
         }[res.error] || `${res.error}${skippedNote}`;
         notify({ category: 'file', variant: res.error === 'cancelled' ? 'info' : 'error', title: res.error === 'cancelled' ? 'Scan stopped' : 'Couldn\u2019t scan the files', body, dedupeKey: 'fx-files-scan', dedupeStrategy: 'replace' });
+        outcome = res.error === 'cancelled' ? 'cancelled' : 'error';
         return;
       }
+      outcome = 'ok';
       setBrowseTick((t) => t + 1);
       await refetchLocalFiles();
-      const faceNote = res.faceMatches ? ` ${res.faceMatches} face match${res.faceMatches === 1 ? '' : 'es'} with identity documents.` : '';
+      const faceNote = (res.faceMatches ? ` ${res.faceMatches} face match${res.faceMatches === 1 ? '' : 'es'} with identity documents.` : '')
+        + (res.links ? ` ${res.links} link${res.links === 1 ? '' : 's'} between files.` : '')
+        + (res.linkErrors?.length ? ` Some files couldn\u2019t be cross-referenced (${res.linkErrors[0]}) \u2014 the next scan tries again.` : '');
       const body = res.upToDate && !res.created && !res.updated
         ? `Nothing new since the last scan \u2014 the ${res.collections.length} data collection${res.collections.length === 1 ? ' is' : 's are'} up to date.${faceNote}`
         : [
@@ -1698,9 +2542,33 @@ export default function ProjectFiles({ embedded = false } = {}) {
       });
     } catch (err) {
       notify({ category: 'file', variant: 'error', title: 'Couldn\u2019t scan the files', body: err?.message || String(err), dedupeKey: 'fx-files-scan', dedupeStrategy: 'replace' });
+      if (!outcome) outcome = 'error';
     } finally {
-      setFilesScan(null);
-      scanStopRef.current = false;
+      finishScan(scanDir, outcome);
+      clearScanStop(scanDir);
+    }
+  };
+
+  // ERASE THE SCAN'S MEMORY (the scan card's Erase memory): the Data
+  // collections go to the Trash, the links and the web index are wiped and
+  // what the AI understood of each file is forgotten. What was READ out of the
+  // files (extracted text, captions) is kept, so the next scan reads nothing
+  // again — it only asks the AI again.
+  const fxEraseScanMemory = async () => {
+    if (isScanRunning(filesScan) || !localFolder) return;
+    try {
+      const { eraseScanMemory } = await import('../../lib/dataCollections');
+      const res = await eraseScanMemory(localFolder, { projectId });
+      if (res.error) throw new Error(res.error);
+      setBrowseTick((t) => t + 1);
+      await refetchLocalFiles();
+      notify({
+        category: 'file', variant: 'success', icon: 'sparkles', title: 'Scan memory erased',
+        body: `${res.collections} data collection${res.collections === 1 ? '' : 's'} moved to the Trash; the links and what the AI understood of ${res.understood} file${res.understood === 1 ? '' : 's'} forgotten. The text read out of the files is kept.`,
+        dedupeKey: 'fx-files-scan', dedupeStrategy: 'replace',
+      });
+    } catch (err) {
+      notify({ category: 'file', variant: 'error', title: 'Couldn\u2019t erase the scan memory', body: err?.message || String(err), dedupeKey: 'fx-files-scan', dedupeStrategy: 'replace' });
     }
   };
 
@@ -1722,6 +2590,35 @@ export default function ProjectFiles({ embedded = false } = {}) {
   // Create new <type> file → write an empty styled Office file of the chosen kind
   // (docx / pptx / xlsx) to disk, then open it in a Doc Viewer window with the AI
   // generator armed (generate:true) so the user describes what they want and
+  // The toolbar's "Highlights sample": a Word document holding every highlight
+  // the file viewer draws (lib/highlightsSample), written into the folder on
+  // show under a free name — never over a file — and selected.
+  const fxAddHighlightsSample = async () => {
+    if (!localFolder) { notify({ category: 'file', variant: 'info', title: 'Connect a folder first', body: 'Choose a folder on your computer, then you can add the sample to it.', dedupeKey: 'fx-hlsample-nofolder' }); return; }
+    const { buildHighlightsSampleDocx, HIGHLIGHTS_SAMPLE_NAME } = await import('../../lib/highlightsSample');
+    const existing = new Set((viewLocalFiles || []).map((f) => String(f.name || '').toLowerCase()));
+    const stem = HIGHLIGHTS_SAMPLE_NAME.replace(/\.docx$/i, '');
+    let filename = HIGHLIGHTS_SAMPLE_NAME;
+    for (let n = 2; existing.has(filename.toLowerCase()); n += 1) filename = `${stem} (${n}).docx`;
+    const dir = currentDir;
+    const ids = beginOps([{ type: 'add', isDir: false, path: joinPath(dir, filename), entry: { sizeBytes: 0, mtimeIso: new Date().toISOString() } }]);
+    try {
+      const blob = await buildHighlightsSampleDocx();
+      const { results, error } = await callDisk(() => localFolderApi.writeFiles({ dir, files: [{ filename, blob }] }));
+      const res = results?.[0];
+      if (error || !res?.ok || !res?.path) {
+        endOps(ids);
+        notify({ category: 'file', variant: 'error', title: 'Couldn’t add the highlights sample', body: error || res?.error || 'The file could not be written in this folder.', dedupeKey: 'fx-hlsample-error' });
+        return;
+      }
+      await settleOps(ids, { dirs: [dir], expect: [res.path] });
+      notify({ category: 'file', variant: 'success', icon: 'plus', title: 'Highlights sample added', body: `“${filename}” — open it to see every highlight.`, silent: true, payload: actMeta('create', filename, { filePath: res.path }) });
+    } catch (err) {
+      endOps(ids);
+      notify({ category: 'file', variant: 'error', title: 'Couldn’t add the highlights sample', body: String(err?.message || err), dedupeKey: 'fx-hlsample-error' });
+    }
+  };
+
   // Claude builds it. Uses a unique "Untitled" name so repeated creates don't
   // collide. Backs the "Create new file" dropdown in the Files toolbar.
   const fxCreateTypedFile = async (kind) => {
@@ -1735,27 +2632,30 @@ export default function ProjectFiles({ embedded = false } = {}) {
     // Pick the first free "Untitled[ n]" against the current folder listing. A
     // wildcard also steers clear of "Untitled.docx" and friends — it is about
     // to become one of them.
-    const existing = new Set((localFiles || []).map((f) => String(f.name || '').toLowerCase()));
+    const existing = new Set((viewLocalFiles || []).map((f) => String(f.name || '').toLowerCase()));
     const taken = (base) => (ext
       ? existing.has(`${base}${suffix}`.toLowerCase())
       : ['', '.docx', '.pptx', '.xlsx', '.pdf'].some((s) => existing.has(`${base}${s}`.toLowerCase())));
     let base = 'Untitled';
     for (let n = 2; taken(base); n += 1) base = `Untitled ${n}`;
     const filename = `${base}${suffix}`;
+    const dir = currentDir;
+    // Shows at once, dimmed, while the empty document is built and written.
+    const ids = beginOps([{ type: 'add', isDir: false, path: joinPath(dir, filename), entry: { sizeBytes: 0, mtimeIso: new Date().toISOString() } }]);
     try {
       // A PDF starts as zero bytes too: it isn't written, it's converted from
       // another file, and an empty file is what makes the viewer ask which.
       const blob = (ext && ext !== 'pdf')
         ? await emptyDocumentBlob(ext)
         : new Blob([''], { type: ext === 'pdf' ? 'application/pdf' : 'application/octet-stream' });
-      const { results, error } = await localFolderApi.writeFiles({ dir: currentDir, files: [{ filename, blob }] });
-      setBrowseTick((t) => t + 1);
+      const { results, error } = await callDisk(() => localFolderApi.writeFiles({ dir, files: [{ filename, blob }] }));
       const res = results?.[0];
       if (error || !res?.ok || !res?.path) {
-        notify({ category: 'file', variant: 'error', title: 'Couldn’t create file', body: error || res?.error || 'Failed to create the file', dedupeKey: 'fx-newfile-error' });
+        endOps(ids);
+        notify({ category: 'file', variant: 'error', title: `Couldn’t create “${filename}”`, body: error || res?.error || 'The file could not be written in this folder.', dedupeKey: 'fx-newfile-error' });
         return;
       }
-      await refetchLocalFiles();
+      await settleOps(ids, { dirs: [dir], expect: [res.path] });
       notify({ category: 'file', variant: 'success', icon: 'plus', title: 'File created', body: `“${filename}” added to this folder.`, silent: true, payload: actMeta('create', filename, { filePath: res.path }) });
       // A brand-new file starts with a clean AI thread (drop any stale chat saved
       // at this exact path by a since-renamed file).
@@ -1764,12 +2664,12 @@ export default function ProjectFiles({ embedded = false } = {}) {
       // user can name it first (the workspace applies this once it lists).
       setRenameTargetPath(res.path);
     } catch (err) {
+      endOps(ids);
       notify({ category: 'file', variant: 'error', title: 'Couldn’t create file', body: err?.message || String(err), dedupeKey: 'fx-newfile-error' });
     }
   };
   const fxUpload = () => {
     if (!localFolder) { handleBrowseFolder(); return; }
-    if (needsReconnect) { handleReconnect(); return; }
     setImportOpen(true);
   };
   // Resolve a breadcrumb path token to its real directory, then move the
@@ -1787,7 +2687,6 @@ export default function ProjectFiles({ embedded = false } = {}) {
   };
   const fxUploadFolder = () => {
     if (!localFolder) { handleBrowseFolder(); return; }
-    if (needsReconnect) { handleReconnect(); return; }
     localFolderUploadInputRef.current?.click();
   };
 
@@ -1803,9 +2702,9 @@ export default function ProjectFiles({ embedded = false } = {}) {
   // the current level's listing when paths can't be matched (web backend).
   const inFolder = folderStack.length > 0;
   const mastheadFiles = (() => {
-    if (!inFolder) return localFiles;
+    if (!inFolder) return viewLocalFiles;
     if (typeof currentDir === 'string' && currentDir) {
-      const matches = localFiles.filter((f) => typeof f.path === 'string'
+      const matches = viewLocalFiles.filter((f) => typeof f.path === 'string'
         && (f.path.startsWith(`${currentDir}\\`) || f.path.startsWith(`${currentDir}/`)));
       if (matches.length) return matches;
     }
@@ -1846,19 +2745,64 @@ export default function ProjectFiles({ embedded = false } = {}) {
       : `${fmtCount(trashDisplayCount)} ${trashDisplayCount === 1 ? 'item' : 'items'} · Removed for good after ${TRASH_RETENTION_DAYS} days`,
   };
 
+  // See itemReuseRef: hand back last render's item objects / lists when
+  // nothing in them changed. One level deep — an item's nested plain objects
+  // (its descriptor, its `_raw` listing entry) are compared field by field.
+  const sameValue = (a, b) => {
+    if (a === b) return true;
+    if (!a || !b || typeof a !== 'object' || typeof b !== 'object' || Array.isArray(a) || Array.isArray(b)) return false;
+    const ka = Object.keys(a);
+    if (ka.length !== Object.keys(b).length) return false;
+    return ka.every((k) => Object.prototype.hasOwnProperty.call(b, k) && a[k] === b[k]);
+  };
+  const sameItem = (a, b) => {
+    const ka = Object.keys(a);
+    if (ka.length !== Object.keys(b).length) return false;
+    return ka.every((k) => Object.prototype.hasOwnProperty.call(b, k) && sameValue(a[k], b[k]));
+  };
+  const reuseList = (slot, list) => {
+    const cache = itemReuseRef.current;
+    const next = list.map((it) => {
+      const prev = it && it.id != null ? cache.items.get(`${slot}:${it.id}`) : null;
+      return prev && sameItem(prev, it) ? prev : it;
+    });
+    for (const it of next) if (it && it.id != null) cache.items.set(`${slot}:${it.id}`, it);
+    // Keep the cache to what is on show (plus the other slot's entries).
+    if (cache.items.size > next.length * 2 + 400) {
+      const keep = new Map();
+      for (const [k, v] of cache.items) if (!k.startsWith(`${slot}:`)) keep.set(k, v);
+      for (const it of next) if (it && it.id != null) keep.set(`${slot}:${it.id}`, it);
+      cache.items = keep;
+    }
+    const prevList = cache.lists[slot];
+    if (prevList && prevList.length === next.length && prevList.every((it, i) => it === next[i])) return prevList;
+    cache.lists[slot] = next;
+    return next;
+  };
+
   const filesWorkspaceProps = {
     projectId,
     masthead: filesMasthead,
-    summaryText: `${localFiles.length} ${localFiles.length === 1 ? 'file' : 'files'}`,
+    summaryText: `${viewLocalFiles.length} ${viewLocalFiles.length === 1 ? 'file' : 'files'}`,
     // `tab` ('drafts' | 'trash') is the in-panel mode: 'trash' is the recycle
     // bin, entered by opening its root folder entry and exited via the
     // breadcrumb.
     tab: filesTab,
     canEdit: true,
     hasLocalFolder: Boolean(localFolder),
-    // Electron auto-binds the project directory (no manual picking) — only the
-    // web backend exposes a folder picker / reconnect affordance.
-    onPickFolder: isElectronBranch ? undefined : (needsReconnect ? handleReconnect : handleBrowseFolder),
+    // The project's folder is found by its project file; the user is only
+    // asked for one when it has gone missing, or the folder picked for it
+    // belongs to another project.
+    onPickFolder: folderMissing ? handleLinkFolder : undefined,
+    pickFolderCopy: folderMissing ? (folderMissing.mismatch ? {
+      title: 'This folder belongs to another project',
+      body: 'The folder DocVex had for this project holds another project’s file. Show DocVex this project’s own folder.',
+      button: 'Choose folder',
+    } : {
+      title: 'Couldn’t find this project’s folder',
+      body: `It was at “${folderMissing.dir}”. If you moved or renamed it, show DocVex where it is now.`,
+      button: 'Find the folder',
+    }) : null,
     hasLocalFolderApi,
     folderError,
     onRetryFolder: () => setFolderRetry((t) => t + 1),
@@ -1868,15 +2812,17 @@ export default function ProjectFiles({ embedded = false } = {}) {
     onUp: fxUp,
     canBack: fxCanUp,
     canUp: fxCanUp,
-    folders: filesTab === 'drafts' ? draftFolders : binFolderItems,
-    items: filesTab === 'drafts' ? [...incomingItems, ...draftItems] : binFileItems,
+    folders: reuseList('folders', filesTab === 'drafts' ? draftFolders : binFolderItems),
+    items: reuseList('items', filesTab === 'drafts' ? [...incomingItems, ...draftItems] : binFileItems),
     onIncoming: fxIncoming,
     loading: filesTab === 'trash' ? trashLoading : localLoading,
     onOpen: fxOpen,
     onOpenContent: fxOpenContent,
     onRename: (item, ...rest) => { if (!item?.incoming) fxRename(item, ...rest); },
     onDelete: fxDelete,
+    onDeleteMany: fxDeleteMany,
     onRestore: fxRestore,
+    onRestoreMany: fxRestoreMany,
     onOpenLocation: fxOpenLocation,
     // No toolbar refresh button — the doc-viewer's "Files" chrome has its own
     // refresh (which broadcasts files:changed → relist), and the main Files page
@@ -1885,8 +2831,13 @@ export default function ProjectFiles({ embedded = false } = {}) {
     onNewFolder: fxNewFolder,
     onNewFile: (hasLocalFolderApi && filesTab === 'drafts' && Boolean(localFolder)) ? fxNewFile : undefined,
     onCreateTypedFile: (hasLocalFolderApi && filesTab === 'drafts' && Boolean(localFolder)) ? fxCreateTypedFile : undefined,
+    onAddHighlightsSample: (hasLocalFolderApi && filesTab === 'drafts' && Boolean(localFolder)) ? fxAddHighlightsSample : undefined,
     onScanFiles: (hasLocalFolderApi && filesTab === 'drafts' && Boolean(localFolder)) ? fxScanFiles : undefined,
     onToggleScanTag: (hasLocalFolderApi && filesTab === 'drafts' && Boolean(localFolder)) ? fxToggleScanTag : undefined,
+    onEraseScanMemory: (hasLocalFolderApi && filesTab === 'drafts' && Boolean(localFolder)) ? fxEraseScanMemory : undefined,
+    // The Graph view (File explorer · Graph): what the AI scan read and linked.
+    graphSource: (hasLocalFolderApi && localFolder) ? { dir: localFolder, projectId } : null,
+    onOpenPath: (path, name) => openDocViewerWindow({ path, name: name || String(path).split(/[\\/]/).pop(), mime: '' }),
     scanTaggedCount: scanTags.size,
     scanState: filesScan,
     renameTargetPath,

@@ -41,6 +41,13 @@
 //     Drafts a legal document of the requested type. Returns { ok, text }
 //     — a complete English draft for a lawyer to review and adapt.
 //
+//   { action: "passport", files: [{ id, name, text, method? }] }   (≤8 files)
+//   { action: "crossref", passports: [{ id, name, ...passport }] }
+//     The Files tab AI scan's MAP and REDUCE steps — a file's text → its
+//     passport (summary, subject, facts, parties, dates, themes); every
+//     passport of the project at once → the unified timeline, unified facts and
+//     TYPED links between files. Strict JSON via a pinned tool. See fileGraph.ts.
+//
 // verify_jwt is on (default) — supabase-js attaches the caller's JWT, so
 // only signed-in users reach this. Claude is called over raw REST, same
 // shape as the legal-ai function. Model defaults to claude-opus-4-7,
@@ -52,6 +59,7 @@
 //   show a friendly message instead of treating it as a hard failure.
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { firmDescriptor, jurisdictionPrompt } from "../_shared/jurisdictions.ts";
+import { handleCrossref, handlePassport } from "./fileGraph.ts";
 
 const corsHeaders: Record<string, string> = {
   "Access-Control-Allow-Origin": "*",
@@ -86,6 +94,8 @@ const FILES_BETA = "files-api-2025-04-14";
 // unknown/empty value falls back to the per-action default, so a stale client
 // can never push an arbitrary model id through to Anthropic.
 const MODEL_ALLOW = new Set([
+  "claude-opus-5-5",
+  "claude-sonnet-5",
   "claude-opus-4-8",
   "claude-opus-4-7",
   "claude-sonnet-4-6",
@@ -739,6 +749,10 @@ Deno.serve(async (req: Request) => {
       return handleGenerate(body);
     case "office":
       return handleOffice(body);
+    case "passport":
+      return handlePassport(body, { apiKey: ANTHROPIC_API_KEY, pickModel, json: jsonResponse });
+    case "crossref":
+      return handleCrossref(body, { apiKey: ANTHROPIC_API_KEY, pickModel, json: jsonResponse });
     default:
       return jsonResponse({ error: "unknown_action" }, 400);
   }

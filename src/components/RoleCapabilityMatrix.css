@@ -149,7 +149,7 @@
   border-radius: 4px;
   color: var(--text-muted);
   cursor: pointer;
-  transition: background 120ms, color 120ms, border-color 120ms;
+  transition: background 120ms, border-color 120ms;
 }
 
 .role-matrix-header-icon-btn:hover {
@@ -184,7 +184,7 @@
   border-radius: 6.4px;
   color: var(--text-muted);
   cursor: pointer;
-  transition: background 120ms, color 120ms, border-color 120ms;
+  transition: background 120ms, border-color 120ms;
 }
 
 .role-matrix-add-btn:hover {

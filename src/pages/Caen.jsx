@@ -12,7 +12,7 @@ import { logHistory } from '../lib/tabHistory';
 import { BarPicker } from '../components/LegalBar';
 import { CaenOutline, CaenAtlas } from './CaenViews';
 import {
-  loadCaenRev, peekCaenTrees, caenEntry, caenChildren, searchCaen, normCode, sentenceCase, REVS_ALL,
+  loadCaenRev, peekCaenTrees, peekCaenNotes, caenEntry, caenChildren, searchCaen, normCode, sentenceCase, REVS_ALL,
 } from '../lib/caen';
 
 // CAEN — the nomenclature of economic activities, in the app.
@@ -232,6 +232,18 @@ export default function Caen() {
     <LegalWorkspace
       className="cn-page"
       rootRef={pageRef}
+      // The open code AS THE DATA HOLDS IT (the Source view): its entry in the
+      // nomenclature bundled from the INS files (l = level, n = name, p =
+      // parent), with the INS explanatory notes for Rev. 3.
+      source={shown ? {
+        site: 'insse.ro',
+        service: `CAEN Rev. ${shown.rev || 3} — the INS nomenclature, bundled with DocVex`,
+        data: {
+          code: shown.code,
+          ...(trees[shown.rev || 3]?.items?.[shown.code] || {}),
+          ...((shown.rev || 3) === 3 && peekCaenNotes()?.[shown.code] ? { notes: peekCaenNotes()[shown.code] } : {}),
+        },
+      } : null}
       items={opened.map((o) => {
         const it = trees[o.rev]?.items?.[o.code];
         return {

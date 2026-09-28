@@ -75,7 +75,7 @@
   border: 1px solid transparent; border-radius: var(--ds-control-radius, 4.8px);
   background: transparent; color: var(--text-muted);
   cursor: pointer;
-  transition: background 120ms ease, color 120ms ease, border-color 120ms ease;
+  transition: background 120ms ease, border-color 120ms ease;
 }
 .lg-icobtn svg { width: 15px; height: 15px; }
 .lg-icobtn:hover { background: color-mix(in srgb, var(--text-primary) var(--ds-control-tint-hover, 8%), transparent); border-color: var(--ds-hairline, var(--border)); color: var(--text-primary); }
@@ -174,7 +174,10 @@
   display: inline; margin: 0; padding: 0; border: 0;
   font: inherit; color: inherit; text-align: inherit; line-height: inherit;
   cursor: pointer; border-radius: 2px;
-  --ref: var(--accent); --ref-wash: 12%;
+  /* Each kind in its PLATFORM's colour (lib/legalBrowser PLATFORMS): an act
+     legislatie.just.ro's violet, CAEN insse.ro's amber, a court file
+     portal.just.ro's blue, a CUI anaf.ro's green. */
+  --ref: var(--cat-update); --ref-wash: 12%;
   background-image: linear-gradient(var(--ref), var(--ref));
   background-size: 100% 1.4px; background-position: 0 100%; background-repeat: no-repeat;
   background-color: color-mix(in srgb, var(--ref) var(--ref-wash), transparent);
@@ -460,7 +463,7 @@
 @media (max-width: 760px) {
   .lg-act { padding: 20px 18px 30px; }
 }
-.lg-ref.is-cui { --ref: var(--info); --ref-wash: 14%; }
+.lg-ref.is-cui { --ref: var(--success); --ref-wash: 14%; }
 
 /* LOADING — a spinner with a line of text, shown only once something has
    taken a moment (LoadingNote): reading an act, getting the portal's

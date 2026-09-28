@@ -1,6 +1,6 @@
 ﻿/* DocVex theme system — brand palette + semantic aliases for two themes.
  *
- * Imported once globally from src/renderer.jsx + src/web.jsx after index.css.
+ * Imported once globally from src/renderer.jsx after index.css.
  * Selectors are scoped via [data-theme="…"] on <html>, set by ThemeContext.
  *
  * Pattern: the bare :root block defines the brand-palette constants AND a
@@ -25,7 +25,7 @@
   --color-cognac: #8B5E3C;
 
   /* ── Typography ────────────────────────────────────────────────────────
-     Theme-agnostic. Fonts loaded via <link> in index.html / index.web.html. */
+     Theme-agnostic. Fonts loaded via <link> in index.html. */
   --font-body:    'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   --font-display: 'Plus Jakarta Sans', 'Inter', system-ui, sans-serif;
 }

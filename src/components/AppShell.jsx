@@ -1,4 +1,4 @@
-﻿import React, { Suspense, startTransition, useEffect, useLayoutEffect, useRef, useState } from 'react';
+﻿import React, { Suspense, startTransition, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Outlet, useLocation, Navigate, useNavigate } from 'react-router-dom';
 import { RouteFallback, preloadProjectList, preloadRoutes } from '../AppRoutes';
 import { warmLegalData } from '../lib/legalWarm';
@@ -12,10 +12,12 @@ import ContentShell from './SplitView';
 import CursorSpotlight from './CursorSpotlight';
 import { useAuth } from '../context/AuthContext';
 import { useSelectedProject } from '../context/SelectedProjectContext';
-import { isElectron, isTabWindow } from '../lib/platform';
+import { isTabWindow } from '../lib/platform';
 import { toLayoutPx } from '../lib/appZoom';
 import { familyOf } from '../lib/designSystem';
 import './AppShell.css';
+import { usePerfAllows } from '../lib/usePerf';
+import { hydrateProject } from '../lib/projectIndexClient';
 
 // Routes that operate on the currently-selected project. The banner shows on
 // these so the user always sees which project they're working in. /projects
@@ -86,6 +88,9 @@ const HUB_LEAVE_MS = 150;
 const clampSidebarWidth = (px) => Math.min(SIDEBAR_WIDTH_MAX, Math.max(SIDEBAR_WIDTH_DEFAULT, Math.round(px)));
 
 export default function AppShell() {
+  // Graphics preset (Settings → Optimization): below High the light stays
+  // put instead of following the pointer.
+  const spotlightOn = usePerfAllows('spotlight');
   const { pathname } = useLocation();
   const { session, loading: authLoading } = useAuth();
   // Sidebar minimize state — persisted per device (not per user; it's a layout
@@ -177,7 +182,11 @@ export default function AppShell() {
   };
   // While switching/loading a project we drop the tab content (and its chrome)
   // and show ONLY the spinner over the ambient dot-grid + cursor spotlight.
-  const { switching } = useSelectedProject();
+  const { switching, selectedProjectId } = useSelectedProject();
+  // Load what the project index knows about the selected project's files
+  // (and move this machine's old localStorage data across, once) so the
+  // stores that read it synchronously have it — lib/projectIndexClient.
+  useEffect(() => { if (selectedProjectId) void hydrateProject(selectedProjectId); }, [selectedProjectId]);
   // When a switch ends (switching: true → false) we re-mount the content and
   // fade it in once the loader has finished dissolving. This flag drives that
   // entrance animation and clears itself when it completes (or on the next
@@ -262,6 +271,14 @@ export default function AppShell() {
     }, HUB_LEAVE_MS);
   };
   useEffect(() => () => clearTimeout(hubNavTimer.current), []);
+  // Stable handles for the (memoised) Sidebar: the functions above are remade
+  // every render, which would defeat the memo. Each call reaches the latest one.
+  const goToHubRef = useRef(goToHub);
+  goToHubRef.current = goToHub;
+  const toggleSidebarRef = useRef(toggleSidebar);
+  toggleSidebarRef.current = toggleSidebar;
+  const onHubNav = useCallback(() => goToHubRef.current(), []);
+  const onToggleCollapse = useCallback(() => toggleSidebarRef.current(), []);
   // Drop the optimistic flag once a route has actually committed: on the Hub
   // `onHub` takes over, anywhere else the rail slides back in.
   useEffect(() => { setHubPending(false); }, [pathname]);
@@ -296,10 +313,12 @@ export default function AppShell() {
   ) : outlet;
   // Once signed in: every page's chunk and the Legislation platforms' data
   // are warmed while the window is idle, so no tab waits on either later.
+  // Held back a few seconds so none of it competes with the first screen
+  // (the boot route's chunk, its folder listing) on a slow office machine.
   useEffect(() => {
-    if (!session) return;
-    preloadRoutes();
-    warmLegalData();
+    if (!session) return undefined;
+    const t = setTimeout(() => { preloadRoutes(); warmLegalData(); }, 6000);
+    return () => clearTimeout(t);
   }, [session]);
 
   // Electron: force signed-out users to the auth screen — the app shell is
@@ -309,12 +328,9 @@ export default function AppShell() {
   // while signed out: it stashes its token and routes through /auth itself
   // (see InviteAccept.jsx). While auth is still hydrating we hold on a
   // spinner instead of flashing the shell.
-  //
-  // Web: NO auth wall — signed-out visitors get the shell and explore the
-  // Demo Workspace (lib/demoWorkspace; SelectedProjectContext selects it).
   const isInviteRoute = pathname.startsWith('/invite/');
   if (authLoading) return <RouteFallback />;
-  if (isElectron && !session && !isInviteRoute) return <Navigate to="/auth" replace />;
+  if (!session && !isInviteRoute) return <Navigate to="/auth" replace />;
 
   return (
       <div
@@ -340,9 +356,9 @@ export default function AppShell() {
           {!isTabWindow && <div className="sidebar-slot">
             <Sidebar
               collapsed={sidebarCollapsed}
-              onToggleCollapse={toggleSidebar}
+              onToggleCollapse={onToggleCollapse}
               offstage={railOffstage}
-              onHubNav={goToHub}
+              onHubNav={onHubNav}
             />
           </div>}
           {/* Drag handle on the rail's right edge. Rendered by the SHELL, not
@@ -367,7 +383,7 @@ export default function AppShell() {
             {/* Cursor-following spotlight that brightens the ambient dot grid.
                 A real element moved by a direct transform write (not a CSS-var
                 `::after`) to avoid a document-wide style recalc on every move. */}
-            <CursorSpotlight />
+            <CursorSpotlight follow={spotlightOn} />
             {/* On project-scoped routes the page content is wrapped in a rounded
                 "sheet" panel. ContentShell renders it as a single pane with the
                 in-pane nav chrome (left rail + header). Dropped while switching

@@ -22,6 +22,8 @@ import {
   isIdentityFile, normalizeIdType, ID_TYPE_RULE, normalizePeople,
 } from './identities';
 import { normalizeNationality } from './nationalities';
+import { RO_ID_PROMPT, normalizeRoId, roIdToRecordFields } from './roIdDocuments';
+import { AUTHORITY_RULE } from './docAuthority';
 
 // Read an image file with the OCR the Doc Viewer already uses. The lasso tool
 // hands `recognizeCanvas` a cropped canvas; here the whole picture is the crop,
@@ -119,7 +121,7 @@ const PEOPLE_SPEC = [
 
 function autofillPrompt(kind, text) {
   const shape = Object.fromEntries(AUTOFILL_KEYS.map((k) => [k, '']));
-  if (kind === 'org') { shape.people = []; shape.contacts = []; }
+  if (kind === 'org') { shape.people = []; shape.contacts = []; } else shape.ro_id = {};
   return [
     kind === 'org'
       ? 'The text below was read off a Romanian company document — a certificat de înregistrare, a CUI certificate, an act constitutiv / articles of association, a trade-register extract (furnizare de informații) or similar.'
@@ -129,8 +131,9 @@ function autofillPrompt(kind, text) {
     JSON.stringify(shape, null, 0),
     '',
     'Rules:',
-    ...(kind === 'org' ? [PEOPLE_SPEC] : []),
+    ...(kind === 'org' ? [PEOPLE_SPEC] : [RO_ID_PROMPT]),
     '- Copy values VERBATIM. Leave a key as "" when the text does not state it. Never guess.',
+    `- ${AUTHORITY_RULE}`,
     '- legalName is the full name exactly as printed (surname first, as Romanian documents write it).',
     '- For a person also give the two parts: lastName is the surname (Nume / Nom / Last name), firstName the given names (Prenume / Prenom / First name). Leave both "" for a company.',
     '- "SERIA RX NR 456789" is idSeries "RX" and idNumber "456789" — two separate keys, never one.',
@@ -153,6 +156,19 @@ function readValue(key, raw) {
   if (key === 'idType') return normalizeIdType(value);
   if (key === 'nationality') return normalizeNationality(value) || value;
   return value;
+}
+
+// A PERSON's reading, checked and completed (lib/roIdDocuments): the model's
+// `ro_id`, the text's own labels, the CNP and the machine-readable strip read
+// against each other. What the record lacks is filled from it — the birth date
+// and sex from the CNP, the series and number from the strip — and every
+// disagreement comes back in `roId.warnings`.
+function completePerson(parsed, text, fields) {
+  const roId = normalizeRoId(parsed?.ro_id, text);
+  for (const [k, v] of Object.entries(roIdToRecordFields(roId))) {
+    if (!fields[k]) fields[k] = readValue(k, v);
+  }
+  return roId;
 }
 
 // Pull the JSON object out of a model reply that may have wrapped it.
@@ -209,13 +225,14 @@ export async function readIdentityFromImage(imageBlob, record, { jurisdiction, p
     if (!value) continue;
     fields[key] = value;
   }
+  const roId = (record?.kind || 'person') === 'person' ? completePerson(parsed, text, fields) : null;
   // EVERYTHING it read, including values the record already has. Nothing here
   // is applied: the form shows each reading under the field it belongs to and
   // waits to be told. So a value that DISAGREES with what is already typed is
   // the most useful thing this can hand back — dropping it, as this used to,
   // hid the one case worth a person's attention. The caller decides what to
   // show; overwriting is still never automatic.
-  return { fields, text };
+  return { fields, text, roId };
 }
 
 // ── Reading a record off ANY file ───────────────────────────────────────
@@ -407,6 +424,7 @@ export async function readIdentityFromFiles(files, record, { jurisdiction, proje
   // rows of a table, and the pane offers them one by one like every other
   // reading rather than writing them into the record behind the reader.
   const people = kind === 'org' ? normalizePeople(parsed.people) : [];
+  const roId = kind === 'person' ? completePerson(parsed, joined, fields) : null;
   // The further ways to reach them, in the document's own words.
   const contacts = kind === 'org' && Array.isArray(parsed.contacts)
     ? parsed.contacts
@@ -417,7 +435,7 @@ export async function readIdentityFromFiles(files, record, { jurisdiction, proje
   // Saved for next time: this file, read into a record of this kind, said this.
   if (only && (Object.keys(fields).length || people.length || contacts.length)) {
     saveAiFacet({ path: only.path, name: only.name, projectId }, 'identity',
-      { data: { kind, fields, people, contacts }, engine: 'claude', stamp: await stampFor(only.path) });
+      { data: { kind, fields, people, contacts, roId }, engine: 'claude', stamp: await stampFor(only.path) });
   }
-  return { fields, people, contacts, text: joined, read: texts.map((t) => t.name), skipped };
+  return { fields, people, contacts, roId, text: joined, read: texts.map((t) => t.name), skipped };
 }

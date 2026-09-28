@@ -43,6 +43,10 @@ function initialRoleKey(member) {
 //                  request is in flight (mirrors the rest of the modals).
 //   onSaved      — optional success callback. Receives the new option chosen
 //                  ({ baseRole, customRoleId }) so the parent can toast / etc.
+//                  Fired BEFORE the server answers (optimistic).
+//   onFailed     — optional rollback callback, fired if the server then
+//                  refuses the change. Receives the member's id and previous
+//                  { userId, baseRole, customRoleId } to put back.
 export default function ChangeMemberRoleModal({
   open,
   member,
@@ -51,6 +55,7 @@ export default function ChangeMemberRoleModal({
   memberName,
   onClose,
   onSaved,
+  onFailed,
 }) {
   const { notify } = useNotifications();
   const [roleKey, setRoleKey] = useState('member');
@@ -115,20 +120,36 @@ export default function ChangeMemberRoleModal({
     const baseRole     = opt?.isCustom ? opt.baseRole     : roleKey;
     const customRoleId = opt?.isCustom ? opt.customRoleId : null;
 
-    setPending(true);
+    // Optimistic: the member's pill changes and the modal closes the moment
+    // Save is pressed (onSaved patches the row locally). A role change is
+    // plainly reversible, so if the server refuses it the row is put back to
+    // the role it had (onFailed) and a toast says the change did not happen.
+    // The previous role is captured now — `member` is the parent's row, which
+    // the optimistic patch is about to replace.
+    const previous = { userId: member.user_id, baseRole: member.role, customRoleId: member.custom_role_id ?? null };
+    const who = memberName || 'Member';
+    const userId = member.user_id;
+    onSaved?.({ baseRole, customRoleId });
+    onClose?.();
+
     const { error: rpcErr } = await setMemberRole({
       projectId,
-      userId: member.user_id,
+      userId,
       baseRole,
       customRoleId,
     });
-    setPending(false);
 
     if (rpcErr) {
       // Typical failure: actor's capability got revoked between page load and
-      // click, RLS rejects with zero rows / permission denied. Leave the
-      // modal open with an inline message so the user can read it.
-      setError(rpcErr.message || 'Could not update the member’s role.');
+      // click, RLS rejects with zero rows / permission denied.
+      onFailed?.(previous);
+      notify({
+        category: 'member',
+        variant: 'error',
+        title: 'Role not changed',
+        body: `${who} keeps their previous role. ${rpcErr.message || 'The server rejected the request.'}`,
+        dedupeKey: `member-role-change-failed:${projectId}:${userId}`,
+      });
       return;
     }
 
@@ -137,11 +158,9 @@ export default function ChangeMemberRoleModal({
       variant: 'success',
       icon: 'edit',
       title: 'Role updated',
-      body: `${memberName || 'Member'} is now ${opt?.label || baseRole}.`,
-      dedupeKey: `member-role-changed:${projectId}:${member.user_id}`,
+      body: `${who} is now ${opt?.label || baseRole}.`,
+      dedupeKey: `member-role-changed:${projectId}:${userId}`,
     });
-    onSaved?.({ baseRole, customRoleId });
-    onClose?.();
   };
 
   return (

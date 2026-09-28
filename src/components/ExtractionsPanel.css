@@ -41,7 +41,7 @@
   font-weight: 500;
   text-align: left;
   cursor: pointer;
-  transition: background 120ms ease, color 120ms ease;
+  transition: background 120ms ease;
 }
 .exr-side-item:hover { background: var(--accent-tint); color: var(--text-primary); }
 /* Active = solid primary accent (same hue as the count badge / tab underline),

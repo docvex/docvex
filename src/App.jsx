@@ -1,12 +1,13 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef } from 'react';
 import { Outlet, useLocation, useMatch, useNavigate } from 'react-router-dom';
 import { ProjectProvider, useProject } from './context/ProjectContext';
 import { useSelectedProject } from './context/SelectedProjectContext';
 import { useAuth } from './context/AuthContext';
-import { isElectron, isAuxWindow, isLocalhostWeb, notifyFilesChanged, isTabWindow, reportTabWindowRoute } from './lib/platform';
-import { localFolderApi } from './lib/localFolder';
-import { DEMO_PROJECT_ID } from './lib/demoWorkspace';
-import { prefetchProjectFiles } from './lib/projectFilesPrefetch';
+import { isElectron, isAuxWindow, isTabWindow, reportTabWindowRoute } from './lib/platform';
+import { projectIndexApi } from './lib/localFolder';
+import { getProject } from './lib/projects';
+import { useNotifications } from './context/NotificationsContext';
+import { prefetchProjectFiles, clearPrefetchedProjectFiles } from './lib/projectFilesPrefetch';
 import AppShell from './components/AppShell';
 import TitleBar from './components/TitleBar';
 import ReportProblemModal from './components/ReportProblemModal';
@@ -88,19 +89,17 @@ function WindowTitle() {
 }
 
 // Background warm-up for the Files page. The app boots on the Hub (/projects);
-// while the user is there, this prefetches the on-disk folder + listings +
-// sidecar for the selected (most-recently-worked-on) project into a module
-// cache, so the first "Project" tab open (→ /files) paints the grid on the
-// first frame instead of resolving the folder + listing live. Electron-only;
-// prefetchProjectFiles no-ops on web (no ambient per-project folder). Headless.
+// while the user is there, this opens the selected (most-recently-worked-on)
+// project from its project file and reads its listing out of the project
+// index into a module cache, so the first "Project" tab open (→ /files)
+// paints the grid on the first frame. Electron-only. Headless.
 function ProjectPrefetch() {
   const { selectedProjectId, selectedProject } = useSelectedProject();
   const { session } = useAuth();
   const userId = session?.user?.id || null;
   useEffect(() => {
     // Main window only — a Doc Viewer / snip window will never open the Files
-    // page, so paying the recursive folder scan + sidecar read per window
-    // (times every open viewer) is pure waste.
+    // page, so warming it per window (times every open viewer) is pure waste.
     if (!isElectron || isAuxWindow || !selectedProjectId) return;
     prefetchProjectFiles({
       projectId: selectedProjectId,
@@ -111,80 +110,53 @@ function ProjectPrefetch() {
   return null;
 }
 
-// Localhost-only (web build): floating debug control that uploads "starter
-// files" for the demo. Two writes per picked file:
-//   1. POST to the dev server's /__seed-demo-files endpoint (see
-//      scripts/seed-demo-middleware.mjs), which stages the file into
-//      landing/home/demo-files/ IN THE REPO and regenerates its manifest —
-//      so the next `npm run web:deploy` + push ships it and EVERY visitor's
-//      demo workspace seeds it (lib/demoWorkspace.js fetches the manifest).
-//   2. Into this browser's OPFS demo folder, so the local Files tab shows
-//      it immediately without waiting for a re-seed.
-// Dev tool, not a product surface — never rendered off localhost or in
-// Electron; the endpoint only exists on the Vite dev servers.
-function DemoSeedFiles() {
-  const inputRef = useRef(null);
-  const [busy, setBusy] = useState(false);
-  const [status, setStatus] = useState('');
-  const onPick = async (e) => {
-    const picked = Array.from(e.target.files || []);
-    e.target.value = '';
-    if (picked.length === 0) return;
-    setBusy(true);
-    try {
-      // 1. Stage into the repo via the dev-server endpoint.
-      let staged = 0;
-      for (const f of picked) {
-        try {
-          const res = await fetch(`/__seed-demo-files?name=${encodeURIComponent(f.name)}`, {
-            method: 'POST',
-            body: f,
-          });
-          if (res.ok) staged += 1;
-        } catch { /* endpoint not running (static host) — local write below still happens */ }
-      }
-      // 2. Drop into this browser's demo folder so the grid updates now.
-      await localFolderApi.restorePersistedHandle(DEMO_PROJECT_ID);
-      await localFolderApi.writeFiles({
-        dir: 'demo',
-        files: picked.map((f) => ({ filename: f.name, blob: f })),
+// A `<Project name>.docvex` project file opened from the OS (double-clicked
+// in Explorer / Finder, or handed to the app on its command line): main
+// registers where that folder is and sends `project:opened`; the main window
+// selects the project and shows its Files. Only a project the signed-in
+// account can see is opened — anything else is said plainly rather than
+// silently ignored. One that arrives before sign-in waits for it.
+function ProjectFileOpened() {
+  const navigate = useNavigate();
+  const { selectProject, beginSwitch } = useSelectedProject();
+  const { notify } = useNotifications();
+  const { session } = useAuth();
+  const userId = session?.user?.id || null;
+  const pendingRef = useRef(null);
+  const openRef = useRef(null);
+  openRef.current = async (p) => {
+    if (!p?.projectId) return;
+    if (!userId) { pendingRef.current = p; return; }
+    pendingRef.current = null;
+    const { data, error } = await getProject(p.projectId);
+    if (error || !data) {
+      notify({
+        category: 'project',
+        variant: 'error',
+        icon: 'folder',
+        title: 'Can’t open that project',
+        body: `${p.name ? `“${p.name}”` : 'That project'} isn’t in your account, or you don’t have access to it. Ask its owner to invite you.`,
+        dedupeKey: `project-file-open:${p.projectId}`,
       });
-      notifyFilesChanged();
-      setStatus(staged > 0
-        ? `${staged} staged for deploy`
-        : 'added locally only — seed endpoint not running');
-    } finally {
-      setBusy(false);
+      return;
     }
+    // The folder may be a different one from where this machine last had the
+    // project: the warm listing is dropped, and a Files page already showing
+    // this project opens it again.
+    clearPrefetchedProjectFiles(data.id);
+    window.dispatchEvent(new CustomEvent('docvex:project-folder-changed', { detail: { projectId: data.id } }));
+    beginSwitch(data.name);
+    selectProject(data.id, data);
+    navigate('/files');
   };
-  return (
-    <div style={{ position: 'fixed', right: 16, bottom: 16, zIndex: 10000, display: 'flex', alignItems: 'center', gap: 8 }}>
-      {status && !busy && (
-        <span style={{ fontSize: 12, color: 'var(--text-muted)' }}>{status}</span>
-      )}
-      <input ref={inputRef} type="file" multiple hidden onChange={onPick} />
-      <button
-        type="button"
-        onClick={() => inputRef.current?.click()}
-        disabled={busy}
-        style={{
-          padding: '9px 15px',
-          borderRadius: 999,
-          border: '1px solid var(--border-strong)',
-          background: 'var(--bg-elevated)',
-          color: 'var(--text-primary)',
-          fontFamily: 'var(--font-body)',
-          fontSize: 12,
-          fontWeight: 600,
-          cursor: busy ? 'default' : 'pointer',
-          boxShadow: 'var(--shadow-elev)',
-          opacity: busy ? 0.6 : 1,
-        }}
-      >
-        {busy ? 'Adding…' : 'Seed demo files'}
-      </button>
-    </div>
-  );
+  useEffect(() => {
+    if (!isElectron || isAuxWindow || isTabWindow) return undefined;
+    return projectIndexApi.onOpened((p) => { openRef.current?.(p); });
+  }, []);
+  useEffect(() => {
+    if (userId && pendingRef.current) openRef.current?.(pendingRef.current);
+  }, [userId]);
+  return null;
 }
 
 // Tray-menu → main-window bridge (Electron, main window only). The system-tray
@@ -304,11 +276,11 @@ export default function App() {
       {isTabWindow ? <TabWindowRoute /> : (
         <>
           <TrayNavigation />
+          <ProjectFileOpened />
           <LegalFeedSyncRunner />
         </>
       )}
       <AppRoutes Shell={AppShell} ProjectShell={ProjectShell} />
-      {isLocalhostWeb && <DemoSeedFiles />}
       <ReportProblemModal />
     </ReportProblemProvider>
   );

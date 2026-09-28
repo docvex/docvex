@@ -5,16 +5,15 @@
 // OAuth round-trip (mirrors the app's Supabase auth flow):
 //   1. beginMailOAuth(provider) → mail-sync `authorize` builds the provider
 //      consent URL (redirect_uri = the public `mail-callback` function) and we
-//      open it in the OS browser (Electron) / full-page redirect (web).
+//      open it in the OS browser.
 //   2. The provider redirects to `mail-callback`, which hops the `code` back to
-//      the app — `docvex://mail/callback?code=…` (Electron, surfaced by
-//      AuthContext as a `docvex:mail-callback` window event) or
-//      `…/mail?mailcode=…` (web, read from the URL on mount).
+//      the app — `docvex://mail/callback?code=…`, surfaced by AuthContext as a
+//      `docvex:mail-callback` window event.
 //   3. completeMailOAuth({ provider, code }) → mail-sync `connect` exchanges the
 //      code for tokens and stores the connection.
 
 import { supabase } from './supabaseClient';
-import { isElectron, openOAuthUrl } from './platform';
+import { openOAuthUrl } from './platform';
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
 
@@ -22,12 +21,6 @@ const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
 // in the authorize request AND the token exchange, so both flow through here.
 export function mailCallbackUrl() {
   return `${SUPABASE_URL}/functions/v1/mail-callback`;
-}
-
-// The web /mail URL the callback bridge should hop back to (web only).
-function webReturnUrl() {
-  const base = import.meta.env.BASE_URL || '/';
-  return `${window.location.origin}${base}mail`.replace(/([^:]\/)\/+/g, '$1');
 }
 
 function unwrap(data, error) {
@@ -54,7 +47,8 @@ export async function getMailStatus() {
 // isn't configured server-side.
 export async function beginMailOAuth(provider) {
   const redirectUri = mailCallbackUrl();
-  const target = isElectron ? 'electron' : encodeURIComponent(webReturnUrl());
+  // The callback bridge hops back to the app over docvex:// (see step 2 above).
+  const target = 'electron';
   const res = await invoke({ action: 'authorize', provider, redirectUri, target });
   if (res.error) return res;
   try { sessionStorage.setItem('docvex.mail.pendingProvider', provider); } catch { /* ignore */ }

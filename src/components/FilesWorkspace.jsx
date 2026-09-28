@@ -1,8 +1,10 @@
-﻿import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+﻿import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import FileThumbnail from './FileThumbnail';
 import { ExtGlyph, extCategory } from './fileGlyph';
 import Tooltip from './Tooltip';
+import { ScanButton } from './ScanGauges';
+import RuleOptions from './RuleOptions';
 import { useMorphPill } from './useMorphPill';
 import { usePaneChromeSlot, usePaneChromePortalEl } from '../context/PaneChromeContext';
 import { useAppPrefs } from '../context/AppPrefsContext';
@@ -12,11 +14,27 @@ import { toLayoutPx } from '../lib/appZoom';
 import { isSearchableFile, searchContents } from '../lib/fileContentSearch';
 import { aiSearchFiles } from '../lib/aiFileSearch';
 import { FOLDER_COLOR_PRESETS, loadFolderColors, persistFolderColors } from '../lib/folderColors';
-import { miniHeaderSpot } from '../lib/miniHeaderSpot';
+import { useMiniGlowSpot } from '../lib/pointerSpots';
+import { registerHoverSpot } from '../lib/pointer';
 import MiniHeaderFade from './MiniHeaderFade';
 import { BarPicker } from './LegalBar';
+import { openedAt, markOpened, subscribeOpened } from '../lib/recentFiles';
 import './LegalBar.css';
 import './FilesWorkspace.css';
+import './FileGraph.css';
+
+// The Graph view (components/FileGraph — vis-network), loaded only when opened.
+const FileGraphView = React.lazy(() => import('./FileGraph'));
+// (Insights moved into each data collection's page — components/DataCollectionView.)
+// The Files tab's two views — the Design system's Segmented choice.
+const FX_MODE_FIELD = {
+  label: 'View',
+  options: [
+    { id: 'files', label: 'File explorer', example: 'The files and folders' },
+    { id: 'graph', label: 'Graph', example: 'The files the AI scan read and the links between them — or the people, companies and properties they name' },
+  ],
+};
+const FX_MODE_KEY = 'docvex:files:mode:v1';
 
 // Platform hint for the search shortcut chip (⌘F on macOS, Ctrl F elsewhere).
 const isMacPlatform = typeof navigator !== 'undefined' && /Mac|iP(hone|ad|od)/.test(navigator.platform || '');
@@ -306,8 +324,8 @@ const FX_GROUPS = [
 // A WhatsApp "Export chat" produces a .zip — or, extracted, a folder —
 // holding the transcript + media. ProjectFiles probes the CONTENTS in the
 // main process and stamps `item.isWhatsApp` (true/false), so recognition
-// survives a rename. Items that can't be probed (cloud rows, web build,
-// probe still in flight) leave the flag undefined and fall back to the old
+// survives a rename. Items that can't be probed (cloud rows, a probe
+// still in flight) leave the flag undefined and fall back to the old
 // filename heuristic.
 function isWhatsAppExport(item) {
   if (item?.isWhatsApp !== undefined) return item.isWhatsApp === true;
@@ -690,6 +708,18 @@ export function FileTile({ item, className = '', onClick, onDoubleClick, childre
 
 // ── Tile ──────────────────────────────────────────────────────────────
 // The AI mark on a file or folder tagged for the AI scan (lib/scanTags).
+// The EXTRACTED-TEXT mark: the file's text has been read out of it (a
+// picture's or a scan's text, a recording's captions) and is kept.
+function TextMark() {
+  return (
+    <span className="fx-text-mark" aria-label="Has extracted text">
+      <svg viewBox="0 0 16 16" width="10" height="10" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" aria-hidden="true">
+        <path d="M3.5 4h9M8 4v8.5M5.5 12.5h5" />
+      </svg>
+    </span>
+  );
+}
+
 function ScanMark() {
   return (
     <span className="fx-scan-mark" aria-label="Tagged for AI scan">
@@ -698,13 +728,49 @@ function ScanMark() {
   );
 }
 
-function Tile({ item, tab, selected, onSelect, onOpen, onOpenContent, onRename, onProperties, onOpenLocation, onDelete, onRestore, onEmptyBin, canEdit, selectMode, isMultiSelected, bulkCount, onBulkDelete, onCopy, onCut, onToggleScanTag, onIncoming, incomingCount, renaming, onCommitName, onCancelName, draggable, beginItemDrag, endItemDrag, onFolderDragOver, onFolderDragLeave, onFolderDrop, dropFolderId, cutPaths, folderColors, onSetColor }) {
+// PORTRAIT PHOTOS get a taller thumbnail: the box's height/width follows the
+// picture's own shape, CLAMPED between the tile's usual landscape proportion
+// (0.58 — the minimum, so landscape tiles are unchanged) and 4:3 portrait (a
+// phone photo shown whole; anything taller, a screenshot, is fitted inside).
+// Read off the thumbnail as it loads (it keeps the picture's orientation), and
+// remembered per file so a tile scrolled out and back doesn't jump.
+const THUMB_AR_MIN = 0.58;
+const THUMB_AR_MAX = 4 / 3;
+const thumbAspects = new Map();   // item id → clamped height / width
+function usePhotoAspect(item) {
+  const isPhoto = item.kind === 'file' && extCategory(item.ext) === 'img';
+  const key = item.id;
+  const ref = useRef(null);
+  const [ar, setAr] = useState(() => (isPhoto ? thumbAspects.get(key) : undefined));
+  useEffect(() => {
+    const el = ref.current;
+    if (!el || !isPhoto) return undefined;
+    const read = (img) => {
+      if (!img || img.tagName !== 'IMG' || !img.naturalWidth || !img.naturalHeight) return;
+      const r = Math.round(Math.min(THUMB_AR_MAX, Math.max(THUMB_AR_MIN, img.naturalHeight / img.naturalWidth)) * 1000) / 1000;
+      thumbAspects.set(key, r);
+      setAr((prev) => (prev === r ? prev : r));
+    };
+    const onLoad = (e) => read(e.target);
+    // Load events don't bubble, but they do pass through their ancestors'
+    // capture phase — one listener on the box hears whichever <img> the
+    // thumbnail engine ends up drawing.
+    el.addEventListener('load', onLoad, true);
+    const img = el.querySelector('img');
+    if (img?.complete) read(img);
+    return () => el.removeEventListener('load', onLoad, true);
+  }, [key, isPhoto]);
+  return { ref, style: ar ? { '--fx-thumb-ar': ar } : null };
+}
+
+const Tile = React.memo(function Tile({ item, tab, selected, onSelect, onOpen, onOpenContent, onRename, onProperties, onOpenLocation, onDelete, onRestore, onEmptyBin, canEdit, selectMode, isMultiSelected, bulkCount, onBulkDelete, onCopy, onCut, onToggleScanTag, onIncoming, incomingCount, renaming, onCommitName, onCancelName, draggable, beginItemDrag, endItemDrag, onFolderDragOver, onFolderDragLeave, onFolderDrop, dropFolderId, cutPaths, folderColors, onSetColor }) {
   const isFolder = item.kind === 'folder';
   const status = item.status || 'synced';
   const isDropTarget = isFolder && dropFolderId === item.id;
   const isBinDrop = item.binEntry && isDropTarget;
   const isCut = !isFolder && cutPaths?.has(item._raw?.path);
   const folderColor = isFolder && !item.binEntry ? folderColors?.[item.id] : undefined;
+  const aspect = usePhotoAspect(item);
   const morph = useMorphPill({
     // WhatsApp files use the SAME plain name pill as every other file (the
     // old rich "recognised as WhatsApp convo" hover pill was removed).
@@ -718,7 +784,7 @@ function Tile({ item, tab, selected, onSelect, onOpen, onOpenContent, onRename, 
     return (
       <div className={`fx-tile${isFolder ? ' is-folder' : ''} is-renaming`}>
         <span className="fx-tile-thumb" data-office={officeStripe(item) ? "" : undefined} style={officeStripe(item)}>
-          {isFolder ? <FolderGlyph filled={!item.empty} color={folderColor} /> : <ItemThumbnail item={item} />}
+          {isFolder ? <FolderOrBinGlyph item={item} color={folderColor} /> : <ItemThumbnail item={item} />}
         </span>
         <span>
           <InlineNameInput className="fx-tile-name" initial={displayBaseName(item)} onCommit={(name) => onCommitName(renamedName(item, name))} onCancel={onCancelName} />
@@ -731,14 +797,15 @@ function Tile({ item, tab, selected, onSelect, onOpen, onOpenContent, onRename, 
       <button
         type="button"
         data-fx-id={item.id}
-        className={`fx-tile${isFolder ? ' is-folder' : ''}${selected ? ' is-selected' : ''}${status === 'deleted' ? ' is-deleted' : ''}${isDropTarget ? ' is-droptarget' : ''}${isBinDrop ? ' is-bindrop' : ''}${isCut ? ' is-cut' : ''}${item.incoming ? ' is-incoming' : ''}`}
+        className={`fx-tile${isFolder ? ' is-folder' : ''}${selected ? ' is-selected' : ''}${status === 'deleted' ? ' is-deleted' : ''}${isDropTarget ? ' is-droptarget' : ''}${isBinDrop ? ' is-bindrop' : ''}${isCut ? ' is-cut' : ''}${item.incoming ? ' is-incoming' : ''}${item.pending ? ' is-pending' : ''}`}
+        aria-busy={item.pending ? true : undefined}
         onClick={(e) => (item.incoming ? onIncoming?.(item, 'accept') : onSelect(item, e))}
         onDoubleClick={(e) => { if (!item.incoming) onOpen(item, e); }}
         onMouseMove={morph.handleMouseMove}
         onMouseLeave={morph.handleMouseLeave}
         onContextMenu={(e) => { e.stopPropagation(); morph.handleContextMenu(e); }}
-        draggable={draggable && !item.binEntry && !item.incoming ? true : undefined}
-        onDragStart={draggable && !item.binEntry && !item.incoming ? (e) => beginItemDrag?.(item, e) : undefined}
+        draggable={draggable && !item.binEntry && !item.incoming && !item.pending ? true : undefined}
+        onDragStart={draggable && !item.binEntry && !item.incoming && !item.pending ? (e) => beginItemDrag?.(item, e) : undefined}
         onDragEnd={draggable && !item.binEntry ? () => endItemDrag?.() : undefined}
         onDragOver={isFolder ? (e) => onFolderDragOver?.(item, e) : undefined}
         onDragLeave={isFolder ? () => onFolderDragLeave?.(item) : undefined}
@@ -746,8 +813,9 @@ function Tile({ item, tab, selected, onSelect, onOpen, onOpenContent, onRename, 
       >
         {/* Bin items show a circular elapsed-time countdown; drafts carry no ribbon. */}
         {tab === 'trash' && <CountdownRing days={item.deletesInDays} size={20} className="fx-tile-countdown" />}
-        <span className="fx-tile-thumb" data-office={officeStripe(item) ? "" : undefined} style={officeStripe(item)}>
+        <span ref={aspect.ref} className="fx-tile-thumb" data-office={officeStripe(item) ? "" : undefined} style={aspect.style ? { ...(officeStripe(item) || {}), ...aspect.style } : officeStripe(item)}>
           {isFolder ? <FolderOrBinGlyph item={item} color={folderColor} /> : <ItemThumbnail item={item} />}
+          {item.hasText && <TextMark />}
           {item.scanTagged && <ScanMark />}
           {item.incoming && <IncomingMark />}
         </span>
@@ -763,7 +831,7 @@ function Tile({ item, tab, selected, onSelect, onOpen, onOpenContent, onRename, 
       {morph.node}
     </>
   );
-}
+});
 
 // New-folder draft tile — a folder placeholder whose name is an inline input.
 function NewFolderTile({ onCommit, onCancel }) {
@@ -792,7 +860,7 @@ function NewFileTile({ onCommit, onCancel }) {
 }
 
 // ── List row ──────────────────────────────────────────────────────────
-function Row({ item, tab, selected, onSelect, onOpen, onOpenContent, onRename, onProperties, onOpenLocation, onDelete, onRestore, onEmptyBin, canEdit, selectMode, isMultiSelected, bulkCount, onBulkDelete, onCopy, onCut, onToggleScanTag, onIncoming, incomingCount, renaming, onCommitName, onCancelName, draggable, beginItemDrag, endItemDrag, onFolderDragOver, onFolderDragLeave, onFolderDrop, dropFolderId, cutPaths, folderColors, onSetColor }) {
+const Row = React.memo(function Row({ item, tab, selected, onSelect, onOpen, onOpenContent, onRename, onProperties, onOpenLocation, onDelete, onRestore, onEmptyBin, canEdit, selectMode, isMultiSelected, bulkCount, onBulkDelete, onCopy, onCut, onToggleScanTag, onIncoming, incomingCount, renaming, onCommitName, onCancelName, draggable, beginItemDrag, endItemDrag, onFolderDragOver, onFolderDragLeave, onFolderDrop, dropFolderId, cutPaths, folderColors, onSetColor }) {
   const isFolder = item.kind === 'folder';
   const status = item.status || 'synced';
   const isBin = tab === 'trash';
@@ -824,14 +892,15 @@ function Row({ item, tab, selected, onSelect, onOpen, onOpenContent, onRename, o
       <button
         type="button"
         data-fx-id={item.id}
-        className={`fx-list-row${isBin ? ' is-bin' : ''}${selected ? ' is-selected' : ''}${status === 'deleted' ? ' is-deleted' : ''}${isDropTarget ? ' is-droptarget' : ''}${isBinDrop ? ' is-bindrop' : ''}${isCut ? ' is-cut' : ''}${item.incoming ? ' is-incoming' : ''}`}
+        className={`fx-list-row${isBin ? ' is-bin' : ''}${selected ? ' is-selected' : ''}${status === 'deleted' ? ' is-deleted' : ''}${isDropTarget ? ' is-droptarget' : ''}${isBinDrop ? ' is-bindrop' : ''}${isCut ? ' is-cut' : ''}${item.incoming ? ' is-incoming' : ''}${item.pending ? ' is-pending' : ''}`}
+        aria-busy={item.pending ? true : undefined}
         onClick={(e) => (item.incoming ? onIncoming?.(item, 'accept') : onSelect(item, e))}
         onDoubleClick={(e) => { if (!item.incoming) onOpen(item, e); }}
         onMouseMove={morph.handleMouseMove}
         onMouseLeave={morph.handleMouseLeave}
         onContextMenu={(e) => { e.stopPropagation(); morph.handleContextMenu(e); }}
-        draggable={draggable && !item.binEntry && !item.incoming ? true : undefined}
-        onDragStart={draggable && !item.binEntry && !item.incoming ? (e) => beginItemDrag?.(item, e) : undefined}
+        draggable={draggable && !item.binEntry && !item.incoming && !item.pending ? true : undefined}
+        onDragStart={draggable && !item.binEntry && !item.incoming && !item.pending ? (e) => beginItemDrag?.(item, e) : undefined}
         onDragEnd={draggable && !item.binEntry ? () => endItemDrag?.() : undefined}
         onDragOver={isFolder ? (e) => onFolderDragOver?.(item, e) : undefined}
         onDragLeave={isFolder ? () => onFolderDragLeave?.(item) : undefined}
@@ -841,6 +910,7 @@ function Row({ item, tab, selected, onSelect, onOpen, onOpenContent, onRename, o
           {isBin && <CountdownRing days={item.deletesInDays} size={18} className="fx-row-countdown" />}
           <span className="fx-list-thumb" data-office={officeStripe(item) ? "" : undefined} style={officeStripe(item)}>
             {isFolder ? <FolderOrBinGlyph item={item} size={20} color={folderColor} /> : <ItemThumbnail item={item} />}
+            {item.hasText && <TextMark />}
             {item.scanTagged && <ScanMark />}
             {item.incoming && <IncomingMark />}
           </span>
@@ -859,7 +929,7 @@ function Row({ item, tab, selected, onSelect, onOpen, onOpenContent, onRename, o
       {morph.node}
     </>
   );
-}
+});
 
 // New-folder draft row — a folder placeholder whose name is an inline input.
 function NewFolderRow({ onCommit, onCancel }) {
@@ -893,16 +963,299 @@ function NewFileRow({ onCommit, onCancel }) {
 // (the footer's — the mini header keeps its own).
 const FILES_TAB_BUTTONS = '.fx-tb-btn';
 
+// Which file an "opened" record is about: its path on disk, else its id.
+const openKeyOf = (item) => item?._raw?.path || item?.path || item?.id || '';
+
 // The header's Sort dropdown.
 const FX_SORTS = [
   { id: 'name', label: 'Name A – Z' },
   { id: 'name-desc', label: 'Name Z – A' },
   { id: 'newest', label: 'Newest first' },
+  // The files opened most recently on this device first (lib/recentFiles).
+  { id: 'recent', label: 'Recently opened' },
   { id: 'oldest', label: 'Oldest first' },
   { id: 'largest', label: 'Largest first' },
   { id: 'smallest', label: 'Smallest first' },
   { id: 'type', label: 'Type' },
 ];
+
+// The Files mini header, with its own PINNED state. It lives here, not in
+// FilesWorkspace, because a pin / unpin used to be FilesWorkspace state — and
+// every flip re-rendered the whole page, every tile of the grid included, right
+// as the bar started its fade: that re-render is what made the header's motion
+// stutter. Now only the bar re-renders (`children`, the toolbar, is the same
+// element, so React skips it). The scroll is measured at most once a frame.
+// Pinned = the bar is ACTUALLY stuck at the top (its rect reaches the
+// scroller's top + the sticky gap), so the surface doesn't appear early while
+// the masthead is still scrolling away.
+function FilesPathbar({ getScroller, enabled, deps, children }) {
+  useMiniGlowSpot(); // the .mini-glow bar's spotlight (lib/pointerSpots)
+  const [pinned, setPinned] = useState(false);
+  const barRef = useRef(null);
+  useEffect(() => {
+    const el = getScroller();
+    if (!el || !enabled) { setPinned(false); return undefined; }
+    let raf = 0;
+    const measure = () => {
+      raf = 0;
+      const bar = barRef.current;
+      setPinned(!!bar && (bar.getBoundingClientRect().top - el.getBoundingClientRect().top) <= 8);
+    };
+    const onScroll = () => { if (!raf) raf = requestAnimationFrame(measure); };
+    measure();
+    el.addEventListener('scroll', onScroll, { passive: true });
+    return () => { el.removeEventListener('scroll', onScroll); if (raf) cancelAnimationFrame(raf); };
+  // `deps` re-attach the listener when the page's layout changes underneath.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [enabled, ...deps]);
+  return (
+    <>
+      <MiniHeaderFade visible={pinned} />
+      <div ref={barRef} className={`fx-pathbar mini-glow${pinned ? ' is-pinned' : ''}`}>{children}</div>
+    </>
+  );
+}
+
+// ── Windowed grid / list ───────────────────────────────────────────────
+// A project folder can hold thousands of files, and a tile per file in the
+// DOM (a thumbnail, a morph pill, listeners each) made opening and scrolling
+// a large folder slow. VirtualCells draws only the rows in and near the
+// viewport, with a spacer above and below standing in for the rest, and is
+// otherwise the same markup: ONE `.fx-grid` (or `.fx-list`) holding the rows
+// on show, so every CSS rule, gap and margin applies exactly as before and a
+// tile scrolling from one edge of the window to the other stays mounted.
+//
+// Rows are fixed per layout but not all the same height (a two-line name
+// makes its row taller), so each drawn row is MEASURED (the distance between
+// the first cells of consecutive rows) and remembered; a row never drawn is
+// taken to be the average. The column count is worked out the way the CSS
+// `repeat(auto-fill, …)` would, and pinned on the grid inline so the two can
+// never disagree. Each block registers itself (`registry`) so the page can
+// scroll an off-screen item into view and the rubber band can select items
+// that aren't drawn — both from the computed positions.
+const VIRTUAL_OVERSCAN = 900;   // px drawn beyond the window, above and below
+const VIRTUAL_PIN_SPAN = 120;   // furthest a pinned row may stretch the window
+// Placeholders for the "new folder" / "new file" drafts, which sit among the
+// cells like any item.
+const NEW_FOLDER_CELL = { id: '__fx-new-folder', __cell: 'new-folder' };
+const NEW_FILE_CELL = { id: '__fx-new-file', __cell: 'new-file' };
+
+function VirtualCells({ cells, renderCell, mode, tileSize, registry, blockKey, pinnedRef, onRenderedRef, onCols, getScroller }) {
+  const isTiles = mode === 'tiles';
+  const topRef = useRef(null);
+  const bodyRef = useRef(null);
+  const [width, setWidth] = useState(0);
+  const [range, setRange] = useState({ start: 0, end: 24 });
+  const [measureTick, setMeasureTick] = useState(0);
+  // Measured row pitches (row height + the gap under it), per layout.
+  const metaRef = useRef({ key: '', heights: new Map(), avg: 0, rowGap: isTiles ? 6.4 : 0, colGap: 6.4, padL: 0, padR: 0 });
+  const meta = metaRef.current;
+  const cols = isTiles ? Math.max(1, Math.floor((Math.max(0, width) + meta.colGap) / (tileSize + meta.colGap))) : 1;
+  const layoutKey = `${mode}:${cols}:${tileSize}`;
+  if (meta.key !== layoutKey) { meta.key = layoutKey; meta.heights = new Map(); meta.avg = 0; }
+  const rows = Math.ceil(cells.length / cols);
+  // Before anything is measured: roughly a tile (thumb + padding + a line of
+  // name) or a list row. Replaced by the average of what has been measured.
+  const estimate = meta.avg || (isTiles ? tileSize * 0.58 + 44 + meta.rowGap : 30);
+  const offsets = useMemo(() => {
+    const o = new Float64Array(rows + 1);
+    let acc = 0;
+    for (let r = 0; r < rows; r += 1) {
+      o[r] = acc;
+      const h = meta.heights.get(r);
+      acc += h != null ? h : estimate;
+    }
+    o[rows] = acc;
+    return o;
+  }, [rows, layoutKey, measureTick, estimate]); // eslint-disable-line react-hooks/exhaustive-deps
+  const idIndex = useMemo(() => {
+    const m = new Map();
+    cells.forEach((c, i) => { if (c && c.id != null) m.set(c.id, i); });
+    return m;
+  }, [cells]);
+
+  // Latest values for the listeners and the registry, without re-binding.
+  const live = useRef({});
+  live.current = { offsets, rows, cols, idIndex, range, isTiles, tileSize };
+
+  // First row whose bottom is below `y` (offsets are in block px).
+  const rowAt = (o, n, y) => {
+    let lo = 0; let hi = n;
+    while (lo < hi) {
+      const mid = (lo + hi) >> 1;
+      if (o[mid + 1] > y) hi = mid; else lo = mid + 1;
+    }
+    return lo;
+  };
+  const computeRange = () => {
+    const top = topRef.current;
+    if (!top) return;
+    const { offsets: o, rows: n, cols: c, idIndex: ix } = live.current;
+    const r = top.getBoundingClientRect();
+    const y0 = toLayoutPx(0 - r.top) - VIRTUAL_OVERSCAN;
+    const y1 = toLayoutPx(window.innerHeight - r.top) + VIRTUAL_OVERSCAN;
+    let start = Math.min(n, rowAt(o, n, y0));
+    let end = rowAt(o, n, y1);
+    if (end >= n) end = n - 1;
+    if (end < start - 1) end = start - 1;
+    // Keep the row of anything being renamed or dragged drawn (an input that
+    // unmounts loses its text; a drag source that unmounts never ends).
+    for (const id of pinnedRef?.current || []) {
+      const i = ix.get(id);
+      if (i == null) continue;
+      const pr = Math.floor(i / c);
+      if (end < start) { start = pr; end = pr; }   // nothing else of this block is drawn
+      else if (pr < start && start - pr <= VIRTUAL_PIN_SPAN) start = pr;
+      else if (pr > end && pr - end <= VIRTUAL_PIN_SPAN) end = pr;
+    }
+    setRange((prev) => (prev.start === start && prev.end === end ? prev : { start, end }));
+  };
+  const computeRef = useRef(computeRange);
+  computeRef.current = computeRange;
+
+  // Width (→ columns) and anything that changes the drawn rows' size.
+  useEffect(() => {
+    const body = bodyRef.current;
+    if (!body || typeof ResizeObserver === 'undefined') return undefined;
+    const ro = new ResizeObserver(() => setMeasureTick((t) => t + 1));
+    ro.observe(body);
+    return () => ro.disconnect();
+  }, []);
+  // Scrolling anywhere (the page scroller, or whatever holds the Files page
+  // when it is embedded) and resizing the window move the window of rows.
+  useEffect(() => {
+    let raf = 0;
+    const onMove = () => { if (!raf) raf = requestAnimationFrame(() => { raf = 0; computeRef.current(); }); };
+    document.addEventListener('scroll', onMove, { capture: true, passive: true });
+    window.addEventListener('resize', onMove);
+    return () => {
+      document.removeEventListener('scroll', onMove, { capture: true });
+      window.removeEventListener('resize', onMove);
+      if (raf) cancelAnimationFrame(raf);
+    };
+  }, []);
+
+  // After every commit: read the width and the drawn rows' heights, then the
+  // window. Reads only (the state updates re-render before paint), and it
+  // settles: a second pass measures what the first already recorded.
+  useLayoutEffect(() => {
+    const body = bodyRef.current;
+    if (!body) return;
+    const cs = getComputedStyle(body);
+    meta.padL = parseFloat(cs.paddingLeft) || 0;
+    meta.padR = parseFloat(cs.paddingRight) || 0;
+    if (isTiles) {
+      meta.colGap = parseFloat(cs.columnGap) || 0;
+      meta.rowGap = parseFloat(cs.rowGap) || 0;
+    } else {
+      meta.rowGap = 0;
+    }
+    const w = body.clientWidth - meta.padL - meta.padR;
+    if (Math.abs(w - width) > 0.5) { setWidth(w); return; }
+    const { start, end } = range;
+    const shown = end >= start ? Math.min(cells.length, (end + 1) * cols) - start * cols : 0;
+    if (shown > 0 && body.children.length === shown) {
+      const tops = [];
+      for (let r = start; r <= end; r += 1) {
+        const el = body.children[(r - start) * cols];
+        if (!el) break;
+        tops.push(el.getBoundingClientRect().top);
+      }
+      const bottom = body.getBoundingClientRect().bottom;
+      let changed = false;
+      for (let i = 0; i < tops.length; i += 1) {
+        const h = toLayoutPx(i + 1 < tops.length ? tops[i + 1] - tops[i] : bottom - tops[i]) + (i + 1 < tops.length ? 0 : meta.rowGap);
+        if (!(h > 0)) continue;
+        const old = meta.heights.get(start + i);
+        if (old == null || Math.abs(old - h) > 0.5) { meta.heights.set(start + i, h); changed = true; }
+      }
+      if (changed) {
+        let sum = 0;
+        for (const h of meta.heights.values()) sum += h;
+        meta.avg = meta.heights.size ? sum / meta.heights.size : 0;
+        setMeasureTick((t) => t + 1);
+        return;
+      }
+    }
+    computeRange();
+    onRenderedRef?.current?.();
+  });
+
+  useEffect(() => { if (isTiles) onCols?.(cols); }, [isTiles, cols, onCols]);
+
+  // What the page asks of a block: scroll one of its items into view, and
+  // which items a rectangle (canvas px) touches — drawn or not.
+  const api = useRef(null);
+  api.current = {
+    scrollToId(id) {
+      const { idIndex: ix, offsets: o, cols: c } = live.current;
+      const i = ix.get(id);
+      if (i == null) return false;
+      const body = bodyRef.current;
+      const top = topRef.current;
+      const find = () => {
+        try { return body?.querySelector(`[data-fx-id="${CSS.escape(String(id))}"]`) || null; } catch { return null; }
+      };
+      const el = find();
+      if (el) { el.scrollIntoView({ block: 'nearest' }); return true; }
+      const scroller = getScroller?.();
+      if (!scroller || !top) return true;
+      // Bring its row roughly into view from the computed layout, then let
+      // the browser place it exactly once it is drawn.
+      const r = Math.floor(i / c);
+      const sr = scroller.getBoundingClientRect();
+      const rowTop = top.getBoundingClientRect().top - sr.top + o[r];
+      const rowH = o[r + 1] - o[r];
+      scroller.scrollTop += rowTop < 0 ? rowTop - sr.height / 3 : rowTop + rowH - sr.height + sr.height / 3;
+      requestAnimationFrame(() => requestAnimationFrame(() => find()?.scrollIntoView({ block: 'nearest' })));
+      return true;
+    },
+    hitTest(rect, canvasRect) {
+      const top = topRef.current;
+      const body = bodyRef.current;
+      if (!top || !body) return [];
+      const { offsets: o, rows: n, cols: c, isTiles: tiles, tileSize: t } = live.current;
+      const oy = toLayoutPx(top.getBoundingClientRect().top - canvasRect.top);
+      const ox = toLayoutPx(body.getBoundingClientRect().left - canvasRect.left) + meta.padL;
+      const y0 = rect.y - oy;
+      const y1 = rect.y + rect.h - oy;
+      const out = [];
+      for (let r = rowAt(o, n, y0); r < n && o[r] < y1; r += 1) {
+        if (o[r + 1] - meta.rowGap <= y0) continue;
+        for (let k = 0; k < c; k += 1) {
+          const cell = cells[r * c + k];
+          if (!cell) break;
+          if (cell.__cell) continue;
+          const x = tiles ? ox + k * (t + meta.colGap) : ox;
+          const w = tiles ? t : width;
+          if (x < rect.x + rect.w && x + w > rect.x) out.push(cell.id);
+        }
+      }
+      return out;
+    },
+  };
+  useEffect(() => {
+    if (!registry) return undefined;
+    registry.set(blockKey, api);
+    return () => { if (registry.get(blockKey) === api) registry.delete(blockKey); };
+  }, [registry, blockKey]);
+
+  const { start, end } = range;
+  const first = Math.min(cells.length, start * cols);
+  const last = end >= start ? Math.min(cells.length, (end + 1) * cols) : first;
+  const topH = offsets[Math.min(start, rows)] || 0;
+  const bottomH = Math.max(0, (offsets[rows] || 0) - (offsets[Math.min(rows, end + 1)] || 0));
+  const style = isTiles ? { gridTemplateColumns: `repeat(${cols}, var(--fx-tile, 134.4px))` } : undefined;
+  return (
+    <>
+      <div ref={topRef} className="fx-vspacer" style={{ height: topH }} aria-hidden="true" />
+      <div ref={bodyRef} className={isTiles ? 'fx-grid' : 'fx-list'} style={style} data-fx-vbody="">
+        {cells.slice(first, last).map(renderCell)}
+      </div>
+      <div className="fx-vspacer" style={{ height: bottomH }} aria-hidden="true" />
+    </>
+  );
+}
 
 export default function FilesWorkspace({
   projectId,
@@ -916,7 +1269,9 @@ export default function FilesWorkspace({
   tab,
   canEdit,
   hasLocalFolder,
-  onPickFolder,      // web only — Electron auto-binds the project directory
+  onPickFolder,      // () => void — ask the user for the project's folder (it
+                     //   went missing, or belongs to another project)
+  pickFolderCopy,    // { title, body, button } — what that prompt says
   hasLocalFolderApi,
   folderError,       // Electron — project-directory resolution failed
   onRetryFolder,
@@ -933,13 +1288,20 @@ export default function FilesWorkspace({
   selectTargetPath,       // path of a just-created file/FOLDER to auto-select (no rename)
   onSelectTargetConsumed, // () => void — clear the request once it's applied
   // actions
-  onOpen, onOpenContent, onRename, onDelete, onRestore, onNewFolder, onNewFile, onCreateTypedFile, onUpload, onUploadFolder, onOpenLocation,
+  onOpen, onOpenContent, onRename, onDelete, onRestore, onNewFolder,
+  // Several items at once (multi-select, a drop of several on the Trash):
+  // (items) => void. One batch, one notification; falls back to onDelete /
+  // onRestore per item when not given.
+  onDeleteMany, onRestoreMany, onNewFile, onCreateTypedFile, onAddHighlightsSample, onUpload, onUploadFolder, onOpenLocation,
   // The AI scan (lib/dataCollections): read + understand every file, connect
   // them into Data collections. `scanState` = { stage, index, total } while it
   // runs; pressing the button again stops it.
   onScanFiles, scanState,
   // Tag / untag items for the scan: (items, on) => void; how many are tagged.
-  onToggleScanTag, scanTaggedCount = 0,
+  onToggleScanTag, onEraseScanMemory, scanTaggedCount = 0,
+  // The Graph view: the project folder + id (lib/dataCollections loadScanGraph)
+  // and how to open a file of it by its path.
+  graphSource = null, onOpenPath,
   // A waiting phone file (item.incoming): (item, 'accept' | 'reject').
   onIncoming,
   onEmptyBin,
@@ -955,6 +1317,7 @@ export default function FilesWorkspace({
   // undo / redo (footer)
   onUndo, onRedo, canUndo, canRedo, undoLabel, redoLabel,
 }) {
+  useMiniGlowSpot(); // the .mini-glow bar's spotlight (lib/pointerSpots)
   const isBin = tab === 'trash';
   // Tile zoom — driven by Ctrl+scroll over the canvas. Zoom out far enough
   // and the grid collapses into the list view; zoom back in and the tiles
@@ -1012,6 +1375,9 @@ export default function FilesWorkspace({
   // videos, Office docs, the Recycle bin, then everything else) stacked
   // vertically. Off → one flat list (the default).
   const [grouped, setGrouped] = useState(() => savedViewPrefs.grouped === true);
+  // File explorer | Graph — per device.
+  const [fxMode, setFxMode] = useState(() => { try { const m = localStorage.getItem(FX_MODE_KEY); return m === 'graph' ? m : 'files'; } catch { return 'files'; } });
+  const pickMode = (m) => { setFxMode(m); try { localStorage.setItem(FX_MODE_KEY, m); } catch { /* per device */ } };
   // The header's Sort dropdown (FX_SORTS) — kept with the other view controls.
   const [sortBy, setSortBy] = useState(() => (FX_SORTS.some((o) => o.id === savedViewPrefs.sortBy) ? savedViewPrefs.sortBy : 'name'));
   // Persist the view controls whenever they change (debounced naturally by React
@@ -1028,10 +1394,6 @@ export default function FilesWorkspace({
   const [clipboard, setClipboard] = useState(null);  // { mode: 'copy'|'cut', items: [{ name, path }] }
   const [dropFolderId, setDropFolderId] = useState(null); // folder hovered during a move drag
   const [dropCrumb, setDropCrumb] = useState(null);  // breadcrumb path hovered during a move drag
-  // Masthead scroll-away: true once the canvas has scrolled past the hero, which
-  // collapses the full masthead and reveals the compact mini header. Hysteresis
-  // (collapse past 36px, expand under 10px) avoids flicker at the threshold.
-  const [headerScrolled, setHeaderScrolled] = useState(false);
   // Per-folder icon colour (localStorage-backed, keyed by project + folder id).
   const [folderColors, setFolderColors] = useState(() => loadFolderColors(projectId));
   useEffect(() => { setFolderColors(loadFolderColors(projectId)); }, [projectId]);
@@ -1048,20 +1410,11 @@ export default function FilesWorkspace({
   const pageRef = useRef(null);   // root, used to scope shortcuts to this pane
   // The Files buttons wear the app sidebar's tab look (FilesWorkspace.css →
   // FILES_TAB_BUTTONS): a hover / selected fill that brightens where the
-  // pointer is. Feed the button under the cursor its own --item-spot-x/y, as
-  // the Sidebar does for its tabs. Bound on the document because the toolbar
-  // may be portalled into the window chrome, outside this page's element.
-  useEffect(() => {
-    const onMove = (e) => {
-      const btn = e.target?.closest?.(FILES_TAB_BUTTONS);
-      if (!btn) return;
-      const r = btn.getBoundingClientRect();
-      btn.style.setProperty('--item-spot-x', `${toLayoutPx(e.clientX - r.left)}px`);
-      btn.style.setProperty('--item-spot-y', `${toLayoutPx(e.clientY - r.top)}px`);
-    };
-    document.addEventListener('mousemove', onMove, { passive: true });
-    return () => document.removeEventListener('mousemove', onMove);
-  }, []);
+  // pointer is. The button under the cursor gets its own --item-spot-x/y, as
+  // the Sidebar's tabs do — by the app's one pointer (lib/pointer), which
+  // judges by the element under the pointer, so it reaches the toolbar even
+  // when it is portalled into the window chrome, outside this page's element.
+  useEffect(() => registerHoverSpot(FILES_TAB_BUTTONS), []);
   const searchRef = useRef(null);
   const actionsRef = useRef({});  // latest copy/paste handlers for the key listener
   const kbdRef = useRef({});      // latest selection/nav handlers for the key listener
@@ -1071,21 +1424,30 @@ export default function FilesWorkspace({
   // strip then carries the title once the hero scrolls off). Falls back to the
   // canvas scroller if the page scroller isn't found (e.g. embedded contexts).
   const pageScroller = () => pageRef.current?.closest('.sv-single-scroll') || canvasRef.current;
-  useEffect(() => {
-    const el = pageScroller();
-    if (!el || !masthead) { setHeaderScrolled(false); return undefined; }
-    const onScroll = () => {
-      // Pinned only once the pathbar is ACTUALLY stuck at the top (its rect
-      // reaches the scroller's top + the sticky `top` gap), so the section bg
-      // doesn't appear early while the masthead is still scrolling away.
-      const bar = el.querySelector('.fx-pathbar');
-      setHeaderScrolled(!!bar && (bar.getBoundingClientRect().top - el.getBoundingClientRect().top) <= 8);
-    };
-    onScroll();
-    el.addEventListener('scroll', onScroll, { passive: true });
-    return () => el.removeEventListener('scroll', onScroll);
-  }, [masthead, hasLocalFolder, loading, view]);
   const scrollToTop = () => pageScroller()?.scrollTo({ top: 0, behavior: 'smooth' });
+
+  // The windowed blocks (VirtualCells) of whatever view is on show, by key —
+  // how an off-screen item is scrolled to and how the rubber band selects
+  // items that aren't drawn.
+  const getScroller = useCallback(() => pageRef.current?.closest('.sv-single-scroll') || null, []);
+  const vRegistryRef = useRef(new Map());
+  // Items whose row must stay drawn: the one being renamed, the ones dragged.
+  const pinnedRef = useRef(new Set());
+  const dragPinRef = useRef([]);
+  // Called by every block after it commits — the rubber band repaints then,
+  // so rows drawn mid-drag show the selection too.
+  const onRenderedRef = useRef(null);
+  // Columns of the grid on show (the same for every block — one width), for
+  // arrow-key Up / Down.
+  const colsRef = useRef(1);
+  const onCols = useCallback((c) => { colsRef.current = c; }, []);
+  // Scroll an item into view, drawn or not.
+  const scrollToItem = (id) => {
+    for (const ref of vRegistryRef.current.values()) {
+      if (ref.current?.scrollToId(id)) return;
+    }
+    try { canvasRef.current?.querySelector(`[data-fx-id="${CSS.escape(String(id))}"]`)?.scrollIntoView({ block: 'nearest' }); } catch { /* CSS.escape unsupported */ }
+  };
 
   // Inline name editing (Electron has no window.prompt).
   const [renamingId, setRenamingId] = useState(null);
@@ -1113,6 +1475,7 @@ export default function FilesWorkspace({
     setAnchorId(match.id);
     setRenamingId(match.id);
     onRenameTargetConsumed?.();
+    requestAnimationFrame(() => scrollToItem(match.id));
   }, [renameTargetPath, items]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Parent made something and wants it SELECTED but not opened — the folder an
@@ -1131,12 +1494,7 @@ export default function FilesWorkspace({
     setMultiSel(new Set([match.id]));
     setAnchorId(match.id);
     onSelectTargetConsumed?.();
-    requestAnimationFrame(() => {
-      try {
-        canvasRef.current?.querySelector(`[data-fx-id="${CSS.escape(match.id)}"]`)
-          ?.scrollIntoView({ block: 'nearest' });
-      } catch { /* CSS.escape unsupported */ }
-    });
+    requestAnimationFrame(() => scrollToItem(match.id));
   }, [selectTargetPath, folders, items]); // eslint-disable-line react-hooks/exhaustive-deps
   const commitNewFolder = (name) => { setCreatingFolder(false); onNewFolder?.(name); };
   const cancelNewFolder = () => setCreatingFolder(false);
@@ -1323,20 +1681,26 @@ export default function FilesWorkspace({
   // The header's Sort: folders are ordered among themselves and files among
   // themselves (folders still come first, as in Explorer); anything equal
   // falls back to the name. Waiting phone files always lead the files.
+  // A file being opened re-orders the list under "Recently opened".
+  const [openedTick, setOpenedTick] = useState(0);
+  useEffect(() => (sortBy === 'recent' ? subscribeOpened(() => setOpenedTick((n) => n + 1)) : undefined), [sortBy]);
   const sortCmp = useMemo(() => {
     const t = (x) => Number(x.sortTime) || 0;
+    const o = (x) => openedAt(openKeyOf(x));
     const z = (x) => Number(x.sortSize) || 0;
     const ext = (x) => String(x.ext || '').toLowerCase();
     switch (sortBy) {
       case 'name-desc': return (a, b) => byName(b, a);
       case 'newest': return (a, b) => t(b) - t(a) || byName(a, b);
       case 'oldest': return (a, b) => t(a) - t(b) || byName(a, b);
+      // Opened most recently first; never-opened ones after, newest first.
+      case 'recent': return (a, b) => o(b) - o(a) || t(b) - t(a) || byName(a, b);
       case 'largest': return (a, b) => z(b) - z(a) || byName(a, b);
       case 'smallest': return (a, b) => z(a) - z(b) || byName(a, b);
       case 'type': return (a, b) => ext(a).localeCompare(ext(b)) || byName(a, b);
       default: return byName;
     }
-  }, [sortBy]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [sortBy, openedTick]); // eslint-disable-line react-hooks/exhaustive-deps
   const shownFolders = useMemo(
     () => (folders || []).filter((f) => !f.binEntry && matches(f.name)).sort(sortBy === 'type' ? byName : sortCmp),
     [folders, q, sortCmp], // eslint-disable-line react-hooks/exhaustive-deps
@@ -1641,7 +2005,8 @@ export default function FilesWorkspace({
   };
   const bulkDelete = () => {
     if (!multiSelItems.length) return;
-    multiSelItems.forEach((it) => onDelete?.(it));
+    if (onDeleteMany) onDeleteMany(multiSelItems);
+    else multiSelItems.forEach((it) => onDelete?.(it));
     exitSelectMode();
   };
   const selectAll = () => { if (orderedIds.length) setMultiSel(new Set(orderedIds)); };
@@ -1668,16 +2033,23 @@ export default function FilesWorkspace({
   // is swallowed, so letting go keeps what was selected.
   // PERFORMANCE — the drag costs nothing React-side: no state is set until the
   // mouse is let go. The rectangle is ONE element made for the drag and moved
-  // by transform (fixed, contained); every item's box is measured ONCE when
-  // the drag starts, in canvas coordinates (they only move with the scroll,
-  // which is read once a frame, before anything is written); what the
-  // rectangle touches is painted by toggling `is-selected` on the items
-  // themselves, only where it changes; and the selection is handed to React
-  // on release (setMultiSel), which then renders exactly what is on screen.
+  // by transform (fixed, contained). What it touches is worked out from the
+  // LAYOUT, not the DOM: the grid is windowed (VirtualCells), so most items
+  // aren't drawn, and each block answers from its computed rows and columns
+  // (hitTest) — a few reads a frame, before anything is written. Items outside
+  // the windowed blocks (the search's content hits) are measured once when
+  // the drag starts. What the rectangle touches is painted by toggling
+  // `is-selected` on the items that ARE drawn, only where it changes (rows
+  // drawn mid-drag, as it auto-scrolls, are painted as they arrive); and the
+  // selection is handed to React on release (setMultiSel).
   // (Setting state every frame re-rendered the whole Files page and every tile
   // per mouse move, then forced a layout to measure them all again.)
   const onCanvasMouseDown = (e) => {
     if (e.button !== 0 || bgMorph.isMenuOpen) return;
+    // Only in the FILE EXPLORER view: the Graph and Insights views have no
+    // files to select (their presses are their own — dragging the graph,
+    // selecting text in a finding).
+    if (graphOn) return;
     const t = e.target;
     if (!t || typeof t.closest !== 'function') return;
     if (t.closest('.fx-tile, .fx-list-row, .fx-list-head, button, a, input, textarea, select, label, [role="menuitem"], [role="menu"], [role="dialog"], [contenteditable="true"], .fx-drop-overlay, .sidebar, .tb-bar, .tooltip, .lg-menu')) return;
@@ -1695,24 +2067,36 @@ export default function FilesWorkspace({
     let active = false;
     let frame = 0;
     let scrollFrame = 0;
-    let items = null;      // [{ el, id, x, y, w, h, on }] — boxes in canvas px
+    let statics = null;    // [{ id, x, y, w, h }] — boxes in canvas px, outside the windowed blocks
+    let drawn = null;      // [{ el, id }] — the items drawn right now
+    let drawnStale = true; // a block committed since `drawn` was read
     let side = null;       // the app sidebar's rect (it doesn't scroll)
     let box = null;        // the marquee element
     // Where the canvas is now: it only moves with the page's scroll.
     const canvasTop = () => cr0.top - ((scroller ? scroller.scrollTop : 0) - st0);
-    const begin = () => {
-      items = [];
+    const readDrawn = () => {
+      drawn = [];
       canvas.querySelectorAll('[data-fx-id]').forEach((el) => {
+        const id = idOf.get(el.getAttribute('data-fx-id'));
+        if (id != null) drawn.push({ el, id });
+      });
+      drawnStale = false;
+    };
+    const begin = () => {
+      statics = [];
+      canvas.querySelectorAll('[data-fx-id]').forEach((el) => {
+        if (el.closest('[data-fx-vbody]')) return;
         const id = idOf.get(el.getAttribute('data-fx-id'));
         if (id == null) return;
         const r = el.getBoundingClientRect();
-        items.push({
-          el, id,
+        statics.push({
+          id,
           x: toLayoutPx(r.left - cr0.left), y: toLayoutPx(r.top - cr0.top),
           w: toLayoutPx(r.width), h: toLayoutPx(r.height),
-          on: el.classList.contains('is-selected'),
         });
       });
+      // Rows drawn while dragging (auto-scroll) get painted on arrival.
+      onRenderedRef.current = () => { drawnStale = true; if (!frame) frame = requestAnimationFrame(update); };
       const sr = document.querySelector('.sidebar')?.getBoundingClientRect();
       if (sr && sr.width) side = { x: toLayoutPx(sr.left), y: toLayoutPx(sr.top), w: toLayoutPx(sr.width), h: toLayoutPx(sr.height) };
       box = document.createElement('div');
@@ -1722,13 +2106,17 @@ export default function FilesWorkspace({
       document.body.classList.add('fx-marqueeing');
     };
     // The selection the rectangle makes: `base` with what it touches.
-    const selectionFor = (rect) => {
+    const selectionFor = (rect, canvasRect) => {
       const next = new Set(base);
-      items.forEach((it) => {
-        if (it.x < rect.x + rect.w && it.x + it.w > rect.x && it.y < rect.y + rect.h && it.y + it.h > rect.y) {
-          if (mode === 'toggle' && base.has(it.id)) next.delete(it.id); else next.add(it.id);
-        }
+      const touch = (id) => {
+        if (mode === 'toggle' && base.has(id)) next.delete(id); else next.add(id);
+      };
+      statics.forEach((it) => {
+        if (it.x < rect.x + rect.w && it.x + it.w > rect.x && it.y < rect.y + rect.h && it.y + it.h > rect.y) touch(it.id);
       });
+      for (const ref of vRegistryRef.current.values()) {
+        for (const id of ref.current?.hitTest(rect, canvasRect) || []) touch(id);
+      }
       return next;
     };
     let lastSel = null;
@@ -1736,12 +2124,16 @@ export default function FilesWorkspace({
       frame = 0;
       // READ (layout is clean at the start of a frame)…
       const top = canvasTop();
-      // …then only write.
       const cur = { x: toLayoutPx(last.x - cr0.left), y: toLayoutPx(last.y - top) };
       const rect = {
         x: Math.min(start.x, cur.x), y: Math.min(start.y, cur.y),
         w: Math.abs(cur.x - start.x), h: Math.abs(cur.y - start.y),
       };
+      // What it touches (the blocks read their own rects) and what is drawn,
+      // while layout is still clean…
+      const next = selectionFor(rect, { left: cr0.left, top });
+      if (drawnStale) readDrawn();
+      // …then only write.
       const m = { x: toLayoutPx(cr0.left) + rect.x, y: toLayoutPx(top) + rect.y, w: rect.w, h: rect.h };
       box.style.transform = `translate(${m.x}px, ${m.y}px)`;
       box.style.width = `${m.w}px`;
@@ -1759,10 +2151,9 @@ export default function FilesWorkspace({
         }
       }
       if (box.style.clipPath !== clip) box.style.clipPath = clip;
-      const next = selectionFor(rect);
-      items.forEach((it) => {
+      drawn.forEach((it) => {
         const on = next.has(it.id);
-        if (on !== it.on) { it.on = on; it.el.classList.toggle('is-selected', on); }
+        if (on !== it.el.classList.contains('is-selected')) it.el.classList.toggle('is-selected', on);
       });
       lastSel = next;
     };
@@ -1801,14 +2192,15 @@ export default function FilesWorkspace({
       if (frame) cancelAnimationFrame(frame);
       if (scrollFrame) cancelAnimationFrame(scrollFrame);
       if (!active) return;
+      onRenderedRef.current = null;
       update();
       box?.remove();
       document.body.classList.remove('fx-marqueeing');
       // Now React: the selection on screen becomes the state.
       const sel = lastSel || new Set(base);
       setMultiSel(sel);
-      const firstHit = items.find((it) => sel.has(it.id) && !base.has(it.id));
-      if (firstHit) setAnchorId(firstHit.id);
+      const firstHit = orderedIds.find((id) => sel.has(id) && !base.has(id));
+      if (firstHit != null) setAnchorId(firstHit);
       // The click this release produces must not reach the click-away.
       const swallow = (ce) => { ce.stopPropagation(); };
       window.addEventListener('click', swallow, { capture: true, once: true });
@@ -1820,15 +2212,9 @@ export default function FilesWorkspace({
   };
   marqueeDownRef.current = onCanvasMouseDown;
 
-  // Grid column count (1 in list view) — read from the live CSS grid so arrow
-  // Up/Down move by a true row.
-  const getColumns = () => {
-    if (view === 'list') return 1;
-    const grid = canvasRef.current?.querySelector('.fx-grid');
-    if (!grid) return 1;
-    const cols = getComputedStyle(grid).gridTemplateColumns.split(' ').filter(Boolean).length;
-    return Math.max(1, cols);
-  };
+  // Grid column count (1 in list view) — the windowed grid's own count (it
+  // sets the columns itself), so arrow Up/Down move by a true row.
+  const getColumns = () => (view === 'list' ? 1 : Math.max(1, colsRef.current || 1));
 
   // Arrow-key navigation, Explorer-style. Plain arrows move the single
   // selection; Shift+arrow extends the range from the anchor. Up/Down step a
@@ -1863,9 +2249,9 @@ export default function FilesWorkspace({
       setMultiSel(new Set([targetId]));
       setAnchorId(targetId);
     }
-    requestAnimationFrame(() => {
-      try { canvasRef.current?.querySelector(`[data-fx-id="${CSS.escape(targetId)}"]`)?.scrollIntoView({ block: 'nearest' }); } catch { /* CSS.escape unsupported */ }
-    });
+    // The target may be far off-screen and not drawn at all: scrolled to from
+    // the computed layout (VirtualCells), then placed exactly once drawn.
+    requestAnimationFrame(() => scrollToItem(targetId));
   };
 
   // Opening an archive can't do what "open" normally does — there's nothing to
@@ -1881,6 +2267,7 @@ export default function FilesWorkspace({
       setArchivePrompt({ item, x: e?.clientX ?? null, y: e?.clientY ?? null });
       return;
     }
+    if (tab !== 'trash' && item && !item.incoming) markOpened(openKeyOf(item));
     onOpen?.(item);
   };
 
@@ -2021,6 +2408,11 @@ export default function FilesWorkspace({
     const rich = dragPayloadFor(item);
     const picked = rich.map((it) => ({ name: it.name, path: itemDiskPath(it), kind: it.kind === 'folder' ? 'folder' : 'file' }));
     if (!picked.length) { e.preventDefault(); return; }
+    // The grid is windowed: keep the dragged items' rows drawn while the page
+    // scrolls under the drag, or the source would unmount and the drag never
+    // end (dragend fires on the source element).
+    dragPinRef.current = [item.id, ...rich.map((it) => it.id)];
+    pinnedRef.current = new Set([...pinnedRef.current, ...dragPinRef.current]);
     // Publish the rich models (descriptor + name + kind) so drop targets can
     // preview the drag live (dragover can't read dataTransfer data).
     setDraggedFiles(rich.map((it) => ({ name: it.name, path: itemDiskPath(it), kind: it.kind === 'folder' ? 'folder' : 'file', descriptor: it.descriptor })));
@@ -2030,7 +2422,7 @@ export default function FilesWorkspace({
       e.dataTransfer.effectAllowed = 'copyMove';
     } catch { /* setData can throw in odd states */ }
   };
-  const endItemDrag = () => clearDraggedFiles();
+  const endItemDrag = () => { dragPinRef.current = []; clearDraggedFiles(); };
 
   // True when `target` is `folderPath` itself or sits inside it — blocks
   // dropping a folder onto itself or into one of its own descendants.
@@ -2081,7 +2473,8 @@ export default function FilesWorkspace({
       let data = null;
       try { data = JSON.parse(e.dataTransfer.getData('application/x-docvex-files')); } catch { /* malformed */ }
       const toDelete = (data?.items || []).filter((d) => d?.path).map(deleteItemFromData);
-      toDelete.forEach((it) => onDelete(it));
+      if (onDeleteMany && toDelete.length > 1) onDeleteMany(toDelete);
+      else toDelete.forEach((it) => onDelete(it));
       return;
     }
     if (!onMoveItems || !dragHasFiles(e)) return;
@@ -2117,52 +2510,168 @@ export default function FilesWorkspace({
   };
 
   // Common props every Tile/Row needs.
-  const itemCommon = {
-    tab,
+  // PERFORMANCE — Tile and Row are memoised, so a selection change, a drop
+  // target moving or a menu opening redraws only the tiles it concerns instead
+  // of every tile in a folder of thousands. For that the props below must keep
+  // their identity between renders: every handler goes through a stable
+  // wrapper that calls the LATEST one (the ref is refreshed each render, so a
+  // click still runs against the current selection and listing, exactly as an
+  // unmemoised tile did), and the per-item values are narrowed to what that
+  // tile actually shows. A handler that is ABSENT stays absent (null), since
+  // the menus decide whether to offer Copy / Cut / Tag by its presence.
+  const itemLatestRef = useRef(null);
+  itemLatestRef.current = {
     onIncoming,
-    incomingCount: (items || []).filter((i) => i.incoming).length,
-    onSelect, onOpen: openItem, onOpenContent,
+    onSelect,
+    onOpen: openItem,
+    onOpenContent,
     onRename: requestRename,
-    onProperties: setPropsItem,
     onOpenLocation, onDelete, onRestore, onEmptyBin,
-    canEdit: menuEditable,
-    selectMode,
-    bulkCount: multiSelItems.length,
     onBulkDelete: bulkDelete,
-    onCopy: onPasteItems ? copyItem : null,
-    onCut: onMoveItems ? cutItem : null,
+    onCopy: copyItem,
+    onCut: cutItem,
     // Acts on the right-clicked file — or the whole selection when that file is
     // part of it, the same rule Copy and Cut follow.
     // Folders included (a folder is tagged with everything under it).
-    onToggleScanTag: onToggleScanTag
-      ? (item, on) => {
-        const picked = multiSel.has(item.id) && multiSelItems.length > 1 ? multiSelItems : [item];
-        onToggleScanTag(picked.filter((i) => !i.binEntry), on);
-      }
-      : null,
-    // Drag-to-move: file items are draggable; non-bin folders accept drops.
-    draggable: menuEditable,
+    onToggleScanTag: (item, on) => {
+      const picked = multiSel.has(item.id) && multiSelItems.length > 1 ? multiSelItems : [item];
+      onToggleScanTag?.(picked.filter((i) => !i.binEntry), on);
+    },
     beginItemDrag,
     endItemDrag,
     onFolderDragOver,
     onFolderDragLeave,
     onFolderDrop,
-    dropFolderId,
+    onSetColor: setFolderColor,
+    commitRename,
+    cancelRename,
+  };
+  const itemFns = useMemo(() => {
+    const via = (k) => (...args) => itemLatestRef.current[k]?.(...args);
+    return {
+      onIncoming: via('onIncoming'),
+      onSelect: via('onSelect'),
+      onOpen: via('onOpen'),
+      onOpenContent: via('onOpenContent'),
+      onRename: via('onRename'),
+      onOpenLocation: via('onOpenLocation'),
+      onDelete: via('onDelete'),
+      onRestore: via('onRestore'),
+      onEmptyBin: via('onEmptyBin'),
+      onBulkDelete: via('onBulkDelete'),
+      onCopy: via('onCopy'),
+      onCut: via('onCut'),
+      onToggleScanTag: via('onToggleScanTag'),
+      beginItemDrag: via('beginItemDrag'),
+      endItemDrag: via('endItemDrag'),
+      onFolderDragOver: via('onFolderDragOver'),
+      onFolderDragLeave: via('onFolderDragLeave'),
+      onFolderDrop: via('onFolderDrop'),
+      onSetColor: via('onSetColor'),
+      commitRename: via('commitRename'),
+      cancelRename: via('cancelRename'),
+    };
+  }, []);
+  // Files currently "cut" to the clipboard render dimmed (Explorer-style).
+  // Built once per clipboard, not per render, so the tiles' memo holds.
+  const cutPaths = useMemo(
+    () => (clipboard?.mode === 'cut' ? new Set(clipboard.items.map((i) => i.path)) : null),
+    [clipboard],
+  );
+  const itemCommon = {
+    tab,
+    onIncoming: itemFns.onIncoming,
+    incomingCount: (items || []).filter((i) => i.incoming).length,
+    onSelect: itemFns.onSelect,
+    onOpen: itemFns.onOpen,
+    onOpenContent: itemFns.onOpenContent,
+    onRename: itemFns.onRename,
+    onProperties: setPropsItem,
+    onOpenLocation: itemFns.onOpenLocation,
+    onDelete: itemFns.onDelete,
+    onRestore: itemFns.onRestore,
+    onEmptyBin: itemFns.onEmptyBin,
+    canEdit: menuEditable,
+    selectMode,
+    onBulkDelete: itemFns.onBulkDelete,
+    onCopy: onPasteItems ? itemFns.onCopy : null,
+    onCut: onMoveItems ? itemFns.onCut : null,
+    onToggleScanTag: onToggleScanTag ? itemFns.onToggleScanTag : null,
+    // Drag-to-move: file items are draggable; non-bin folders accept drops.
+    draggable: menuEditable,
+    beginItemDrag: itemFns.beginItemDrag,
+    endItemDrag: itemFns.endItemDrag,
+    onFolderDragOver: itemFns.onFolderDragOver,
+    onFolderDragLeave: itemFns.onFolderDragLeave,
+    onFolderDrop: itemFns.onFolderDrop,
     // Per-folder icon colour map + setter (for the right-click colour swatches).
     folderColors,
-    onSetColor: setFolderColor,
-    // Files currently "cut" to the clipboard render dimmed (Explorer-style).
-    cutPaths: clipboard?.mode === 'cut' ? new Set(clipboard.items.map((i) => i.path)) : null,
+    onSetColor: itemFns.onSetColor,
+    cutPaths,
   };
 
   // One item → a Tile / Row, with the shared selection + rename wiring. Used by
   // both the flat grid/list and the per-section grids/lists in categorize mode.
+  // The selection count only matters to a SELECTED item's menu ("Delete 3
+  // items"), and the drop target only to the folder under the drag, so every
+  // other tile is handed the same values and its memo holds. Only the tile
+  // being renamed gets a commit handler of its own.
+  const bulkCount = multiSelItems.length;
+  const perItem = (f) => {
+    const sel = multiSel.has(f.id);
+    const renaming = renamingId === f.id;
+    return {
+      selected: sel,
+      isMultiSelected: sel,
+      bulkCount: sel ? bulkCount : 0,
+      dropFolderId: dropFolderId === f.id ? dropFolderId : null,
+      renaming,
+      onCommitName: renaming ? (name) => itemFns.commitRename(f, name) : undefined,
+      onCancelName: itemFns.cancelRename,
+    };
+  };
   const renderTile = (f) => (
-    <Tile key={f.id} item={f} selected={multiSel.has(f.id)} isMultiSelected={multiSel.has(f.id)} renaming={renamingId === f.id} onCommitName={(name) => commitRename(f, name)} onCancelName={cancelRename} {...itemCommon} />
+    <Tile key={f.id} item={f} {...perItem(f)} {...itemCommon} />
   );
   const renderRow = (f) => (
-    <Row key={f.id} item={f} selected={multiSel.has(f.id)} isMultiSelected={multiSel.has(f.id)} renaming={renamingId === f.id} onCommitName={(name) => commitRename(f, name)} onCancelName={cancelRename} {...itemCommon} />
+    <Row key={f.id} item={f} {...perItem(f)} {...itemCommon} />
   );
+  // One cell of a windowed block: an item, or the new-folder / new-file draft.
+  const renderCell = (c) => {
+    if (c === NEW_FOLDER_CELL) {
+      return view === 'tiles'
+        ? <NewFolderTile key={c.id} onCommit={commitNewFolder} onCancel={cancelNewFolder} />
+        : <NewFolderRow key={c.id} onCommit={commitNewFolder} onCancel={cancelNewFolder} />;
+    }
+    if (c === NEW_FILE_CELL) {
+      return view === 'tiles'
+        ? <NewFileTile key={c.id} onCommit={commitNewFile} onCancel={cancelNewFile} />
+        : <NewFileRow key={c.id} onCommit={commitNewFile} onCancel={cancelNewFile} />;
+    }
+    return view === 'tiles' ? renderTile(c) : renderRow(c);
+  };
+  // The flat view's cells, in render order: the Recycle bin, the drafts,
+  // folders, files. Memoised so the windowed block's index holds.
+  const flatCells = useMemo(() => [
+    ...binFolders,
+    ...(creatingFolder ? [NEW_FOLDER_CELL] : []),
+    ...(creatingFile ? [NEW_FILE_CELL] : []),
+    ...shownFolders,
+    ...shownItems,
+  ], [binFolders, creatingFolder, creatingFile, shownFolders, shownItems]);
+  const nameCells = useMemo(() => [...displayFolders, ...shownItems], [displayFolders, shownItems]);
+  // The item being renamed keeps its row drawn (plus any being dragged).
+  pinnedRef.current = new Set([renamingId, ...dragPinRef.current].filter((x) => x != null));
+  const vProps = {
+    renderCell,
+    mode: view,
+    tileSize,
+    registry: vRegistryRef.current,
+    pinnedRef,
+    onRenderedRef,
+    onCols,
+    getScroller,
+  };
 
   const emptyHint = {
     drafts: 'No files in your folder yet. Add or import files and they’ll show up here.',
@@ -2172,14 +2681,16 @@ export default function FilesWorkspace({
   // List view shows its column header INSIDE the window chrome (same bar/section
   // as the search), aligned with the full-bleed rows below — so it renders only
   // when the list is actually populated.
-  const showListHead = view === 'list' && hasLocalFolder && !loading && (totalShown > 0 || creatingFolder || creatingFile);
+  // Graph and Insights take the canvas's place (both read the AI scan).
+  const graphOn = fxMode !== 'files' && !!graphSource?.dir && tab === 'drafts';
+  const showListHead = !graphOn && view === 'list' && hasLocalFolder && !loading && (totalShown > 0 || creatingFolder || creatingFile);
 
   // Folder toolbar — nav + breadcrumb + search (+ the list column header in
   // list view). Rendered INTO the window chrome's row-2 slot when available
   // (one merged bar); falls back to an in-page pathbar row if there's no chrome.
   const toolbar = (
     <>
-      <div className="fx-chrome-tools">
+      <div className={`fx-chrome-tools${graphOn ? ' is-graph' : ''}`}>
         <div className="fx-pathbar-nav">
           {onRefresh && (
             <Tooltip content="Refresh"><button onClick={() => onRefresh()}><Icon name="refresh" size={14} /></button></Tooltip>
@@ -2217,6 +2728,9 @@ export default function FilesWorkspace({
             );
           })}
         </nav>
+        {graphSource?.dir && tab === 'drafts' && (
+          <RuleOptions field={FX_MODE_FIELD} value={fxMode} onPick={pickMode} className="fx-mode" />
+        )}
         <div style={{ flex: 1 }} />
         {/* Icon-size slider — drives the same tileSize as Ctrl+scroll zoom
             (smallest size flips to the list view). Sits just left of search. */}
@@ -2303,22 +2817,12 @@ export default function FilesWorkspace({
           )}
         </div>
         {onScanFiles && (
-          <Tooltip content={scanState
-            ? 'Scanning the files — press to stop'
-            : scanTaggedCount
-              ? 'Scan the files tagged for AI scan and connect them into Data collections. Pictures: their text; audio and video: their captions (a video’s pictures aren’t looked at); faces on identity documents are matched on this computer. Only new or changed files are read again.'
-              : 'Tag files for the AI scan first — right-click a file or folder → Tag for AI scan.'}
-          >
-            <button
-              type="button"
-              className={`fx-cat-btn fx-scan-btn${scanState ? ' is-active is-busy' : ''}`}
-              aria-label={scanState ? 'Stop the AI scan' : 'Scan the files with AI'}
-              aria-pressed={!!scanState}
-              onClick={() => onScanFiles()}
-            >
-              <Icon name="sparkles" size={14} filled={!!scanState} />
-            </button>
-          </Tooltip>
+          // The AI scan: hover = what it does (while scanning, the gauge
+          // cluster); click = the scan CARD (components/ScanGauges ScanButton) —
+          // a switch per feature, Scan / Stop, Erase memory.
+          <ScanButton scan={scanState} taggedCount={scanTaggedCount} onScan={onScanFiles} onErase={onEraseScanMemory}>
+            <Icon name="sparkles" size={14} filled={!!scanState && !scanState.finished} />
+          </ScanButton>
         )}
       </div>
       {showListHead && (
@@ -2354,8 +2858,7 @@ export default function FilesWorkspace({
       <div className="fx-window">
         {!chromeSlotEl && (
           <>
-            <MiniHeaderFade visible={headerScrolled} />
-            <div className={`fx-pathbar mini-glow${headerScrolled ? ' is-pinned' : ''}`} onMouseMove={miniHeaderSpot}>{toolbar}</div>
+            <FilesPathbar getScroller={pageScroller} enabled={!!masthead} deps={[hasLocalFolder, loading, view]}>{toolbar}</FilesPathbar>
           </>
         )}
 
@@ -2388,14 +2891,19 @@ export default function FilesWorkspace({
               </div>
             </div>
           )}
-          {!hasLocalFolder ? (
+          {graphOn ? (
+            <React.Suspense fallback={<div className="fx-empty"><p>Loading…</p></div>}>
+              <FileGraphView dir={graphSource.dir} projectId={graphSource.projectId} onOpenPath={onOpenPath} />
+            </React.Suspense>
+          ) : !hasLocalFolder ? (
             onPickFolder ? (
-              // Web — no ambient project directory; the user grants a folder.
+              // The project's folder is found by its project file; this asks
+              // for it only when it isn't where this machine last had it.
               <div className="fx-empty">
                 <Icon name="folder" className="fx-icon" strokeWidth={1.2} />
-                <h3>Connect a folder to start</h3>
-                <p>Pick a folder on your computer — that’s where this project’s files live.</p>
-                <button className="fx-btn-primary" onClick={() => onPickFolder?.()}><Icon name="folder" size={14} /> Choose folder</button>
+                <h3>{pickFolderCopy?.title || 'Connect a folder to start'}</h3>
+                <p>{pickFolderCopy?.body || 'Pick a folder on your computer — that’s where this project’s files live.'}</p>
+                <button className="fx-btn-primary" onClick={() => onPickFolder?.()}><Icon name="folder" size={14} /> {pickFolderCopy?.button || 'Choose folder'}</button>
               </div>
             ) : folderError ? (
               // Electron — resolving the project directory failed (most often
@@ -2433,9 +2941,7 @@ export default function FilesWorkspace({
                     <span className="fx-cat-head-label">By name</span>
                     <span className="fx-cat-head-count">{displayFolders.length + shownItems.length}</span>
                   </div>
-                  {view === 'tiles'
-                    ? <div className="fx-grid">{[...displayFolders, ...shownItems].map(renderTile)}</div>
-                    : <div className="fx-list">{[...displayFolders, ...shownItems].map(renderRow)}</div>}
+                  <VirtualCells key={`search:${view}`} blockKey="search" cells={nameCells} {...vProps} />
                 </section>
               )}
               {(contentHits.length > 0 || contentScanning || contentError) && (
@@ -2565,9 +3071,7 @@ export default function FilesWorkspace({
                         many items it holds. */}
                     {g.key !== 'trash' && <span className="fx-cat-head-count">{g.items.length}</span>}
                   </div>
-                  {view === 'tiles'
-                    ? <div className="fx-grid">{g.items.map(renderTile)}</div>
-                    : <div className="fx-list">{g.items.map(renderRow)}</div>}
+                  <VirtualCells key={`${g.key}:${view}`} blockKey={`group:${g.key}`} cells={g.items} {...vProps} />
                 </section>
               ))}
             </div>
@@ -2575,28 +3079,16 @@ export default function FilesWorkspace({
             // One flat grid — no Folders/Files category heads. Order: the
             // Recycle bin first, the new-folder draft, then folders A→Z, then
             // files A→Z.
-            <div className="fx-grid">
-              {binFolders.map(renderTile)}
-              {creatingFolder && <NewFolderTile onCommit={commitNewFolder} onCancel={cancelNewFolder} />}
-              {creatingFile && <NewFileTile onCommit={commitNewFile} onCancel={cancelNewFile} />}
-              {shownFolders.map(renderTile)}
-              {shownItems.map(renderTile)}
-            </div>
+            <VirtualCells key="flat:tiles" blockKey="flat" cells={flatCells} {...vProps} />
           ) : (
-            <div className="fx-list">
-              {binFolders.map(renderRow)}
-              {creatingFolder && <NewFolderRow onCommit={commitNewFolder} onCancel={cancelNewFolder} />}
-              {creatingFile && <NewFileRow onCommit={commitNewFile} onCancel={cancelNewFile} />}
-              {shownFolders.map(renderRow)}
-              {shownItems.map(renderRow)}
-            </div>
+            <VirtualCells key="flat:list" blockKey="flat" cells={flatCells} {...vProps} />
           )}
         </div>
 
         {/* Bottom action bar — file operations on the left, item count on the
             right. My drafts shows the full toolset; the bin shows
             Open / Restore / Delete-forever. */}
-        <div className="fx-bottombar mini-glow" onMouseMove={miniHeaderSpot}>
+        <div className="fx-bottombar mini-glow">
           <div className="fx-bottombar-actions">
             {(onUndo || onRedo) && (
               <>
@@ -2662,6 +3154,13 @@ export default function FilesWorkspace({
                 <button className="fx-tb-btn" disabled={!canEdit} onClick={() => onUpload?.()}>
                   <Icon name="upload" className="fx-icon" /><span>Import</span>
                 </button>
+                {onAddHighlightsSample && (
+                  <Tooltip content="Add a Word document showing every highlight the file viewer draws — laws, codes, CAEN codes, CUIs, cross-references and empty fields">
+                    <button className="fx-tb-btn" disabled={!canEdit} onClick={() => onAddHighlightsSample()}>
+                      <Icon name="file-doc" className="fx-icon" /><span>Highlights sample</span>
+                    </button>
+                  </Tooltip>
+                )}
                 <div className="fx-tb-sep" />
                 <button className="fx-tb-btn" disabled={!selectedItem} onClick={(e) => selectedItem && openItem(selectedItem, e)}>
                   <Icon name="open" className="fx-icon" /><span>Open</span>
@@ -2720,7 +3219,7 @@ export default function FilesWorkspace({
                 <button
                   className="fx-tb-btn"
                   disabled={multiSelItems.length === 0}
-                  onClick={() => { multiSelItems.forEach((it) => onRestore?.(it)); exitSelectMode(); }}
+                  onClick={() => { if (onRestoreMany) onRestoreMany(multiSelItems); else multiSelItems.forEach((it) => onRestore?.(it)); exitSelectMode(); }}
                 >
                   <Icon name="restore" className="fx-icon" /><span>Restore{multiSelItems.length > 1 ? ` (${multiSelItems.length})` : ''}</span>
                 </button>

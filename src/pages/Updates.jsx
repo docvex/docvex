@@ -5,14 +5,9 @@ import { useUpdates, versionTagFor } from '../context/UpdatesContext';
 import ConfirmModal from '../components/ConfirmModal';
 import Tooltip from '../components/Tooltip';
 import { isElectron, openExternal as platformOpenExternal } from '../lib/platform';
-import { miniHeaderSpot } from '../lib/miniHeaderSpot';
+import { useMiniGlowSpot } from '../lib/pointerSpots';
 import MiniHeaderFade from '../components/MiniHeaderFade';
 import './Updates.css';
-
-// URL shown to web users in the "Get the desktop app" CTA. Linking to the
-// marketing site (not directly to a release asset) so the user lands on
-// the install/download page that already exists.
-const DESKTOP_DOWNLOAD_URL = 'https://docvex.ro/';
 
 function formatDate(iso) {
   if (!iso) return '';
@@ -124,31 +119,6 @@ function openExternal(e, url) {
   platformOpenExternal(url);
 }
 
-// Web-only banner. The Electron install/restart UI doesn't apply on the
-// web build — show release-notes context plus a CTA back to the desktop
-// download page. Doubles as cross-promotion.
-function DesktopAppBanner() {
-  const { latestVersion } = useUpdates();
-  return (
-    <div className="updates-banner updates-banner-update">
-      <div>
-        <strong>Get the desktop app{latestVersion ? ` — v${latestVersion}` : ''}</strong>
-        <p>
-          Docvex's desktop build for Windows installs locally, runs offline,
-          and auto-updates in the background. Release notes for the desktop
-          builds are below.
-        </p>
-      </div>
-      <button
-        className="updates-btn updates-btn-primary"
-        onClick={(e) => openExternal(e, DESKTOP_DOWNLOAD_URL)}
-      >
-        {DownloadIcon} Download for Windows
-      </button>
-    </div>
-  );
-}
-
 function StatusBanner() {
   const {
     currentVersion,
@@ -172,14 +142,6 @@ function StatusBanner() {
   // colour-coded (major → red, minor → blue, patch → neutral).
   const updateKind = releaseKind(latestVersion, currentVersion);
   const updateBannerClass = `updates-banner updates-banner-update${updateKind ? ` is-${updateKind}` : ''}`;
-
-  // Web build: no installer state to manage. Render the cross-promotion
-  // CTA instead and let the release-notes section below handle the
-  // changelog. Errors and the initial-loading state still fall through to
-  // the desktop branch (they're useful signal on both targets).
-  if (!isElectron && !loading && !error) {
-    return <DesktopAppBanner />;
-  }
 
   if (loading && releases.length === 0) {
     return <div className="updates-banner updates-banner-info">Checking GitHub for releases…</div>;
@@ -399,10 +361,9 @@ function ReleaseCard({ release, tag, kind, isLatest, isCurrent, expanded, onTogg
             <span className="commit">
               {TagIcon} {tag}{commit ? ` · ${commit}` : ''}
             </span>
-            {/* Revert is a download of an older Setup.exe — Electron only,
-                hidden on the installed version (no-op) and on web (no local
-                install to roll back). Disabled when the release shipped no
-                installer asset. */}
+            {/* Revert is a download of an older Setup.exe — hidden on the
+                installed version (no-op). Disabled when the release shipped
+                no installer asset. */}
             {isElectron && !isCurrent && (() => {
               const setup = setupAssetFor(release);
               return (
@@ -431,18 +392,18 @@ function ReleaseCard({ release, tag, kind, isLatest, isCurrent, expanded, onTogg
   );
 }
 
-export default function Updates() {
-  const { releases, currentVersion, latestVersion, hasUpdate, loading, error } = useUpdates();
-
-  // Compact-header-on-scroll, mirroring the launch hub. The page scrolls inside
-  // the single-window pane's `.sv-single-scroll` (falling back to `.main-content`
-  // if the structure ever changes); we listen there and toggle a fixed, blurred
-  // bar in once the big title has scrolled away. Hysteresis (show past 32px,
-  // hide under 8px) prevents flicker at the edge.
-  const pageRef = useRef(null);
+// Compact-header-on-scroll, mirroring the launch hub. The page scrolls inside
+// the single-window pane's `.sv-single-scroll` (falling back to `.main-content`
+// if the structure ever changes); we listen there and toggle a fixed, blurred
+// bar in once the big title has scrolled away. Hysteresis (show past 32px,
+// hide under 8px) prevents flicker at the edge. Its own component so a flip
+// re-renders only the bar and its fade.
+function VersionsCompactBar({ children }) {
+  useMiniGlowSpot(); // the .mini-glow bar's spotlight (lib/pointerSpots)
+  const barRef = useRef(null);
   const [scrolled, setScrolled] = useState(false);
   useEffect(() => {
-    const scroller = pageRef.current?.closest('.sv-single-scroll, .main-content');
+    const scroller = barRef.current?.closest('.sv-single-scroll, .main-content');
     if (!scroller) return undefined;
     const onScroll = () => {
       const top = scroller.scrollTop;
@@ -452,6 +413,22 @@ export default function Updates() {
     scroller.addEventListener('scroll', onScroll, { passive: true });
     return () => scroller.removeEventListener('scroll', onScroll);
   }, []);
+  return (
+    <>
+      <MiniHeaderFade visible={scrolled} />
+      <div ref={barRef} className={`versions-compact mini-glow${scrolled ? ' is-visible' : ''}`} aria-hidden={!scrolled}>
+        {children}
+      </div>
+    </>
+  );
+}
+
+export default function Updates() {
+  const { releases, currentVersion, latestVersion, hasUpdate, loading, error } = useUpdates();
+
+  // The compact header's scroll tracking lives in VersionsCompactBar (above),
+  // so a show/hide flip re-renders only the bar, not every release card.
+  const pageRef = useRef(null);
 
   // Clicking the compact-header status pill jumps back to the top (smooth),
   // which also fades the compact bar back out as the big header reappears.
@@ -532,8 +509,7 @@ export default function Updates() {
       {/* Compact header — fades/slides in once the big "Versions" title has
           scrolled away, like the launch hub. Fixed to the content area. Carries
           the same up-to-date / update-available status as the banner below. */}
-      <MiniHeaderFade visible={scrolled} />
-      <div className={`versions-compact mini-glow${scrolled ? ' is-visible' : ''}`} aria-hidden={!scrolled} onMouseMove={miniHeaderSpot}>
+      <VersionsCompactBar>
         <span className="mini-head-text">
           <span className="versions-compact-title">Versions</span>
           <span className="versions-compact-sep" aria-hidden="true">·</span>
@@ -552,7 +528,7 @@ export default function Updates() {
               : `Up to date${currentVersion ? ` · v${currentVersion}` : ''}`}
           </button>
         </Tooltip>
-      </div>
+      </VersionsCompactBar>
       <div className="page">
         {/* Masthead — mirrors the Projects page: accent eyebrow + muted kicker,
             big display title, then a stat line summarising the release history

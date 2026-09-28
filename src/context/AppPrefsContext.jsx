@@ -9,6 +9,7 @@ import React, {
 } from 'react';
 import { useAuth } from './AuthContext';
 import { applyAppScale } from '../lib/appScale';
+import { getPerfLevel } from '../lib/perf';
 
 // App-wide user preferences (Settings → everything except Theme, which has its
 // own ThemeContext). Single source of truth so the preferences actually DRIVE
@@ -31,7 +32,7 @@ export const DEFAULT_PREFS = {
   fileView: 'grid',
   language: 'en',
   showTokenUsage: false, // show the per-chat token-usage indicator in AI chats
-  fpsCounter: 'simple', // the title bar's FPS counter: 'off' | 'simple' | 'complex' | 'graph' (components/FpsMeter)
+  fpsCounter: 'off', // the title bar's FPS counter: 'off' | 'simple' | 'complex' | 'graph' (components/FpsMeter)
 };
 
 const PREF_KEY_PREFIX = 'docvex.appPrefs.';
@@ -50,7 +51,11 @@ function loadPrefs(uid) {
 // consumers). Safe to call repeatedly — each application is idempotent.
 function applyGlobals(prefs) {
   if (typeof document !== 'undefined') {
-    document.documentElement.setAttribute('data-reduce-motion', prefs.reduceMotion ? 'true' : 'false');
+    // The user's own choice is kept apart (lib/perf ORs the Low graphics
+    // preset into data-reduce-motion) so switching preset never loses it.
+    const root = document.documentElement;
+    root.setAttribute('data-user-reduce-motion', prefs.reduceMotion ? 'true' : 'false');
+    root.setAttribute('data-reduce-motion', prefs.reduceMotion || getPerfLevel() === 'low' ? 'true' : 'false');
   }
   applyAppScale(prefs.textSize);
 }

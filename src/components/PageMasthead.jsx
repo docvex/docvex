@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import Tooltip from './Tooltip';
-import { miniHeaderSpot } from '../lib/miniHeaderSpot';
+import { useMiniGlowSpot } from '../lib/pointerSpots';
 import MiniHeaderFade from './MiniHeaderFade';
 import './PageMasthead.css';
 
@@ -29,6 +29,7 @@ export default function PageMasthead({
   const compact = wantCompact && !!compactRight;
   const ref = useRef(null);
   const [scrolled, setScrolled] = useState(false);
+  useMiniGlowSpot();
 
   // Toggle the compact bar once the masthead's scroller passes a threshold.
   // Hysteresis (show past 32px, hide under 8px) prevents flicker at the edge.
@@ -58,7 +59,6 @@ export default function PageMasthead({
         <div
           className={`pmh-compact mini-glow${scrolled ? ' is-visible' : ''}`}
           aria-hidden={!scrolled}
-          onMouseMove={miniHeaderSpot}
         >
           <Tooltip content="Back to top">
             <button type="button" className="pmh-compact-titlebtn" onClick={scrollToTop}>

@@ -10,7 +10,7 @@ import './RuleOptions.css';
 // faint dividers between neighbours, and the selection a pill that SLIDES
 // to the choice picked (measured off the chosen button — the labels differ
 // in width, and a long row wraps, so it moves in both directions).
-export default function RuleOptions({ field, value, onPick, className = '' }) {
+export default function RuleOptions({ field, value, onPick, onHover = null, className = '' }) {
   const boxRef = useRef(null);
   const [pill, setPill] = useState(null);   // { x, y, w, h } in the box's px
   const [ready, setReady] = useState(false); // no slide on the first placing
@@ -35,7 +35,7 @@ export default function RuleOptions({ field, value, onPick, className = '' }) {
     return () => cancelAnimationFrame(id);
   }, [pill, ready]);
   return (
-    <div ref={boxRef} className={`pbk-rule-opts${ready ? ' is-ready' : ''}${className ? ` ${className}` : ''}`} role="radiogroup" aria-label={field.label}>
+    <div ref={boxRef} className={`pbk-rule-opts${ready ? ' is-ready' : ''}${className ? ` ${className}` : ''}`} role="radiogroup" aria-label={field.label} onMouseLeave={onHover ? () => onHover(null) : undefined}>
       {pill ? (
         <span
           className="pbk-rule-pill"
@@ -54,6 +54,7 @@ export default function RuleOptions({ field, value, onPick, className = '' }) {
             // An EMPTY choice (nothing behind it) cannot be picked.
             aria-disabled={o.empty || undefined}
             onClick={() => { if (!o.empty) onPick(o.id); }}
+            onMouseEnter={onHover && !o.empty ? () => onHover(o.id) : undefined}
           >
             {o.label}
           </button>

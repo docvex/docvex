@@ -99,7 +99,7 @@
 .mx-tool-btn {
   display: inline-flex; align-items: center; justify-content: center; gap: 4.8px; height: 24px; padding: 0 8px;
   border: 1px solid var(--border); border-radius: 6.4px; background: var(--bg-input); color: var(--text-secondary);
-  font-size: 9.6px; font-weight: 600; cursor: pointer; transition: border-color .12s, color .12s, background .12s;
+  font-size: 9.6px; font-weight: 600; cursor: pointer; transition: border-color .12s, background .12s;
 }
 .mx-tool-btn:hover:not(:disabled) { border-color: var(--border-strong); color: var(--text-primary); }
 .mx-tool-btn:disabled { opacity: 0.5; cursor: default; }

@@ -36,11 +36,6 @@ const STORAGE_KEY_PREFIX = 'docvex.theme.';
 // only as the signed-out fallback (see hydration below). The `last` segment
 // can't collide with a real user id (uuid) or the `_anonymous` key.
 const LAST_THEME_KEY = `${STORAGE_KEY_PREFIX}last`;
-// The marketing website's theme key (see landing/home). On the web build the
-// site and the app share one origin — and one theme: hydration prefers this
-// key so /app always matches the page the visitor came from, and app-side
-// picks are mirrored back so the site follows along.
-const SITE_THEME_KEY = 'docvex.site.theme';
 
 // The themes shipped today. Order in this array drives the picker layout
 // left-to-right. Adding a third theme is two lines here + a new
@@ -163,12 +158,8 @@ export function ThemeProvider({ children }) {
 
     let nextPref = DEFAULT_PREF;
     try {
-      // Web build: the website's theme wins (shared origin, shared look).
-      const site = !isElectron ? localStorage.getItem(SITE_THEME_KEY) : null;
       const stored = localStorage.getItem(storageKey(userId));
-      if (site && VALID_THEMES.has(site)) {
-        nextPref = site;
-      } else if (stored && VALID_PREFS.has(stored)) {
+      if (stored && VALID_PREFS.has(stored)) {
         nextPref = stored;
       } else if (!userId) {
         // Signed out with no explicit anonymous pick → fall back to the last
@@ -199,9 +190,6 @@ export function ThemeProvider({ children }) {
       localStorage.setItem(storageKey(userId), pref);
       // Mirror to the machine-wide key so the signed-out screen can recall it.
       localStorage.setItem(LAST_THEME_KEY, pref);
-      // Web build: mirror the resolved theme to the website's key so the
-      // marketing pages follow the pick (the site only knows cream/ink).
-      if (!isElectron) localStorage.setItem(SITE_THEME_KEY, resolved);
     } catch {
       /* private mode / quota — non-fatal */
     }

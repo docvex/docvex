@@ -13,7 +13,7 @@
 
 import {
   parseFieldToken, identityValueForField, addressIsApartment, addressHasSectors,
-  applyGenderToText, applyLocalityToText, APARTMENT_ONLY_FIELDS,
+  applyGenderToText, applyLocalityToText, APARTMENT_ONLY_FIELDS, genderOf,
 } from './identities';
 
 // ── What a blank looks like ─────────────────────────────────────────────────
@@ -122,7 +122,7 @@ const FIELD_LABELS = {
   placeOfBirth: 'Place of birth', nationality: 'Nationality', idType: 'ID type',
   idDocument: 'ID document', idSeries: 'ID series', idNumber: 'ID number', idIssuer: 'Issued by',
   idIssuedAt: 'Issued on', taxId: 'CUI', regNo: 'Trade Register no.', legalForm: 'Legal form',
-  representative: 'Representative', repCapacity: 'Representative’s capacity', iban: 'IBAN', bank: 'Bank',
+  representative: 'Legal representative (who signs)', repCapacity: 'Acting as (their function)', iban: 'IBAN', bank: 'Bank',
   address: 'Address', addressStreet: 'Street', addressNumber: 'Number', addressBlock: 'Block',
   addressStair: 'Stair', addressFloor: 'Floor', addressApartment: 'Apartment',
   addressLocality: 'Locality', addressCounty: 'County', addressSector: 'Sector',
@@ -572,7 +572,9 @@ export function settleClauseFor(text, role, record) {
     // eslint-disable-next-line no-control-regex
     out = out.replace(/[,;]?[^,;\u0000]*\u0000DROP\d+\u0000/g, '');
   }
-  if (record?.gender) out = applyGenderToText(out, record.gender);
+  // The record's gender — stated, or read off its CNP / first name (genderOf).
+  const gender = genderOf(record);
+  if (gender) out = applyGenderToText(out, gender);
   if (locationKnown(record)) out = applyLocalityToText(out, addressHasSectors(record));
   return out;
 }
@@ -652,6 +654,8 @@ export function clauseKind(fields) {
   return org > person ? 'org' : 'person';
 }
 
+const blankFor = (role) => (key) => `[[${role ? `${role}.${key}` : key}]]`;
+
 const ADDRESS_RO = (b) => `${b('addressLocality')}, str. ${b('addressStreet')}, nr. ${b('addressNumber')}, `
   + `bl. ${b('addressBlock')}, sc. ${b('addressStair')}, et. ${b('addressFloor')}, ap. ${b('addressApartment')}, `
   + `județul/sectorul ${b('addressCountyOrSector')}`;
@@ -662,9 +666,97 @@ const FORMULA = {
   org: (b) => `${b('legalName')}, cu sediul în ${ADDRESS_RO(b)}, `
     + `înregistrată la Oficiul Registrului Comerțului sub nr. ${b('regNo')}, cod unic de înregistrare ${b('taxId')}, `
     + `reprezentată legal prin ${b('representative')}, în calitate de ${b('repCapacity')}`,
+  // A PFA / II: a person trading under their own name — a professional seat,
+  // a trade-register number and a CUI, and the holder who signs for it.
+  pfa: (b) => `${b('legalName')}, persoană fizică autorizată, cu sediul profesional în ${ADDRESS_RO(b)}, `
+    + `înregistrată la Oficiul Registrului Comerțului sub nr. ${b('regNo')}, cod unic de înregistrare ${b('taxId')}, `
+    + `reprezentată prin titular ${b('representative')}`,
 };
 
-const blankFor = (role) => (key) => `[[${role ? `${role}.${key}` : key}]]`;
+// ── What KIND of entity a clause names, per entity ──────────────────────
+// The Constructor's segmented choice (one per person the picked paragraph
+// names): read off the clause, and changed by rewriting THAT entity's part of
+// it in the chosen formula.
+export const ENTITY_KINDS = [
+  { id: 'person', label: 'Persoană fizică', example: 'A human being: domicile, identity card, CNP' },
+  { id: 'pfa', label: 'PFA / II', example: 'Persoană fizică autorizată / întreprindere individuală: a professional seat, trade register no., CUI' },
+  { id: 'org', label: 'Persoană juridică', example: 'A company: registered office, trade register no., CUI, legal representative' },
+];
+const PFA_RE = /persoan[ăa]\s+fizic[ăa]\s+autorizat|întreprindere\s+individual|intreprindere\s+individual|\bP\.?F\.?A\.?(?![\p{L}])|\bI\.I\.(?![\p{L}])/iu;
+
+// Where each entity's part of `text` lies: `whoOf(id)` names the entity a
+// blank belongs to (a representative's blanks answer to their company), and an
+// entity's part runs from the boundary before its first blank — the ":" that
+// opens a list of parties, the "și" / ";" between two — to its last blank.
+// What follows the last blank ("…, denumită în continuare „Vânzător”") is left
+// alone: it is how the document NAMES the party, whatever kind it is.
+export function entitySpans(text, whoOf) {
+  const src = String(text || '');
+  const order = [];
+  const span = new Map();
+  for (const h of scanBlanks(src)) {
+    const who = whoOf(h.id);
+    if (!who) continue;
+    const s = span.get(who);
+    if (!s) { span.set(who, { first: h.start, last: h.end }); order.push(who); } else s.last = Math.max(s.last, h.end);
+  }
+  let prevEnd = 0;
+  order.forEach((who, i) => {
+    const s = span.get(who);
+    const win = src.slice(prevEnd, s.first);
+    let cut = -1;
+    // `\b` is ASCII-only — it cannot see the edges of „și” — so the letters
+    // around the word are checked with \p{L} instead.
+    const re = /(?:[:;\n]|(?<!\p{L})(?:și|şi|si)(?!\p{L}))\s*/giu;
+    for (let m = re.exec(win); m; m = re.exec(win)) cut = m.index + m[0].length;
+    // No such word: the LAST comma — what comes before it still belongs to
+    // the entity before (its „denumită în continuare …”).
+    if (cut < 0 && i > 0) { const c = win.lastIndexOf(','); cut = c >= 0 ? c + 1 : 0; }
+    let start = prevEnd + Math.max(0, cut);
+    while (start < s.first && /\s/.test(src[start])) start += 1;
+    s.start = start;
+    prevEnd = s.last;
+  });
+  return { order, span };
+}
+
+// The kind a RECORD is — the same three — so the Constructor lists, under
+// each person, only the data collections of the kind chosen for them. A PFA /
+// II is a record of kind org whose legal form (or name) says so.
+export function recordKindOf(rec) {
+  if (rec?.kind !== 'org') return 'person';
+  return PFA_RE.test(`${rec.legalForm || ''} ${rec.legalName || rec.name || ''}`) ? 'pfa' : 'org';
+}
+
+// „reprezentată legal prin X, în calitate de Y": X is WHO signs for a company
+// (a person — their name), Y is the FUNCTION that gives them the power to sign
+// (what they are in the firm, never a fact about the person). The functions a
+// clause usually names, in the lower case they take mid-sentence.
+export const REP_CAPACITIES = [
+  { id: 'administrator', label: 'Administrator', example: 'Most common in an SRL — the firm’s legal representative by its articles' },
+  { id: 'director general', label: 'Director general', example: 'Common in an SA or a larger company (also: CEO)' },
+  { id: 'împuternicit', label: 'Împuternicit', example: 'Does not run the firm, but holds a power of attorney (procură) to sign this contract' },
+  { id: 'președinte', label: 'Președinte', example: 'An association or a foundation' },
+];
+
+// 'person' | 'pfa' | 'org' for one entity: its own words first (a PFA says so),
+// then its blanks (clauseKind).
+export function entityKindOf(text, fields) {
+  if (PFA_RE.test(String(text || ''))) return 'pfa';
+  return clauseKind(fields) || 'person';
+}
+
+// `text` with ONE entity's part rewritten in `kind`'s formula, its blanks
+// named `role` (`[[role.key]]`; a bare `[[key]]` without one).
+export function rewriteEntity(text, whoOf, who, kind, role) {
+  const src = String(text || '');
+  const { span } = entitySpans(src, whoOf);
+  const s = span.get(who);
+  const make = FORMULA[kind] || FORMULA.person;
+  if (!s) return src;
+  return `${src.slice(0, s.start)}${make(blankFor(role))}${src.slice(s.last)}`;
+}
+
 
 // Where the clause stops identifying and starts naming: ", denumit(ă) în
 // continuare „Prestator”;" — kept word for word. Failing that, its closing
@@ -679,11 +771,11 @@ function clauseTail(text) {
 
 // The clause rewritten for `kind`, same role, same ending.
 export function partyClauseFor(kind, role, originalText) {
-  const make = FORMULA[kind === 'org' ? 'org' : 'person'];
+  const make = FORMULA[kind] || FORMULA.person;
   let tail = clauseTail(originalText);
   if (tail && !/^[,.;:]/.test(tail.trim())) tail = `, ${tail.trim()}`;
   // A company is "societatea": feminine, whatever the draft left open.
-  if (kind === 'org') tail = applyGenderToText(tail, 'female');
+  if (kind === 'org' || kind === 'pfa') tail = applyGenderToText(tail, 'female');
   return `${make(blankFor(role))}${tail}`;
 }
 

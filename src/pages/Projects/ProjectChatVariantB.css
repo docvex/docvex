@@ -1,4 +1,4 @@
-﻿/* Chat tab — Variant B "Split Pane".
+/* Chat tab — Variant B "Split Pane".
    Ported from the Claude Design handoff (docvex-chat-redesign):
    chat-shared.css (the dvx- primitives) + chat-variant-b.css (the vb-
    layout) merged here, plus the docvex page-frame integration and a
@@ -178,7 +178,7 @@
   box-shadow: var(--mini-seam-shadow);
 }
 /* Transparent in-flow (not pinned) → no border for the shared shine to ride. */
-.dvx-toolbar:not(.is-pinned)::after { opacity: 0; }
+.dvx-toolbar.mini-glow:not(.is-pinned) > .spot-shine { opacity: 0; }
 
 /* ═══════════════════════════════════════════════════════════════════
    Shared primitives (from chat-shared.css)
@@ -517,8 +517,8 @@
   backdrop-filter: blur(6.4px);
   -webkit-backdrop-filter: blur(6.4px);
 }
-/* Cursor-following spotlight glow (tracks --spot-x/--spot-y set on mousemove
-   in the JSX), painted over the frosted fill but behind the input content. */
+/* Cursor-following spotlight glow (tracks --spot-x/--spot-y, written by
+   lib/pointerSpots), painted over the frosted fill but behind the input content. */
 .dvx-composer::after {
   content: '';
   position: absolute;
@@ -538,6 +538,35 @@
 .dvx-composer:hover::after,
 .dvx-composer:focus-within::after { opacity: 0.6; }
 .dvx-composer > * { position: relative; z-index: 1; }
+/* The team composer is also a `.mini-glow` surface, so it carries the pointer
+   lights lib/pointerSpots injects (styles/spotLights.css) — pre-drawn dots
+   moved by a transform, where this ::after's gradient re-centred on
+   --spot-x/y repainted every frame. Only when it is NOT the footer (in the
+   footer both are hidden, as its pseudo-elements are, below): no glow — its
+   ::before is the frosted fill, faded in on hover as the mini-glow rules left
+   it — and the ring shine this ::after drew there, the 144px light masked to
+   a 1.5px ring. */
+.dvx-composer.mini-glow::before { opacity: 0; transition: opacity 240ms ease; }
+.dvx-composer.mini-glow:hover::before { opacity: 0.7; }
+.dvx-composer.mini-glow::after { display: none; }
+.dvx-composer.mini-glow > .spot-glow { display: none; }
+.dvx-composer.mini-glow > .spot-shine {
+  z-index: 0;
+  padding: 1.5px;
+  --spot-r: 144px;
+  opacity: 0;
+  transition: opacity 260ms ease;
+}
+.dvx-composer.mini-glow > .spot-shine > .spot-dot {
+  background: radial-gradient(
+    144px circle at 50% 50%,
+    color-mix(in srgb, var(--accent) 5%, transparent) 0%,
+    color-mix(in srgb, var(--accent) 2%, transparent) 40%,
+    transparent 72%
+  );
+}
+.dvx-composer.mini-glow:hover > .spot-shine,
+.dvx-composer.mini-glow:focus-within > .spot-shine { opacity: 0.6; }
 .dvx-composer:focus-within {
   border-color: color-mix(in srgb, var(--accent) 60%, var(--border));
   box-shadow: 0 0 0 2.4px color-mix(in srgb, var(--accent) 14%, transparent), var(--shadow-card);
@@ -586,7 +615,7 @@
   border: none;
   color: var(--text-muted);
   cursor: pointer;
-  transition: background 140ms ease, color 140ms ease;
+  transition: background 140ms ease;
 }
 /* Hover + selected match the mini header's buttons (.fx-cat-btn). */
 .dvx-composer-btn:hover {
@@ -690,7 +719,7 @@
   font-weight: 500;
   color: var(--text-muted);
   cursor: pointer;
-  transition: color 150ms, border-color 150ms;
+  transition: border-color 150ms;
 }
 .dvx-tab:hover:not(.is-active) { color: var(--text-secondary); }
 .dvx-tab.is-active {
@@ -922,7 +951,7 @@
   border-radius: 4px;
   background: color-mix(in srgb, var(--text-primary) 8%, transparent);
   color: var(--text-secondary);
-  transition: background 120ms ease, color 120ms ease;
+  transition: background 120ms ease;
 }
 .dvx-chrome-search-clear:hover {
   background: color-mix(in srgb, var(--text-primary) 16%, transparent);
@@ -965,7 +994,7 @@
   font-weight: 500;
   color: var(--text-secondary);
   cursor: pointer;
-  transition: background 120ms, border-color 120ms, color 120ms;
+  transition: background 120ms, border-color 120ms;
   white-space: nowrap;
 }
 .dvx-action-btn:hover {
@@ -1699,6 +1728,7 @@
 }
 .sv-footer .dvx-composer::before,
 .sv-footer .dvx-composer::after { display: none; }
+.sv-footer .dvx-composer > .spot-light { display: none; }
 .sv-footer .dvx-composer:focus-within {
   border: none;
   box-shadow: none;
@@ -2272,4 +2302,13 @@ button.vb-rail-card-foot:hover { text-decoration: underline; }
 @media (max-width: 736px) { /* 920px pre-scale */
   .vb-private { grid-template-columns: 160px 1fr; }
   .vb-private-rail { display: none; }
+}
+
+/* Optimistic send: a message still on its way is drawn faded until the
+   server has it (ProjectChat's pendingRow → settleTemp / mergeIncoming), and
+   so is an edit or delete not yet confirmed (`_saving`). */
+.vb-msg.is-pending .vb-msg-bubble,
+.vb-msg.is-pending .vb-msg-time-under {
+  opacity: 0.55;
+  transition: opacity 160ms ease;
 }

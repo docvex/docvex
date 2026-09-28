@@ -5,8 +5,12 @@
 // invisible text over each line, so the picture's text is selected by dragging
 // and copied like any other text (a phone's / Windows Photos' live text).
 //
-// THE ENGINE IS LOCAL: Tesseract (tesseract.js, WebAssembly, in a Web Worker),
-// with the Romanian + English models. A highlight has to sit ON its text, and
+// THE ENGINE IS LOCAL: PaddleOCR PP-OCRv6 (lib/paddleOcr — a neural text
+// DETECTOR that finds every line on a real photo, tilted, blurred, shadowed or
+// on a busy ground, then a recogniser reading each line cut out upright; the
+// same two-stage design as Apple's Live Text). Tesseract (tesseract.js, with
+// the Romanian + English models) is kept as the FALLBACK for when PaddleOCR
+// can't start — it needs a clean, flat page and misses most of a phone photo. A highlight has to sit ON its text, and
 // only a real OCR engine measures where glyphs are — it reports a pixel box per
 // word. (The first two versions of this asked a vision model for boxes; it
 // reads text well but only ESTIMATES positions, and the highlights never quite
@@ -30,6 +34,7 @@ import { askProjectAi } from './projectAi';
 import { readLocalBlob } from './localFolder';
 import { getAiFacet, saveAiFacet, stampFor } from './aiData';
 import { readSourceText } from './identityExtract';
+import { readLines } from './paddleOcr';
 
 // The strips' reader. Sheets are sized to pass the API's image limits untouched
 // (1568px on the long edge, ~1.15 MP), so small print stays as sharp as cut.
@@ -52,7 +57,7 @@ const OCR_TARGET_EDGE = 2200;
 const SCORE_MIN_CONF = 60;
 
 function ocrBaseUrl() {
-  // Dev: '/', the web build: '/app/', packaged Electron: './' beside index.html.
+  // Dev: '/', packaged Electron: './' beside index.html.
   const base = (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.BASE_URL) || './';
   return new URL(`${base.replace(/\/?$/, '/')}ocr/`, window.location.href).href;
 }
@@ -407,7 +412,33 @@ function composeReading(runs, turns, cw, ch) {
   };
   const regions = [];
   const kept = [];
+  const tilted = [];
+  // A length measured in the turned canvas, as a fraction of the picture's
+  // WIDTH as shown (the layer scales both of a tilted line's sizes by it).
+  const shownW = turns % 2 === 1 ? ch : cw;
   for (const run of runs) {
+    if (run.tilt) {
+      // A TILTED line: its words shared along it by their length, laid at its
+      // angle round its centre.
+      const { cx, cy, angle, len, th } = run.tilt;
+      const tokens = run.text.split(' ').filter(Boolean);
+      if (!tokens.length) continue;
+      const total = tokens.reduce((n, t) => n + t.length, 0) + tokens.length - 1;
+      let at = 0;
+      const words = tokens.map((t) => { const a = at / total; at += t.length; const b = at / total; at += 1; return [t, round(a), round(b)]; });
+      const rad = (angle * Math.PI) / 180;
+      const hx = (Math.abs(Math.cos(rad)) * len + Math.abs(Math.sin(rad)) * th) / 2;
+      const hy = (Math.abs(Math.sin(rad)) * len + Math.abs(Math.cos(rad)) * th) / 2;
+      const a = toPicture(cx - hx, cy - hy);
+      const b = toPicture(cx + hx, cy + hy);
+      regions.push({
+        text: tokens.join(' '),
+        x: Math.min(a[0], b[0]), y: Math.min(a[1], b[1]), w: round(Math.abs(a[0] - b[0])), h: round(Math.abs(a[1] - b[1])),
+        words, a: round(angle - 90 * turns), len: round(len / shownW), th: round(th / shownW),
+      });
+      tilted.push(run);
+      continue;
+    }
     // The LINE box — where the selectable text is laid: the words' own extent.
     const a = toPicture(run.x0, run.y0);
     const b = toPicture(run.x1, run.y1);
@@ -423,7 +454,7 @@ function composeReading(runs, turns, cw, ch) {
     regions.push({ text: run.text, x, y, w: round(w), h: round(h), words });
     kept.push(run);
   }
-  const heights = kept.map((r) => r.letterH).sort((m, n) => m - n);
+  const heights = kept.concat(tilted).map((r) => r.letterH).sort((m, n) => m - n);
   const letter = heights.length ? heights[Math.floor(heights.length / 2)] : 10;
   // Padding and reach are measured in letters — but a blot read as one giant
   // "letter" (a flag, a signature) must not get a giant margin: no run counts
@@ -431,6 +462,17 @@ function composeReading(runs, turns, cw, ch) {
   for (const r of kept) r.ref = Math.min(r.letterH, letter * 1.6);
   const rects = kept.flatMap(runRects).concat(bridgeRects(kept));
   const shapes = unionLoops(rects, Math.max(1, letter * 0.12)).map((loop) => loop.map(([px, py]) => toPicture(px, py)));
+  // A tilted line is lit by its own quadrilateral (padded like an upright one),
+  // clockwise like the loops above.
+  for (const run of tilted) {
+    const { cx, cy, angle, len, th } = run.tilt;
+    const pad = Math.max(2, Math.min(run.letterH, letter * 1.6) * 0.26);
+    const rad = (angle * Math.PI) / 180;
+    const ux = Math.cos(rad); const uy = Math.sin(rad);
+    const hl = len / 2 + pad; const ht = th / 2 + pad;
+    const corner = (s, t) => toPicture(cx + ux * hl * s - uy * ht * t, cy + uy * hl * s + ux * ht * t);
+    shapes.push([corner(-1, -1), corner(1, -1), corner(1, 1), corner(-1, 1)]);
+  }
   return { regions, shapes };
 }
 
@@ -456,9 +498,116 @@ function scoreRuns(runs) {
   return { score: inkChars ? confSum / 100 : 0, mean: inkChars ? confSum / inkChars : 0 };
 }
 
+// ── PaddleOCR ───────────────────────────────────────────────────────────
+// The picture at the detector's size: long edge ≤ 1920px (a phone photo's small
+// print stays several pixels tall), small pictures up to 2× — upscaling further
+// only blurs.
+const PADDLE_EDGE = 1920;
+function paddleCanvas(el, turns) {
+  const natW = el.naturalWidth; const natH = el.naturalHeight;
+  const scale = Math.min(2, PADDLE_EDGE / Math.max(natW, natH));
+  const w = Math.max(1, Math.round(natW * scale)); const h = Math.max(1, Math.round(natH * scale));
+  const canvas = document.createElement('canvas');
+  const side = turns % 2 === 1;
+  canvas.width = side ? h : w; canvas.height = side ? w : h;
+  const ctx = canvas.getContext('2d', { willReadFrequently: true });
+  ctx.imageSmoothingQuality = 'high';
+  ctx.fillStyle = '#ffffff'; ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.translate(canvas.width / 2, canvas.height / 2);
+  ctx.rotate((turns * Math.PI) / 2);
+  ctx.drawImage(el, -w / 2, -h / 2, w, h);
+  return canvas;
+}
+// A detected LINE → a run as the rest of this file knows it. The detector's box
+// carries a margin round the letters (its "unclip"), trimmed back a little; the
+// WORDS are laid along it by their length (the recogniser reads a whole line —
+// it doesn't place each word).
+// A line tilted more than this (degrees) keeps its tilt: its selectable text and
+// its lit shape are laid along it, not in an upright box round it.
+const TILT_MIN = 1.5;
+function runFromLine(line) {
+  const t = line.thick;
+  const x0 = line.x0 + t * 0.05; const x1 = Math.max(x0 + 1, line.x1 - t * 0.05);
+  const y0 = line.y0 + t * 0.1; const y1 = Math.max(y0 + 1, line.y1 - t * 0.1);
+  const tokens = line.text.split(' ').filter(Boolean);
+  const total = tokens.reduce((n, w) => n + w.length, 0) + Math.max(0, tokens.length - 1);
+  let at = 0;
+  const boxes = tokens.map((w) => {
+    const a = x0 + (at / total) * (x1 - x0);
+    at += w.length;
+    const b = x0 + (at / total) * (x1 - x0);
+    at += 1;
+    return { x0: Math.round(a), y0: Math.round(y0), x1: Math.round(b), y1: Math.round(y1), ink: hasInk(w), t: w };
+  });
+  // The line as it lies — centre, length and thickness along its own tilt, the
+  // detector's margin trimmed the same way.
+  const tilt = Math.abs(line.angle) >= TILT_MIN && Math.abs(line.angle) <= 60 ? {
+    cx: Math.round(line.cx), cy: Math.round(line.cy), angle: Math.round(line.angle * 100) / 100,
+    len: Math.max(1, Math.round(line.along - t * 0.1)), th: Math.max(1, Math.round(t * 0.8)),
+  } : null;
+  return {
+    text: tokens.join(' '), conf: line.conf, ink: line.text.replace(/[^\p{L}\p{N}]/gu, '').length,
+    letterH: Math.max(1, Math.round(t * 0.75)),
+    x0: Math.round(x0), y0: Math.round(y0), x1: Math.round(x1), y1: Math.round(y1), boxes, tilt,
+  };
+}
+// How well a reading went: confident characters on lines that run ACROSS the
+// canvas. A line the detector found running up or down it (a sideways photo)
+// counts for nothing — the text is only laid out right once it runs across, so
+// such a reading asks for another quarter-turn.
+function scorePaddle(runs) {
+  let inkChars = 0; let confSum = 0;
+  for (const r of runs) {
+    const across = (r.x1 - r.x0) >= (r.y1 - r.y0) * 1.1 || r.ink <= 2;
+    if (!across || r.conf < SCORE_MIN_CONF) continue;
+    inkChars += r.ink; confSum += r.conf * r.ink;
+  }
+  return { score: inkChars ? confSum / 100 : 0, mean: inkChars ? confSum / inkChars : 0 };
+}
+// The same, for the lines running DOWN the canvas. The recogniser turns such a
+// line a quarter-turn ANTI-clockwise before reading it (PaddleOCR's rotate
+// crop), so when they read well the picture wants that same turn (3), else the
+// other way (1).
+function downScore(runs) {
+  let s = 0;
+  for (const r of runs) if ((r.y1 - r.y0) > (r.x1 - r.x0) * 1.1 && r.ink > 2 && r.conf >= SCORE_MIN_CONF) s += (r.conf * r.ink) / 100;
+  return s;
+}
+async function detectWithPaddle(el) {
+  const read = async (turns) => {
+    const canvas = paddleCanvas(el, turns);
+    const runs = (await readLines(canvas)).map(runFromLine).filter((r) => r.text);
+    return { turns, canvas, runs, ...scorePaddle(runs) };
+  };
+  // Upright first; only a poor reading tries the other ways up (a phone photo
+  // lying on its side is common, and its lines then run down the canvas).
+  let best = await read(0);
+  // Nothing found at all is an answer: the detector finds text whichever way
+  // up it runs, so turning the picture won't find any.
+  if (best.runs.length && !(best.score >= 10 && best.mean >= 80)) {
+    for (const turns of downScore(best.runs) >= 10 ? [3, 1, 2] : [1, 3, 2]) {
+      const next = await read(turns);
+      if (next.score > best.score) best = next;
+      if (best.score >= 10 && best.mean >= 80) break;
+    }
+  }
+  return { turns: best.turns, cw: best.canvas.width, ch: best.canvas.height, runs: readingOrder(best.runs), engine: 'paddleocr' };
+}
+
 // → `{ turns, cw, ch, runs }`: the measured pieces, in the pixels of the picture
-// turned `turns` quarter-turns clockwise at `cw`×`ch` (`ocrCanvas`).
+// turned `turns` quarter-turns clockwise at `cw`×`ch`. PaddleOCR; Tesseract only
+// when PaddleOCR can't run.
 async function detectLocally(el) {
+  try {
+    return await detectWithPaddle(el);
+  } catch (err) {
+    // eslint-disable-next-line no-console
+    console.warn('[text-regions] PaddleOCR could not run, falling back to Tesseract:', err);
+    return detectWithTesseract(el);
+  }
+}
+
+async function detectWithTesseract(el) {
   const worker = await getWorker();
   const { PSM } = await import('tesseract.js');
   const recognize = async (canvas, mode) => {
@@ -494,7 +643,7 @@ async function detectLocally(el) {
     x0: int(r.x0), y0: int(r.y0), x1: int(r.x1), y1: int(r.y1),
     boxes: r.boxes.map((q) => ({ x0: int(q.x0), y0: int(q.y0), x1: int(q.x1), y1: int(q.y1), ink: q.ink, t: q.t })),
   }));
-  return { turns: best.turns, cw: best.canvas.width, ch: best.canvas.height, runs };
+  return { turns: best.turns, cw: best.canvas.width, ch: best.canvas.height, runs, engine: 'tesseract' };
 }
 
 // ── The AI reads the pieces ─────────────────────────────────────────────
@@ -583,7 +732,7 @@ function parseSheets(reply) {
 // → an array aligned with `runs`: the AI's text for each ('' = no text there,
 // null = it wasn't asked / didn't answer for that one), or `{ error }`.
 async function readRunsWithAi(el, local, { projectId } = {}) {
-  const src = ocrCanvas(el, local.turns);
+  const src = local.engine === 'paddleocr' ? paddleCanvas(el, local.turns) : ocrCanvas(el, local.turns);
   const sheets = buildSheets(src, local.runs);
   if (!sheets.length) return [];
   const res = await askProjectAi({
@@ -670,8 +819,9 @@ async function decodeImageAt(path) {
 // reading order + merged shapes (selectable live text); 4 = per-word extents;
 // 5 = the AI transcription read alongside and merged in; 6 = reading MODE + parts;
 // 7 = the AI's placing shown upright + snapped to the ink; 8 = positions always
-// measured, the AI reads numbered strips (no AI coordinates anywhere).
-const READING_VERSION = 8;
+// measured, the AI reads numbered strips (no AI coordinates anywhere);
+// 9 = PaddleOCR PP-OCRv6 finds and reads the lines (Tesseract the fallback).
+const READING_VERSION = 9;
 
 // ── The reading MODE (the Data tab's debug control) ─────────────────────
 //   result — whose WORDS are shown: 'ai' (each measured piece read by the AI) |
@@ -693,9 +843,19 @@ const sameMode = (a, b) => !!a && a.result === b.result;
 const current = (facet, mode = loadReadingMode()) => (
   facet && facet.data?.v === READING_VERSION && sameMode(facet.data.mode, mode) ? facet : null
 );
+// A saved reading the viewer can DRAW, whatever version or mode made it: its
+// lines, their words and the lit shapes. An older reading is SHOWN, never
+// hidden — hiding readings made by an earlier version (READING_VERSION has been
+// raised nine times) or in the other debug mode is what made extracted text
+// look lost after every update. Reading it again is Recapture's job.
+const drawable = (facet) => {
+  const d = facet?.data;
+  return d && Array.isArray(d.regions) && Array.isArray(d.shapes) && d.regions.every((r) => r && typeof r.text === 'string') ? facet : null;
+};
 export async function loadImageText(path) {
   if (!path) return null;
-  return current(getAiFacet(path, 'text', await stampFor(path)));
+  const facet = getAiFacet(path, 'text', await stampFor(path));
+  return current(facet) || drawable(facet);
 }
 
 // Regions in reading order, one per line: what "the text of this picture" is.
@@ -766,12 +926,26 @@ function reconcileWithAi(regions, aiText) {
 // `file` = { path, name?, projectId? }; `el` = its <img> when one is on screen;
 // `mode` = the reading mode (default: the saved debug preference); `force` =
 // run the readers again (Recapture) instead of reusing the saved parts.
-export async function extractImageText(file, { el = null, force = false, mode: asked = null } = {}) {
+// For the engine's checks outside the app (scratch harness), nothing else.
+export const textRegionsInternals = { detectLocally, composeReading };
+
+// `reuseAny` = any saved reading of THIS version of the file will do, whatever
+// mode or engine made it (the Files tab's AI scan wants the text, not the
+// best-placed highlights, and must not read a picture twice).
+// `rebuild` = compose the reading for `mode` from the saved parts, reading
+// only what is missing for it (the Data tab's mode switch) — without it, a
+// reading that already exists is returned as it is.
+export async function extractImageText(file, { el = null, force = false, mode: asked = null, reuseAny = false, rebuild = false } = {}) {
   const path = file?.path || '';
   const mode = cleanMode(asked || loadReadingMode());
   const stamp = await stampFor(path);
   const saved = getAiFacet(path, 'text', stamp);
   if (!force && current(saved, mode)) return saved;
+  if (!force && reuseAny && typeof saved?.data?.text === 'string') return saved;
+  // A reading that EXISTS is kept and used, whatever version or mode made it:
+  // nothing is read (or paid for) again unless asked to (Recapture = force, the
+  // mode switch = rebuild). Only one the viewer cannot draw is made again.
+  if (!force && !rebuild && drawable(saved)) return saved;
   const parts = !force && saved?.data?.v === READING_VERSION && saved.data.parts ? { ...saved.data.parts } : {};
   const wantAi = mode.result === 'ai' && !Array.isArray(parts.ai);
   let img = el;
@@ -822,7 +996,11 @@ export async function extractImageText(file, { el = null, force = false, mode: a
     ai: byAi || (mode.result === 'ai' && !!fallbackText),
     parts,
   };
-  const engine = data.ai ? 'tesseract+claude' : 'tesseract';
+  const base = parts.local.engine || 'tesseract';
+  const engine = data.ai ? `${base}+claude` : base;
+  // A reading WITH text is never replaced by an empty one (a reader that
+  // failed quietly, the AI answering nothing): what was read stays.
+  if (!String(data.text || '').trim() && String(saved?.data?.text || '').trim()) return saved;
   // An empty reading is saved too — "no text here" is an answer worth keeping.
   saveAiFacet({ path, name: file?.name, projectId: file?.projectId }, 'text', { data, engine, stamp });
   return getAiFacet(path, 'text') || { kind: 'text', at: Date.now(), engine, data };

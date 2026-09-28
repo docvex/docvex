@@ -13,6 +13,13 @@
 // Both come straight from localFolderApi.stat: `size` is `sizeBytes`, `mtime`
 // is `mtimeIso` (a string compares fine, it's the same field either way).
 
+// WHERE IT LIVES: the project index, knowledge kind `metadata` (see
+// lib/projectIndexClient) — tied to the file's content, so it travels with the
+// case in `.docvex/knowledge/`. The localStorage key below is what it was kept
+// under before; it is still read for a file the index hasn't answered for yet,
+// still written when main isn't there, and moved across on first hydration.
+import { peekFacet, putFacet, clearFacet, sameSize, indexAvailable } from './projectIndexClient';
+
 const KEY_PREFIX = 'docvex:doc-viewer:metadata:';
 
 // Exposed so other surfaces can recognise our keys (e.g. a cache sweep).
@@ -33,6 +40,21 @@ function safeRemove(key) {
 // omit them and whatever was stored is returned as-is.
 export function loadMetadata(filePath, stamp) {
   if (!filePath) return null;
+  const facet = peekFacet(filePath, 'metadata');
+  if (facet && Array.isArray(facet.data?.groups)) {
+    // The index only answers for the file's current content; the size is the
+    // one part of the stamp that means the same thing on every machine.
+    if (stamp && !sameSize(facet.stamp, stamp)) return null;
+    return {
+      groups: facet.data.groups,
+      warnings: Array.isArray(facet.data.warnings) ? facet.data.warnings : [],
+      extractedAt: facet.data.extractedAt || facet.at || 0,
+    };
+  }
+  return loadLegacy(filePath, stamp);
+}
+
+function loadLegacy(filePath, stamp) {
   const raw = safeRead(KEY_PREFIX + filePath);
   if (!raw) return null;
   try {
@@ -56,6 +78,23 @@ export function loadMetadata(filePath, stamp) {
 
 export function saveMetadata(filePath, data, stamp) {
   if (!filePath || !data || !Array.isArray(data.groups)) return false;
+  const extractedAt = data.extractedAt || Date.now();
+  const facet = {
+    kind: 'metadata',
+    at: extractedAt,
+    engine: 'local',
+    paid: false,
+    stamp: { size: stamp?.size ?? null, mtime: stamp?.mtime ?? null },
+    data: { groups: data.groups, warnings: Array.isArray(data.warnings) ? data.warnings : [], extractedAt },
+  };
+  if (putFacet({ path: filePath }, 'metadata', facet, { onFail: () => writeLegacy(filePath, data, stamp) })) {
+    safeRemove(KEY_PREFIX + filePath);
+    return true;
+  }
+  return writeLegacy(filePath, data, stamp);
+}
+
+function writeLegacy(filePath, data, stamp) {
   return safeWrite(KEY_PREFIX + filePath, JSON.stringify({
     groups: data.groups,
     warnings: Array.isArray(data.warnings) ? data.warnings : [],
@@ -67,5 +106,6 @@ export function saveMetadata(filePath, data, stamp) {
 
 export function clearMetadata(filePath) {
   if (!filePath) return false;
-  return safeRemove(KEY_PREFIX + filePath);
+  const had = indexAvailable() && clearFacet(filePath, 'metadata');
+  return safeRemove(KEY_PREFIX + filePath) || had;
 }

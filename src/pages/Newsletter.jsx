@@ -273,8 +273,8 @@ export default function Newsletter() {
   };
   // The act itself. The Legislation tab searches the ministry's own service by
   // kind, number and year and opens the act when the answer is unambiguous
-  // (`open=1`); an act with no number (a set of norms) or a browser build goes
-  // to the portal page the row was written from.
+  // (`open=1`); an act with no number (a set of norms) goes to the
+  // portal page the row was written from.
   const openAct = (act) => {
     if (isElectron && act.number && act.year) {
       const p = new URLSearchParams({ tip: act.type, nr: act.number, an: act.year, open: '1' });

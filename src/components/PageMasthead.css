@@ -98,7 +98,7 @@
 }
 .pmh-compact.is-visible { opacity: 1; transform: translateY(0); pointer-events: auto; }
 /* Spotlight + border shine come from the shared .mini-glow class
-   (src/styles/miniHeader.css) — the bar wires miniHeaderSpot as onMouseMove. */
+   (src/styles/miniHeader.css) — the component calls useMiniGlowSpot (lib/pointerSpots). */
 
 /* The gap-strip fade moved to the shared .mini-fade class
    (src/styles/miniHeader.css) — rendered by every mini-header surface. */

@@ -21,7 +21,22 @@ import { useOneOpen } from '../lib/oneOpen';
 import DropZone from '../components/DropZone';
 import Toggle from '../components/Toggle';
 import RuleOptions from '../components/RuleOptions';
+import AiChoices from '../components/AiChoices';
+import '../components/AiChoices.css';
+import { ICONS as AI_ICONS } from './Projects/aiHub';
+import './Projects/ProjectAIChat.css';
+import { ExtGlyph } from '../components/fileGlyph';
+import { ENTITY_KINDS } from '../lib/docConstructor';
 import DangerZone, { DangerRow } from '../components/DangerZone';
+import { PLATFORMS, PLATFORM_ORDER } from '../lib/legalBrowser';
+import { FACETS } from '../lib/legalSearch';
+import '../components/LegalBrowser.css';
+import '../components/DocConstructor.css';
+import '../components/RefPill.css';
+import '../components/useMorphPill.css';
+import NotificationToast from '../components/NotificationToast';
+import '../components/NotificationCenter.css';
+import { TEST_NOTIFICATIONS } from '../notifications/testNotifications';
 import {
   DS_TOKENS, DS_FAMILIES, tokenKey, currentValue, loadOverrides, saveOverrides, onDesignChange,
   overridesToCss, askDesign,
@@ -260,7 +275,7 @@ export default function DesignSystem() {
 
           <WorkspaceSample />
 
-          <Sample name="Bottom bar" of="mirrors .fx-bottombar (Files) and .cn-bottombar (CAEN picker) — keys and actions" wide>
+          <Sample name="Bottom bar" of="mirrors .fx-bottombar (Files), .cn-bottombar (CAEN picker) and the Advisor's composer — keys and actions" wide>
             <div className="dsg-bottombar">
               <span><kbd>↑↓</kbd> Select</span><span className="dsg-sep" />
               <span><kbd>→</kbd> <kbd>Enter</kbd> Forward</span><span className="dsg-sep" />
@@ -338,6 +353,8 @@ export default function DesignSystem() {
 
           <LegalHighlightsSample />
 
+          <PlatformColoursSample />
+
           <Sample name="Section" of="pages/Legislation .lg-lib — a titled section with its sub-line and a control at the right">
             <section className="lg-lib">
               <header className="lg-lib-head">
@@ -363,6 +380,85 @@ export default function DesignSystem() {
           </Sample>
 
           <DropZoneSample />
+
+          {/* The Advisor's FILE PILLS (pages/Projects/ProjectAI.jsx,
+              ProjectAIChat.css — the real classes): a file attached in the
+              composer, with × to take it off, and the files a SENT message
+              carries (`.is-static`, the accent tint) — the name as it was
+              attached, a folder path included, cut with "…" at the pill's
+              width, the whole of it on hover. */}
+          <Sample name="File pills" of="pages/Projects/ProjectAI .aichat-attach-chip — attached in the composer (×), and on a sent message (.is-static)" wide>
+            <div className="dsg-filepills">
+              <p className="dsg-refs-label">In the composer · before sending</p>
+              <div className="aichat-attachments dsg-filepills-row">
+                {['WhatsApp Image 2026-09-20 at 20.44.jpg', 'WhatsApp Image 2026-09-20 at 20.44 (1).jpg', 'proprietara - unzipped/00000939-contract inchiriat Carmen Sylva 2025.docx'].map((n) => (
+                  <span className="aichat-attach-chip" key={n}>
+                    {AI_ICONS.file({ width: 13, height: 13 })}
+                    <Tooltip content={n}><span className="aichat-attach-name">{n}</span></Tooltip>
+                    <button type="button" className="aichat-attach-x" aria-label={`Remove ${n}`}>{AI_ICONS.x({ width: 12, height: 12 })}</button>
+                  </span>
+                ))}
+              </div>
+              <p className="dsg-refs-label">On a sent message</p>
+              <div className="dsg-filepills-row">
+                {['proprietara - unzipped/00000939-contract inchiriat Carmen Sylva 2025.docx', 'WhatsApp Image 2026-09-20 at 20.44.jpg'].map((n) => (
+                  <span className="aichat-attach-chip is-static" key={n}>
+                    {AI_ICONS.file({ width: 12, height: 12 })}
+                    <Tooltip content={n}><span className="aichat-attach-name">{n}</span></Tooltip>
+                  </span>
+                ))}
+              </div>
+            </div>
+          </Sample>
+
+          {/* The CLICKABLE ANSWERS under an AI reply (components/AiChoices,
+              lib/aiChoices — live): the options the reply offers, taken out
+              of its text; pressing one sends it as the answer. Only the
+              latest reply shows them, and they rest disabled while the AI is
+              answering. */}
+          <Sample name="Reply choices" of="components/AiChoices .ai-choice — an AI reply's options as buttons; a press sends it (disabled while answering)" wide>
+            <div className="dsg-filepills">
+              <p className="dsg-reply-text">Bună! Te ajut cu asta — iată niște exemple de opțiuni:</p>
+              <AiChoices
+                choices={['Redactează o somație de plată către Razvan Toma', 'Analizează contractul de închiriere – Apartament 21', 'Listează celelalte CNP-uri din dosar', 'Nu, mulțumesc']}
+                onPick={() => {}}
+              />
+              <p className="dsg-refs-label">While the AI is answering</p>
+              <AiChoices choices={['Da, fă asta', 'Nu']} disabled onPick={() => {}} />
+            </div>
+          </Sample>
+
+          {/* What an AI reply CHANGED in the project's files (components/
+              AiEdits, lib/aiFileEdits) — its classes held still: edited (with
+              Undo, while the session holds the file's previous bytes), undone,
+              and not changed (why). */}
+          <Sample name="AI edit card" of="components/AiEdits .ai-edit — a file an AI reply changed: edited · Undo, undone, not changed" wide>
+            <div className="ai-edits">
+              <div className="ai-edit">
+                <div className="ai-edit-head">
+                  <span className="ai-edit-file">PETRE LUCA-ANDREI.dvc</span>
+                  <span className="ai-edit-state">Edited</span>
+                  <button type="button" className="ai-edit-undo">Undo</button>
+                </div>
+                <div className="ai-edit-line">phone: 0745181520 → 0756711515</div>
+                <div className="ai-edit-line">Telefon: 0745181520 → 0756711515</div>
+              </div>
+              <div className="ai-edit is-undone">
+                <div className="ai-edit-head">
+                  <span className="ai-edit-file">00000939-contract inchiriat Carmen Sylva 2025.docx</span>
+                  <span className="ai-edit-state">Undone</span>
+                </div>
+                <div className="ai-edit-line">1 paragraph rewritten</div>
+              </div>
+              <div className="ai-edit is-error">
+                <div className="ai-edit-head">
+                  <span className="ai-edit-file">notes.txt</span>
+                  <span className="ai-edit-state">Not changed</span>
+                </div>
+                <div className="ai-edit-line">The text to change was not found in the file.</div>
+              </div>
+            </div>
+          </Sample>
 
           <Sample name="Empty state" of="pages/LegalSourceStub .lss-card — the Doc Viewer advisor’s empty state">
             <section className="lss-card">
@@ -418,6 +514,70 @@ export default function DesignSystem() {
         </div>
       </section>
 
+      {/* ── Tooltips ─────────────────────────────────────────────────────
+          Every way the custom tooltip renders — the Tooltip component and the
+          morph pill (components/useMorphPill), stood still with their real
+          classes: hover, the menu a right-click morphs it into, the confirm
+          and prompt it morphs into after that, and the Doc Viewer's highlight
+          tooltip and the CARD a click on a highlight expands it into. */}
+      <section className="dsg-section" data-ds={family}>
+        <div className="dsg-section-head">
+          <div>
+            <h2 className="dsg-h">Tooltips</h2>
+            <p className="dsg-sub">
+              The custom tooltip in every shape it takes. A pill one line tall has fully rounded ends; two lines or
+              more, half the corner radius (measured). The morph pill grows out of the tooltip — into a menu on a
+              right-click, then a confirmation or a prompt — and over a highlight in a Word document it describes the
+              mark; clicking the mark expands it into its card.
+            </p>
+          </div>
+        </div>
+        <div className="dsg-gallery dsg-tips">
+          <TooltipsSamples />
+        </div>
+      </section>
+
+      {/* ── Notifications ────────────────────────────────────────────────
+          The toast cards (components/NotificationToast — the real component)
+          for every sample notification the app has (notifications/
+          testNotifications: one per real notify() call site, every category
+          and variant), held open (persistent) and stood in a grid. */}
+      <section className="dsg-section" data-ds={family}>
+        <div className="dsg-section-head">
+          <div>
+            <h2 className="dsg-h">Notifications</h2>
+            <p className="dsg-sub">
+              The notification cards that stack at the bottom right — on the tooltip's ground, a category-coloured
+              left edge, the category's icon (or the file's thumbnail), the title, a line of detail and its actions.
+              Every sample the app has, one per place that sends one; they stay put here instead of timing out.
+            </p>
+          </div>
+        </div>
+        <div className="dsg-gallery">
+          <NotificationsSample />
+        </div>
+      </section>
+
+      {/* ── Empty fields ─────────────────────────────────────────────────
+          Every way a blank in a Word document is drawn: in the preview, once
+          answered, and as the inputs of a picked paragraph. */}
+      <section className="dsg-section" data-ds={family}>
+        <div className="dsg-section-head">
+          <div>
+            <h2 className="dsg-h">Empty fields</h2>
+            <p className="dsg-sub">
+              How a blank in a Word document is drawn in the DocVex file viewer — an empty slot on the page (never a
+              word in it, and never wider than the document measured), the states it goes through as it is answered,
+              and the inputs it becomes when its paragraph is picked. The page is white in both themes, so these use
+              the brand constants.
+            </p>
+          </div>
+        </div>
+        <div className="dsg-gallery">
+          <EmptyFieldsSample />
+        </div>
+      </section>
+
       {/* ── Pills ────────────────────────────────────────────────────────
           Every pill in the app, in one place. They share ONE recipe — the
           same height, corners, type and weight — and differ only in tone:
@@ -449,8 +609,9 @@ export default function DesignSystem() {
             <button type="button" className="lgt-status-pill is-archive"><span>From your copy on this machine</span></button>
             <button type="button" className="lgt-status-pill is-differs"><span>Differs from the portal - click to sync</span></button>
           </Sample>
-          <Sample name="Tooltip pill" of="components/Tooltip — the cursor-following hint, stood still" row>
+          <Sample name="Tooltip pill" of="components/Tooltip — one line: fully rounded ends; TWO LINES OR MORE: half the corner radius. Every way it renders: the Tooltips section" row>
             <span className="dsg-pill-still">A tooltip</span>
+            <span className="dsg-pill-still is-multiline">Sent 27.09.2026, 12:04{'\n'}Edited 27.09.2026, 12:10</span>
           </Sample>
           <Sample name="Trail pill" of="pages/Caen .cn-pill — an ancestor in the CAEN trail, two lines" row>
             <button type="button" className="cn-pill"><span className="cn-pill-kind">Section</span><span className="cn-pill-code">C</span><span className="cn-pill-name">Industria prelucrătoare</span></button>
@@ -934,11 +1095,14 @@ const REF_DOC_ROWS = [
   },
   {
     name: 'Where a cross-reference lands',
-    of: '.is-xref-target (the clause, pulsing) · .is-xref-exact (the item named, brighter)',
+    of: '.has-xref-focus — everything but .is-xref-target (the clause and the item named) fades back',
     body: (
-      <span className="dsg-refdoc-land">
+      <span className="dsg-refdoc-land has-xref-focus">
+        <span>5.2. Plata se face în termen de 30 de zile de la emiterea facturii.</span>
         <span className="is-xref-target">6.1. Datele de contact ale părților sunt următoarele:</span>
+        <span>c) telefon: 0722 000 000;</span>
         <span className="is-xref-target is-xref-exact">d) adresa de e-mail pentru notificări.</span>
+        <span>6.2. Orice modificare se comunică în scris.</span>
       </span>
     ),
   },
@@ -988,6 +1152,351 @@ function LegalHighlightsSample() {
             <button type="button" className="lg-ref">Legea <mark className="lg-hit">societăților</mark> nr. 31/1990</button>
           </p>
         </div>
+      </div>
+    </Sample>
+  );
+}
+
+// ── The Notifications section ──────────────────────────────────────────────
+// Every sample notification as the real toast, held open. A file notification
+// with its thumbnail's glyph is added (the phone upload's arrival).
+function NotificationsSample() {
+  const list = React.useMemo(() => [
+    ...TEST_NOTIFICATIONS.map((n, i) => ({ ...n, id: `dsg-toast-${i}`, persistent: true, createdAt: new Date().toISOString() })),
+    { id: 'dsg-toast-file', category: 'file', variant: 'info', title: 'File arrived from your phone', body: 'scan-contract.pdf · 1.2 MB · waits in Documents', persistent: true, createdAt: new Date().toISOString(), payload: { thumbExt: 'pdf' } },
+  ], []);
+  return (
+    <Sample name="Toast cards" of="components/NotificationToast — every sample in notifications/testNotifications, one per notify() call site" wide>
+      <div className="dsg-toasts">
+        {list.map((n) => <NotificationToast key={n.id} notification={n} />)}
+      </div>
+    </Sample>
+  );
+}
+
+// ── The Tooltips section ───────────────────────────────────────────────────
+// A pill, stood still: the real `.tooltip` / morph-pill classes, placed in the
+// flow (.dsg-tips unpins them).
+const Pill = ({ menu = false, multi = false, mod = '', children }) => (
+  <div className={`tooltip project-files-morph-pill${menu ? ' is-menu' : ''}${multi ? ' is-multiline' : ''}${mod ? ` ${mod}` : ''}`} role="presentation">{children}</div>
+);
+// The Doc Viewer's highlight tooltip content (refPill), for a sample mark.
+function RefPillSample({ tone, kind, head, lines = [], quote = '', action, full = false }) {
+  return (
+    <span className={`dv-refpill${full ? ' is-full' : ''}`} style={{ '--refpill-tone': tone }}>
+      <span className="dv-refpill-kind">{kind}</span>
+      <span className="dv-refpill-head">{head}</span>
+      {lines.map((l) => <span key={l} className="dv-refpill-line">{l}</span>)}
+      {quote ? <span className="dv-refpill-quote">“{quote}”</span> : null}
+      <span className="dv-refpill-act">{action}</span>
+    </span>
+  );
+}
+const REF_HOVERS = [
+  { name: 'Act', tone: 'var(--cat-update)', kind: 'legislatie.just.ro · Act', head: 'Legea nr. 31/1990', lines: ['privind societățile', 'republicată · cu modificările și completările ulterioare'] },
+  { name: 'Article of an act', tone: 'var(--cat-update)', kind: 'legislatie.just.ro · Act', head: 'Legea nr. 287/2009', lines: ['art. 1.166 alin. (1)', 'privind Codul civil'] },
+  { name: 'Code', tone: 'var(--cat-update)', kind: 'legislatie.just.ro · Code', head: 'Codul muncii', lines: [] },
+  { name: 'CAEN code', tone: 'var(--warning)', kind: 'insse.ro · CAEN code', head: 'CAEN 6201', lines: ['6201 — Activități de realizare a soft-ului la comandă (software orientat client)'] },
+  { name: 'CUI', tone: 'var(--success)', kind: 'anaf.ro · Fiscal code', head: 'CUI 14399840', lines: [] },
+];
+function TooltipsSamples() {
+  return (
+    <>
+      <Sample name="Tooltip · one line" of="components/Tooltip — fully rounded ends" row>
+        <Pill><span className="project-files-morph-text">Open in a new window</span></Pill>
+        <Pill><span className="project-files-morph-text">Paragraph 6.1</span></Pill>
+      </Sample>
+      <Sample name="Tooltip · two lines or more" of=".tooltip.is-multiline — half the corner radius (measured)" row>
+        <Pill multi><span className="project-files-morph-text">{'Sent 27.09.2026, 12:04\nEdited 27.09.2026, 12:10'}</span></Pill>
+        <Pill multi><span className="project-files-morph-text">{'contract-vanzare.docx\nDiffers from the copy on your account'}</span></Pill>
+      </Sample>
+      <Sample name="Menu · a right-click" of="useMorphPill .is-menu — the tooltip morphs into it (FLIP)" row>
+        <Pill menu>
+          <ul className="project-files-morph-list">
+            <li><button type="button" className="project-files-morph-item">Open</button></li>
+            <li><button type="button" className="project-files-morph-item">Collapse</button></li>
+            <li><button type="button" className="project-files-morph-item project-files-morph-item-parent">Move to<span className="project-files-morph-caret" aria-hidden="true" /></button></li>
+            <li><button type="button" className="project-files-morph-item" disabled>Pop out</button></li>
+            <li><button type="button" className="project-files-morph-item project-files-morph-item-danger">Delete</button></li>
+          </ul>
+        </Pill>
+      </Sample>
+      <Sample name="Confirm · danger" of=".is-menu.is-confirm.is-danger — a danger item asks first" row>
+        <Pill menu mod="is-confirm is-danger">
+          <div className="project-files-morph-confirm">
+            <div className="project-files-morph-confirm-header">
+              <span className="project-files-morph-confirm-header-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" /><line x1="12" y1="9" x2="12" y2="13" /><line x1="12" y1="17" x2="12.01" y2="17" /></svg>
+              </span>
+              <span className="project-files-morph-confirm-header-text">
+                <span className="project-files-morph-confirm-header-title">Delete this file?</span>
+                <span className="project-files-morph-confirm-header-subtitle">contract-vanzare.docx</span>
+              </span>
+            </div>
+            <p className="project-files-morph-confirm-message">It goes to the Trash for 30 days.</p>
+            <div className="project-files-morph-confirm-actions">
+              <button type="button" className="project-files-morph-confirm-btn project-files-morph-confirm-btn-cancel">Cancel</button>
+              <button type="button" className="project-files-morph-confirm-btn project-files-morph-confirm-btn-danger">Delete</button>
+            </div>
+          </div>
+        </Pill>
+      </Sample>
+      <Sample name="Prompt" of=".is-menu.is-confirm.is-prompt — asks for a line of text" row>
+        <Pill menu mod="is-confirm is-prompt">
+          <div className="project-files-morph-confirm project-files-morph-prompt">
+            <div className="project-files-morph-confirm-title">Reject this file?</div>
+            <p className="project-files-morph-confirm-message">Say why — the phone shows it.</p>
+            <textarea className="project-files-morph-prompt-input" rows={3} placeholder="Reason (optional)" readOnly />
+            <div className="project-files-morph-confirm-actions">
+              <button type="button" className="project-files-morph-confirm-btn project-files-morph-confirm-btn-cancel">Cancel</button>
+              <button type="button" className="project-files-morph-confirm-btn project-files-morph-confirm-btn-primary">Reject</button>
+            </div>
+          </div>
+        </Pill>
+      </Sample>
+      <Sample name="Over a highlight · hover" of="pages/DocViewer refPill — the platform in its colour, what is cited, what a click does (components/RefPill.css)" wide>
+        <div className="dsg-tips-row">
+          {REF_HOVERS.map((r) => (
+            <Pill key={r.name} multi>
+              <span className="project-files-morph-text"><RefPillSample {...r} action="Click for more — and to search it" /></span>
+            </Pill>
+          ))}
+          <Pill><span className="project-files-morph-text">Go to 6.1 lit. d)</span></Pill>
+        </div>
+      </Sample>
+      <Sample name="A highlight clicked · its card" of="DocParaPill card — the tooltip expanded (sticky): all that is known, the citation as written, Search (a new Legislation tab, or the one showing it) and Close" wide>
+        <div className="dsg-tips-row">
+          <Pill menu>
+            <div className="dv-refcard">
+              <RefPillSample full tone="var(--cat-update)" kind="legislatie.just.ro · Act" head="Legea nr. 31/1990"
+                lines={['privind societățile', 'republicată · cu modificările și completările ulterioare']}
+                quote="Legii nr. 31/1990 privind societățile, republicată, cu modificările și completările ulterioare"
+                action="Search finds it on legislatie.just.ro, in a new tab" />
+            </div>
+            <ul className="project-files-morph-list">
+              <li><button type="button" className="project-files-morph-item dv-refcard-search">Search</button></li>
+              <li><button type="button" className="project-files-morph-item">Close</button></li>
+            </ul>
+          </Pill>
+          <Pill menu>
+            <div className="dv-refcard">
+              <RefPillSample full tone="var(--warning)" kind="insse.ro · CAEN code" head="CAEN 6202, CAEN 6209"
+                lines={['6202 — Activități de consultanță în tehnologia informației', '6209 — Alte activități de servicii privind tehnologia informației']}
+                quote="CAEN 6202, 6209"
+                action="Search opens it in CAEN codes, in a new tab" />
+            </div>
+            <ul className="project-files-morph-list">
+              <li><button type="button" className="project-files-morph-item dv-refcard-search">Search</button></li>
+              <li><button type="button" className="project-files-morph-item">Close</button></li>
+            </ul>
+          </Pill>
+          <Pill menu>
+            <div className="dv-refcard">
+              <RefPillSample full tone="var(--success)" kind="anaf.ro · Fiscal code" head="CUI 14399840"
+                lines={['A valid fiscal code — its check digit is correct']}
+                action="Search looks the company up at ANAF, in a new tab" />
+            </div>
+            <ul className="project-files-morph-list">
+              <li><button type="button" className="project-files-morph-item dv-refcard-search">Search</button></li>
+              <li><button type="button" className="project-files-morph-item">Close</button></li>
+            </ul>
+          </Pill>
+        </div>
+      </Sample>
+    </>
+  );
+}
+
+// The blanks of a Word document, as the viewer draws them. The page rules are
+// MIRRORED from pages/DocViewer.css under .dsg-fieldsdoc (that stylesheet is
+// bound to the viewer window); the picked paragraph's inputs are
+// DocConstructor.css's own .dcx-inline, live.
+const CHIP = (w) => '_'.repeat(w);
+const FIELD_ROWS = [
+  {
+    name: 'Empty blank',
+    of: '.dv-field.is-chip — the slot, as long as what goes there',
+    body: <>Vânzătorul, <span className="dv-field is-chip" data-label={CHIP(22)} data-hint="Nume / denumire">[[vanzator.legalName]]</span>, cu sediul în <span className="dv-field is-chip" data-label={CHIP(16)} data-hint="Adresă">[[vanzator.address]]</span>.</>,
+  },
+  {
+    name: '… in a paragraph under the pointer',
+    of: '.dv-docx-para:hover .dv-field.is-chip — the slot deepens',
+    body: <span className="dv-docx-para is-hover">Cumpărătorul, <span className="dv-field is-chip" data-label={CHIP(22)} data-hint="Nume / denumire">[[cumparator.legalName]]</span>, CUI <span className="dv-field is-chip" data-label={CHIP(10)} data-hint="CUI">[[cumparator.cui]]</span>.</span>,
+  },
+  {
+    name: 'Word’s own blank',
+    of: '.dv-field.is-drawn — underlined spaces the template drew; a tint, never a second rule',
+    body: <>Încheiat astăzi, <span className="dv-field is-drawn dsg-drawn">{' '.repeat(18)}</span>, la <span className="dv-docx-para is-hover"><span className="dv-field is-drawn dsg-drawn">{' '.repeat(14)}</span></span> (hover).</>,
+  },
+  {
+    name: 'A blank shown as its text',
+    of: '.dv-field — lighter text on a dotted cognac rule',
+    body: <>Prețul este de <span className="dv-field">_______</span> lei, plătibil la data de <span className="dv-field">…………</span>.</>,
+  },
+  {
+    name: 'Filled',
+    of: '.dv-field.is-filled — an answer keeps its mark down the page',
+    body: <>Vânzătorul, <span className="dv-field is-filled">SC ALFA DISTRIBUȚIE SRL</span>, cu sediul în <span className="dv-field is-filled">Cluj-Napoca</span>.</>,
+  },
+  {
+    name: 'Previewing a party',
+    of: '.dv-field.is-preview — borrowed text under a dashed accent rule',
+    body: <>Cumpărătorul, <span className="dv-field is-preview">Ion Popescu</span>, domiciliat în <span className="dv-field is-preview">București, Sectorul 4</span>.</>,
+  },
+  {
+    name: 'In the picked paragraph',
+    of: '.dv-docx-para.is-selected — filled restated; .is-active the blank being worked on',
+    body: <span className="dv-docx-para is-selected">Termenul este de <span className="dv-field is-filled">30 de zile</span>, penalitatea de <span className="dv-field is-active">________</span>, dobânda <span className="dv-field is-active is-filled">0,1% pe zi</span>.</span>,
+  },
+];
+// The picked paragraph's AUTOFILL (components/DocConstructor, docked under the
+// paragraph): per person, the kind switch and the data collections as files.
+const SAMPLE_COLLECTIONS = [
+  { kind: 'org', file: 'SC ALFA DISTRIBUTIE SRL.dvc', meta: 'Persoană juridică · RO 14399840' },
+  { kind: 'org', file: 'BETA IMPEX SA.dvc', meta: 'Persoană juridică · RO 6859662' },
+  { kind: 'pfa', file: 'Popescu Ion PFA.dvc', meta: 'PFA / II · 38912577' },
+  { kind: 'person', file: 'Ion Popescu.dvc', meta: 'Persoană fizică · 1780512123456' },
+  { kind: 'person', file: 'Maria Ionescu.dvc', meta: 'Persoană fizică · 2850304125789' },
+];
+const DSG_PEN = (
+  <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <path d="M12 20h9" /><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" />
+  </svg>
+);
+const DSG_CHECK = (
+  <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <polyline points="20 6 9 17 4 12" />
+  </svg>
+);
+function AutofillSample() {
+  const [chosen, setChosen] = useState(0);
+  // ONE choice per party: every data collection, as its file. The one picked
+  // decides how the party's part is written (a company's also says who signs
+  // for it and in what capacity).
+  return (
+    <div className="dsg-autofill">
+      <div className="dcx-people">
+        <div className="dcx-party-group">
+          <section className="dcx-person">
+            <header className="dcx-person-head"><span className="dcx-person-name">Parte1</span></header>
+            <ul className="dcx-person-list">
+              <li>
+                <button type="button" className={`dcx-person-opt is-custom${chosen === -1 ? ' is-on' : ''}`} onClick={() => setChosen(-1)}>
+                  <span className="dcx-person-av">{DSG_PEN}</span>
+                  <span className="dcx-person-text">Custom</span>
+                  <span className="dcx-person-mark">{DSG_CHECK}</span>
+                </button>
+              </li>
+              {SAMPLE_COLLECTIONS.map((c, i) => (
+                <li key={c.file}>
+                  <button type="button" className={`dcx-person-opt${chosen === i ? ' is-on' : ''}`} onClick={() => setChosen(i)}>
+                    <span className="dcx-person-file"><ExtGlyph ext="dvc" /></span>
+                    <span className="dcx-person-text">
+                      <span className="dcx-person-rec">{c.file}</span>
+                      <span className="dcx-person-meta">{c.meta}</span>
+                    </span>
+                    <span className="dcx-person-mark">{DSG_CHECK}</span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </section>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function EmptyFieldsSample() {
+  const crimson = '#9F1239';
+  const blue = '#0369A1';
+  return (
+    <Sample name="Blanks" of="pages/DocViewer (mirrored) · components/DocConstructor .dcx-inline (live)" wide>
+      <div className="dsg-refs">
+        <p className="dsg-refs-label">On the page · the Word preview</p>
+        <div className="dsg-fieldsdoc">
+          {FIELD_ROWS.map((r) => (
+            <div key={r.name} className="dsg-refs-row">
+              <div className="dsg-refs-meta"><span className="dsg-refs-name">{r.name}</span><code>{r.of}</code></div>
+              <p className="dsg-refs-text">{r.body}</p>
+            </div>
+          ))}
+        </div>
+
+        <p className="dsg-refs-label">A picked paragraph · its blanks become inputs in the sentence</p>
+        <div className="dsg-fieldsdoc">
+          <div className="dsg-refs-row">
+            <div className="dsg-refs-meta"><span className="dsg-refs-name">Empty · filled</span><code>.dcx-inline — the placeholder says what goes there, in the document’s language</code></div>
+            <p className="dsg-refs-text">
+              Vânzătorul, <input className="dcx-inline" style={{ width: '22ch' }} placeholder="denumirea vânzătorului" readOnly />,
+              {' '}cu sediul în <input className="dcx-inline is-filled" style={{ width: '12ch' }} defaultValue="Cluj-Napoca" readOnly />.
+            </p>
+          </div>
+          <div className="dsg-refs-row">
+            <div className="dsg-refs-meta"><span className="dsg-refs-name">Two people in one clause</span><code>.dcx-inline.is-party — each person’s blanks in their colour</code></div>
+            <p className="dsg-refs-text">
+              <input className="dcx-inline is-party is-filled" style={{ width: '16ch', '--dcx-party': crimson }} defaultValue="SC ALFA SRL" readOnly />,
+              {' '}reprezentată prin <input className="dcx-inline is-party" style={{ width: '18ch', '--dcx-party': blue }} placeholder="numele reprezentantului" readOnly />,
+              {' '}în calitate de <input className="dcx-inline is-party" style={{ width: '14ch', '--dcx-party': blue }} placeholder="calitatea" readOnly />.
+            </p>
+          </div>
+        </div>
+
+        <p className="dsg-refs-label">Highlights off · the eye quick action — every blank reads as the document wrote it</p>
+        <div className="dsg-fieldsdoc is-plain">
+          <div className="dsg-refs-row">
+            <div className="dsg-refs-meta"><span className="dsg-refs-name">Empty · as text · filled</span><code>.dv-docx.is-plain .dv-field — no ground, no rule; a slot shows its underscores (fades with the marks, 280ms)</code></div>
+            <p className="dsg-refs-text">
+              Vânzătorul, <span className="dv-field is-chip" data-label={CHIP(22)} data-hint="Nume / denumire">[[vanzator.legalName]]</span>, prețul de <span className="dv-field">_______</span> lei,
+              {' '}cu sediul în <span className="dv-field is-filled">Cluj-Napoca</span>.
+            </p>
+          </div>
+        </div>
+
+        <p className="dsg-refs-label">The picked paragraph’s autofill · docked under it — per party, the data collections that fill it (the one picked decides how the part is written)</p>
+        <AutofillSample />
+
+        <p className="dsg-refs-label">What is read as a blank · lib/docConstructor BLANK_PATTERNS — each is drawn as the slot above</p>
+        <div className="dsg-fields-src">
+          {['_____', '.........', '[_____]', '[.........]', '[[vanzator.legalName]]', '[Client name]', '{{nume}}', '……'].map((s) => <code key={s}>{s}</code>)}
+          <span>and Word’s underlined spaces</span>
+        </div>
+      </div>
+    </Sample>
+  );
+}
+
+// Each platform's colour and the colours of its filters, read off the same
+// data the Legislation tab uses (lib/legalBrowser PLATFORMS, lib/legalSearch
+// FACETS) and drawn with its own recipes (.lgb-dot, .lgb-pill), so the sample
+// cannot drift from what the tabs, results and scopes wear.
+const toneName = (tone) => (tone || '').replace(/^var\((--[\w-]+)\)$/, '$1');
+function PlatformColoursSample() {
+  const rows = [
+    { key: 'all', site: 'All platforms', name: 'Every connected platform at once', tone: 'var(--accent)' },
+    ...PLATFORM_ORDER.map((k) => ({ key: k, site: PLATFORMS[k].site, name: PLATFORMS[k].name, tone: PLATFORMS[k].tone })),
+  ];
+  return (
+    <Sample name="Platform colours" of="lib/legalBrowser PLATFORMS · lib/legalSearch FACETS — each platform's colour, then its filters as the result pills wear them" wide>
+      <div className="dsg-refs">
+        {rows.map((r) => (
+          <div key={r.key} className="dsg-refs-row">
+            <div className="dsg-refs-meta">
+              <span className="dsg-plat-site" style={{ color: r.tone }}>
+                <span className="lgb-dot" style={{ '--tone': r.tone }} />{r.site}
+              </span>
+              <span className="dsg-plat-name">{r.name}</span>
+              <code>{toneName(r.tone)}</code>
+            </div>
+            <div className="dsg-plat-pills">
+              {(FACETS[r.key] || []).filter((f) => f.id !== 'all').map((f) => (
+                <Tooltip key={f.id} content={`${f.tip} · ${toneName(f.tone)}`}>
+                  <span className="lgb-pill" style={{ '--pill-tone': f.tone }}>{f.label}</span>
+                </Tooltip>
+              ))}
+            </div>
+          </div>
+        ))}
       </div>
     </Sample>
   );

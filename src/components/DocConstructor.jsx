@@ -5,8 +5,11 @@ import Tooltip from './Tooltip';
 import {
   fieldsOf, roleLabel, valuesFromRecord, parseSegs, settleClauseFor,
   partiesOf, identityFromValues,
-  withEdits, fieldInfo, fillText, pieceDisplayText, clauseKind,
+  withEdits, fieldInfo, fillText, pieceDisplayText,
+  ENTITY_KINDS, entitySpans, entityKindOf, rewriteEntity, recordKindOf, REP_CAPACITIES,
 } from '../lib/docConstructor';
+import RuleOptions from './RuleOptions';
+import { ExtGlyph } from './fileGlyph';
 import { constructorStrings, fieldLabelIn } from './docConstructorStrings';
 import './DocConstructor.css';
 
@@ -47,6 +50,12 @@ const CheckGlyph = (
     <polyline points="20 6 9 17 4 12" />
   </svg>
 );
+
+// Whether a file is named after the person it holds: the file's stem and the
+// name compared without case, diacritics, punctuation or word order.
+const foldWords = (v) => String(v || '').normalize('NFD').replace(/\p{M}/gu, '').toLowerCase()
+  .replace(/\.[a-z0-9]{1,5}$/, '').split(/[^a-z0-9]+/).filter(Boolean).sort().join(' ');
+const sameName = (file, name) => !!name && foldWords(file) === foldWords(name);
 
 const EMPTY_DRAFT = { edits: {}, values: {}, assigned: {}, open: null, collapsed: {}, custom: {} };
 
@@ -164,10 +173,38 @@ export default function DocParagraphConstructor({
   versionPreview = null, // { text, values } — a saved version being hovered: shown, not applied
   optionsSlot = null,    // where the options go: the side panel's slot above its composer (else: under the paragraph)
   originalHtml = '',     // the real paragraph's markup, as the Word preview rendered it
+  kindSlot = null,       // where the kind switches go: the bar ABOVE the paragraph (else: in the panel)
+  onApply = null,        // APPLY: write the paragraph's changes now and close it
 }) {
   const draft = draftProp || EMPTY_DRAFT;
   const { edits, values, assigned } = draft;
-  const patch = useCallback((fn) => setDraft?.((d) => ({ ...(d || EMPTY_DRAFT), ...fn(d || EMPTY_DRAFT) })), [setDraft]);
+  // UNDO, per paragraph: every change made here (a record picked, a kind
+  // switched, a value typed — a burst of typing is ONE step) keeps the draft
+  // as it was before it; Undo puts the last one back. The steps are this
+  // paragraph's alone and start over when another is picked.
+  const undoRef = useRef([]);
+  const lastStepAt = useRef(0);
+  const [undoCount, setUndoCount] = useState(0);
+  useEffect(() => { undoRef.current = []; lastStepAt.current = 0; setUndoCount(0); }, [piece?.id]);
+  const patch = useCallback((fn, { typing = false } = {}) => {
+    const now = Date.now();
+    if (!typing || now - lastStepAt.current > 900) {
+      undoRef.current.push(draftProp || EMPTY_DRAFT);
+      if (undoRef.current.length > 60) undoRef.current.shift();
+      setUndoCount(undoRef.current.length);
+    }
+    lastStepAt.current = typing ? now : 0;
+    setDraft?.((d) => ({ ...(d || EMPTY_DRAFT), ...fn(d || EMPTY_DRAFT) }));
+  }, [setDraft, draftProp]);
+  const undo = useCallback(() => {
+    const prev = undoRef.current.pop();
+    setUndoCount(undoRef.current.length);
+    lastStepAt.current = 0;
+    if (!prev) return;
+    setDraft?.(() => prev);
+    setPreview({});
+    setKindHover(null);
+  }, [setDraft]);
 
   // English or Romanian — the Constructor's own labels only, never the
   // document's words. Remembered across documents and windows.
@@ -195,6 +232,10 @@ export default function DocParagraphConstructor({
   const [creating, setCreating] = useState({});
   // Hovering a record shows its values in the chips before anything is chosen.
   const [preview, setPreview] = useState({});
+  // Each person's FILTER over the data collections: a kind (the clause's own,
+  // until changed) or 'all'. Per paragraph.
+  const [filters, setFilters] = useState({});
+  useEffect(() => { setFilters({}); }, [piece?.id]);
 
   const textOf = useCallback((pc) => (edits[pc.id] !== undefined ? edits[pc.id] : pc.text), [edits]);
 
@@ -250,7 +291,7 @@ export default function DocParagraphConstructor({
       let edits = d.edits;
       if (piece) {
         const now = edits[piece.id] !== undefined ? edits[piece.id] : piece.text;
-        const settled = settleClauseFor(now, role, rec);
+        const settled = settleFor(now, role || '', role, rec);
         if (settled !== now) edits = { ...edits, [piece.id]: settled };
       }
       return {
@@ -279,24 +320,54 @@ export default function DocParagraphConstructor({
       : identityValueForField(rec, key)
   );
 
+  // The FUNCTION a person holds in the company they sign for („în calitate
+  // de …"): read off the company's own people table, when the record picked
+  // for that party lists them — "Administrator" there is "administrator" in the
+  // sentence. Nothing when the company isn't picked or doesn't list them: a
+  // person record carries no function of its own (it is not a fact about them).
+  const capacityFor = (personKey, person) => {
+    const base = personKey.endsWith(REP_MARK) ? personKey.slice(0, -REP_MARK.length) : personKey;
+    const company = records.find((r) => ridOf(r) === (assigned[base] || assigned[base || '_']));
+    const who = foldWords(person?.legalName || person?.name);
+    const hit = who && (company?.people || []).find((pp) => foldWords(pp?.name) === who && pp.role);
+    if (!hit) return '';
+    const role = String(hit.role).trim();
+    return role === role.toUpperCase() ? role : role.charAt(0).toLowerCase() + role.slice(1);
+  };
+
   // Fill ONE person's blanks from a record. Used for a clause whose blanks name
   // nobody (a document DocVex did not write): there is no role to fill BY, so
   // the entity's own fields are written one at a time, which is also what keeps
   // the other entity in the same clause untouched.
+  // A party OWNS its representative's blanks: the company's record says who
+  // signs for it and in what capacity, so one pick fills both.
+  const ownsField = (personKey, id) => {
+    const who = peopleOf.get(id);
+    return who === personKey || (!personKey.endsWith(REP_MARK) && who === `${personKey}${REP_MARK}`);
+  };
   const assignPerson = (personKey, recOrNull) => {
     const isRep = personKey.endsWith(REP_MARK);
     patch((d) => {
       const next = { ...d.values };
       for (const f of fields) {
-        if (!f.key || peopleOf.get(f.id) !== personKey) continue;
+        if (!f.key || !ownsField(personKey, f.id)) continue;
         if (!recOrNull) { next[f.id] = ''; continue; }
-        const v = recordValueFor(recOrNull, f.key, isRep);
+        const v = isRep && f.key === 'repCapacity' ? capacityFor(personKey, recOrNull) : recordValueFor(recOrNull, f.key, isRep);
         if (v) next[f.id] = v;
       }
       const assignedNext = { ...d.assigned };
       if (recOrNull) assignedNext[personKey] = ridOf(recOrNull); else delete assignedNext[personKey];
-      return { values: next, assigned: assignedNext };
+      // The wording follows the record too — gender, house vs. flat,
+      // județul/sectorul — in this person's part of the clause only.
+      let edits = d.edits;
+      if (recOrNull && !isRep && piece) {
+        const now = edits[piece.id] !== undefined ? edits[piece.id] : piece.text;
+        const settled = settleFor(now, personKey, roleOfKey(personKey), recOrNull);
+        if (settled !== now) edits = { ...edits, [piece.id]: settled };
+      }
+      return { values: next, assigned: assignedNext, edits };
     });
+    setKindHover(null);
     setPreview({});
   };
   // What that person's blanks would read as — for the hover preview, which is
@@ -306,11 +377,20 @@ export default function DocParagraphConstructor({
     const isRep = personKey.endsWith(REP_MARK);
     const out = {};
     for (const f of fields) {
-      if (!f.key || peopleOf.get(f.id) !== personKey) continue;
-      const v = recordValueFor(recOrNull, f.key, isRep);
+      if (!f.key || !ownsField(personKey, f.id)) continue;
+      const v = isRep && f.key === 'repCapacity' ? capacityFor(personKey, recOrNull) : recordValueFor(recOrNull, f.key, isRep);
       if (v) out[f.id] = v;
     }
     setPreview(out);
+    previewWording(personKey, isRep ? null : recOrNull);
+  };
+  // What the clause would READ as with `rec` settled into `key`'s part —
+  // shown while hovering (the rewrite preview), nothing applied.
+  const previewWording = (key, rec) => {
+    if (!piece || !rec) { setKindHover(null); return; }
+    const now = text;
+    const settled = settleFor(now, key, roleOfKey(key), rec);
+    setKindHover(settled !== now ? { text: settled } : null);
   };
 
   // A party typed in by hand becomes an identity record, and the party is then
@@ -361,14 +441,14 @@ export default function DocParagraphConstructor({
   const fieldsSig = fields.map((f) => f.id).join('|');
   const peopleOf = useMemo(() => {
     const map = new Map();
-    if (fields.some((f) => f.key && f.role)) {
-      for (const f of fields) if (f.key) map.set(f.id, personKeyOf(f));
-      return map;
-    }
+    // Blanks that NAME their party answer to it; the rest are told apart by
+    // repetition. Both can stand in one clause: an entity the kind switch
+    // rewrote gets named blanks (`p1.legalName`), its neighbours keep theirs.
     let n = 0;
     let seen = new Set();
     for (const f of fields) {
       if (!f.key) continue;
+      if (f.role) { map.set(f.id, personKeyOf(f)); continue; }
       if (REP_KEYS.has(f.key)) { map.set(f.id, `e${n}${REP_MARK}`); continue; }
       if (seen.has(f.key)) { n += 1; seen = new Set(); }
       seen.add(f.key);
@@ -378,28 +458,147 @@ export default function DocParagraphConstructor({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fieldsSig]);
   const peopleKeys = [...new Set([...peopleOf.values()])].filter(Boolean);
-  const multiParty = peopleKeys.length > 1;
+  // …grouped by the PARTY they belong to: a representative is owned by the
+  // company they sign for, so the two stand side by side in one row, and the
+  // parties stack in a column (a clause naming three parties = three rows).
+  const peopleGroups = [];
+  for (const k of peopleKeys) {
+    const base = k.endsWith(REP_MARK) ? k.slice(0, -REP_MARK.length) : k;
+    let g = peopleGroups.find((x) => x.base === base);
+    if (!g) { g = { base, keys: [] }; peopleGroups.push(g); }
+    if (k.endsWith(REP_MARK)) g.keys.push(k); else g.keys.unshift(k);
+  }
+  const partyKeys = [...new Set(peopleKeys.map((k) => k.replace(REP_MARK, '')))];
+  const multiParty = partyKeys.length > 1;
   // What each person IS, read off the blanks the clause gives them: a CUI, a
   // trade-register number or a legal form can only belong to a company; a CNP
   // or an identity document to a human being. A representative is always a
   // person — that is the whole reason a company has one.
+  // The entity a blank belongs to — a representative answers to their company.
+  const whoOf = (id) => String(peopleOf.get(id) || '').replace(REP_MARK, '');
+  const spans = useMemo(() => entitySpans(text, whoOf), [text, fieldsSig]); // eslint-disable-line react-hooks/exhaustive-deps
+  // The role a person's blanks are named by: none for an entity the document
+  // never named (e0…), its own name otherwise (a role, or p1… after a rewrite).
+  const roleOfKey = (key) => (/^e\d+$/.test(key) ? '' : String(key).replace(REP_MARK, ''));
+  // SETTLE ONE PERSON'S PART of a clause against a record (lib/docConstructor
+  // settleClauseFor: gender agreement, the block / stair / floor / flat
+  // clauses gone for a house, județul vs. sectorul) — only the part from the
+  // boundary before its first blank to where the next person's begins, so a
+  // clause naming two people never has the OTHER one's wording changed. A
+  // clause about one person is settled whole. `who` maps a blank to its person.
+  const settleFor = (txt, key, role, rec, who = whoOf) => {
+    const src = String(txt || '');
+    if (!rec) return src;
+    const { order, span } = entitySpans(src, who);
+    if (order.length <= 1) return settleClauseFor(src, role, rec);
+    const sp = span.get(key);
+    if (!sp) return src;
+    const i = order.indexOf(key);
+    const end = i + 1 < order.length ? span.get(order[i + 1]).start : src.length;
+    return src.slice(0, sp.start) + settleClauseFor(src.slice(sp.start, end), role, rec) + src.slice(end);
+  };
   const kindOf = (key) => {
     if (key.endsWith(REP_MARK)) return 'person';
-    const own = fields.filter((f) => f.key && peopleOf.get(f.id) === key);
-    return clauseKind(own) || 'person';
+    const own = fields.filter((f) => f.key && whoOf(f.id) === key);
+    const sp = spans.span.get(key);
+    return entityKindOf(sp ? text.slice(sp.start, sp.last) : '', own);
+  };
+  // THE KIND SWITCH: the entity's part of the clause is rewritten in the
+  // chosen formula (lib/docConstructor `rewriteEntity`) — its blanks named by
+  // its role, or, for a document that names nobody, by a role of its own
+  // (`p1`, `p2`… — the first free one) so its blanks stay its own. What was
+  // already filled in carries over by field.
+  // With `rec`, the part is rewritten for the record's kind AND filled from it
+  // in the same step (the All filter: picking a person of another kind). A
+  // party the document names is filled wherever it appears; an entity only
+  // this clause knows, in its own (rewritten) blanks. Returns the person's key
+  // after the rewrite (an unnamed entity's changes: e0 → p1).
+  // HOVERING a kind shows the paragraph rewritten that way — its wording, with
+  // what is already filled in carried over — without applying anything.
+  const [kindHover, setKindHover] = useState(null); // { text } — a rewrite on show
+  const previewKind = (key, kind, rec = null) => {
+    if (!piece || !kind || kind === 'all' || kind === kindOf(key)) { setKindHover(null); setPreview({}); return; }
+    const named = !/^(?:e|p)\d+$/.test(key);
+    let role = named ? key : '';
+    if (!named) {
+      const used = new Set(fields.map((f) => f.role).filter(Boolean));
+      for (let i = 1; !role; i += 1) if (!used.has(`p${i}`)) role = `p${i}`;
+    }
+    const old = {};
+    for (const f of fields) if (f.key && whoOf(f.id) === key && String(values[f.id] || '').trim()) old[f.key] = values[f.id];
+    const next = rewriteEntity(text, whoOf, key, kind, role);
+    const carried = {};
+    for (const f of fieldsOf(next)) {
+      if (!f.key || (f.role || '') !== role) continue;
+      const v = rec ? recordValueFor(rec, f.key, false) : old[f.key];
+      if (v) carried[f.id] = v;
+    }
+    const byRole = (id) => (fieldInfo(id).role === role ? role : `o:${id}`);
+    setKindHover({ text: rec ? settleFor(next, role, role, rec, byRole) : next });
+    setPreview(carried);
+  };
+  const setKind = (key, kind, rec = null) => {
+    if (!piece) return key;
+    setKindHover(null);
+    const named = !/^(?:e|p)\d+$/.test(key);
+    let role = named ? key : '';
+    if (!named) {
+      const used = new Set(fields.map((f) => f.role).filter(Boolean));
+      for (let i = 1; !role; i += 1) if (!used.has(`p${i}`)) role = `p${i}`;
+    }
+    const docParty = named ? parties.find((pt) => (pt.role || '') === key) : null;
+    if (kind === kindOf(key)) {
+      // Already that kind: a record is simply picked.
+      if (rec) { if (docParty) assign(docParty.role, rec); else assignPerson(key, rec); }
+      return key;
+    }
+    const old = {};
+    for (const f of fields) if (f.key && whoOf(f.id) === key && String(values[f.id] || '').trim()) old[f.key] = values[f.id];
+    const next = rewriteEntity(text, whoOf, key, kind, role);
+    const newKey = role;
+    const newFields = fieldsOf(next).filter((f) => f.key && (f.role || '') === role);
+    patch((d) => {
+      const edits = { ...d.edits, [piece.id]: next };
+      const vals = { ...d.values };
+      if (!rec) {
+        for (const f of newFields) if (old[f.key] && vals[f.id] === undefined) vals[f.id] = old[f.key];
+        return { edits, values: vals, typed: true };
+      }
+      const rid = ridOf(rec);
+      if (docParty) {
+        Object.assign(vals, valuesFromRecord(withEdits(model, edits), docParty.role, rec));
+        const settled = settleClauseFor(edits[piece.id] !== undefined ? edits[piece.id] : piece.text, docParty.role, rec);
+        return {
+          edits: { ...edits, [piece.id]: settled },
+          values: vals,
+          assigned: { ...d.assigned, [docParty.roleKey]: rid },
+        };
+      }
+      for (const f of newFields) {
+        const v = recordValueFor(rec, f.key, false);
+        if (v) vals[f.id] = v;
+      }
+      const assignedNext = { ...d.assigned, [newKey]: rid };
+      // …and its wording settled to the record (only its own part).
+      const byRole = (id) => (fieldInfo(id).role === role ? role : `o:${id}`);
+      const settled = settleFor(next, role, role, rec, byRole);
+      return { edits: settled !== next ? { ...edits, [piece.id]: settled } : edits, values: vals, assigned: assignedNext };
+    });
+    setPreview({});
+    return newKey;
   };
   // What to call a person in the legend. A role says it outright ("Vanzator").
   // An entity the document never named is called by whatever has been filled in
   // as its name — which is the whole point of the colour, so it is worth
   // showing — and until then by where it stands in the clause.
   const legendName = (key, i) => {
-    if (!/^e\d+$/.test(key)) return roleLabel(key);
+    if (!/^(?:e|p)\d+$/.test(key)) return roleLabel(key);
     const named = fields.find((f) => peopleOf.get(f.id) === key
       && ['legalName', 'lastName', 'firstName'].includes(f.key)
       && String(values[f.id] || '').trim());
     return named ? String(values[named.id]).trim() : `${t.party || 'Party'} ${i + 1}`;
   };
-  const partyTints = useMemo(() => partyColors(peopleKeys), [peopleKeys.join('|')]); // eslint-disable-line react-hooks/exhaustive-deps
+  const partyTints = useMemo(() => partyColors(partyKeys), [partyKeys.join('|')]); // eslint-disable-line react-hooks/exhaustive-deps
   const role = party ? party.role : null;
   const rec = party ? (records.find((r) => ridOf(r) === assigned[party.roleKey]) || null) : null;
 
@@ -411,7 +610,7 @@ export default function DocParagraphConstructor({
   const tokens = useMemo(() => {
     const out = [];
     // A hovered version shows ITS wording; the draft is untouched underneath.
-    const src = pieceDisplayText(piece, versionPreview ? versionPreview.text : text);
+    const src = pieceDisplayText(piece, versionPreview ? versionPreview.text : (kindHover ? kindHover.text : text));
     const re = /(\*\*|__)|(\*)|\[\[([^[\]]+?)\]\]|`/g;
     let bold = false;
     let italic = false;
@@ -427,12 +626,12 @@ export default function DocParagraphConstructor({
     }
     push(src.slice(last));
     return out;
-  }, [piece, text, versionPreview]);
+  }, [piece, text, versionPreview, kindHover]);
 
   // `typed` marks the draft as holding something the user WROTE. Picking a
   // suggested identity doesn't set it — that is an answer being chosen, not a
   // change being made, and it doesn't earn the paragraph a new version circle.
-  const setValue = (id, value) => patch((d) => ({ values: { ...d.values, [id]: value }, typed: true }));
+  const setValue = (id, value) => patch((d) => ({ values: { ...d.values, [id]: value }, typed: true }), { typing: true });
   const infoOf = (id) => fields.find((f) => f.id === id) || fieldInfo(id);
 
   // The widest each slot has needed so far, in `ch`. A slot GROWS to hold what
@@ -469,7 +668,7 @@ export default function DocParagraphConstructor({
     const explains = !/^blank\d+$/i.test(String(fieldId || '').trim());
     const ghost = explains ? fieldLabelIn(f, docLang) : '';
     // Only where telling them apart is the problem: one party needs no key.
-    const tint = multiParty ? (partyTints.get(peopleOf.get(fieldId)) || null) : null;
+    const tint = multiParty ? (partyTints.get(String(peopleOf.get(fieldId) || '').replace(REP_MARK, '')) || null) : null;
     // An EMPTY slot is as wide as the document drew it OR as wide as what it
     // asks for, whichever is larger, so the placeholder is read rather than
     // clipped. Widening is safe HERE and only here: this input lives in the
@@ -522,6 +721,14 @@ export default function DocParagraphConstructor({
   //
   // Both live inside the preview copy, in a host each; only one is displayed.
   const [hosts, setHosts] = useState(null);
+  // While the copy shows only a PREVIEW (a record or a kind hovered, a version
+  // hovered) it says so (`data-previewing`): the pane holds the autofill dock
+  // where it was instead of moving it under a copy that grew or shrank.
+  const previewing = !!(versionPreview || kindHover || Object.keys(preview).length);
+  useLayoutEffect(() => {
+    if (!previewEl) return;
+    if (previewing) previewEl.dataset.previewing = '1'; else delete previewEl.dataset.previewing;
+  }, [previewEl, previewing]);
   useLayoutEffect(() => {
     if (!previewEl) { setHosts(null); return; }
     const doc = previewEl.ownerDocument;
@@ -597,7 +804,7 @@ export default function DocParagraphConstructor({
     setMounts(made);
   }, [hosts, originalHtml, piece, baseValues]);
 
-  const wordingNow = versionPreview ? versionPreview.text : text;
+  const wordingNow = versionPreview ? versionPreview.text : (kindHover ? kindHover.text : text);
   const showRich = !!hosts && !!mounts && !!piece && wordingNow === piece.text;
   useLayoutEffect(() => {
     if (!hosts) return;
@@ -606,7 +813,7 @@ export default function DocParagraphConstructor({
   }, [hosts, showRich]);
   // Either view can wrap to a different height — let the pane re-place what
   // hangs under the paragraph.
-  useEffect(() => { onLive?.(liveText); }, [showRich, mounts]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { onLive?.(liveText); }, [showRich, mounts, kindHover]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const paragraph = hosts ? (
     <>
@@ -628,7 +835,15 @@ export default function DocParagraphConstructor({
   ) : null;
 
   if (!piece) return null;
-  const hasOptions = !!party || !!saveError || multiParty;
+  // A kind picked: All only filters; a kind rewrites the part and filters.
+  const pickKind = (k, id) => {
+    setKindHover(null);
+    setPreview({});
+    if (id === 'all') { setFilters((m) => ({ ...m, [k]: 'all' })); return; }
+    const nk = setKind(k, id);
+    setFilters((m) => { const n = { ...m }; delete n[k]; delete n[nk]; return n; });
+  };
+  const hasOptions = !!saveError || peopleKeys.length > 0;
 
   const canSaveIdentity = !!ownParty && !rec && !!onCreateIdentity && !!identityFromValues(ownParty, values);
   // The options — the identity records that fill the party, and the notes that
@@ -658,51 +873,71 @@ export default function DocParagraphConstructor({
             they are, and the records to fill them from, listed downwards.
             Shown only where there is more than one; a single party keeps the
             grid below, which is the same choice without the ceremony. */}
-        {multiParty && (
+        {/* ── One entry per person the clause names ──────────────────────
+            Each: who (their colour when the clause names more than one — the
+            tint their blanks carry), WHAT they are as a segmented choice
+            (Persoană fizică / PFA / juridică — read off the clause, and
+            changing it rewrites their part of the clause), then the DATA
+            COLLECTIONS that can fill them, each as its file. */}
+        {peopleKeys.length > 0 && (
           <div className="dcx-people">
-            {peopleKeys.map((k, i) => {
+            {peopleGroups.map((g, i) => (
+            <div className={`dcx-party-group${g.keys.length > 1 ? ' is-pair' : ''}`} key={g.base}>
+            {(g.keys.some((x) => !x.endsWith(REP_MARK)) ? g.keys.filter((x) => !x.endsWith(REP_MARK)) : g.keys).map((k) => {
               const isRep = k.endsWith(REP_MARK);
               const base = isRep ? k.slice(0, -REP_MARK.length) : k;
               const kind = kindOf(k);
-              const chosen = assigned[k];
+              // EVERY data collection is listed. What the part says about the
+              // party — person, PFA, company, and for a company who signs and
+              // in what capacity — follows the one picked: a collection of
+              // another kind rewrites the part for it and fills it in one step.
+              const shown = records;
+              // A party the DOCUMENT names is filled everywhere it appears; an
+              // entity only this clause knows, blank by blank.
+              const docParty = !isRep && !/^(?:e|p)\d+$/.test(k) ? (parties.find((pt) => (pt.role || '') === k) || null) : null;
+              const chosen = assigned[docParty ? docParty.roleKey : k];
+              const pick = (r) => { setKindHover(null); setKind(k, isRep ? 'person' : recordKindOf(r), r); };
+              const hover = (r) => {
+                const rk = isRep ? 'person' : recordKindOf(r);
+                if (rk !== kind) { previewKind(k, rk, r); return; }
+                setKindHover(null);
+                if (docParty) {
+                  setPreview({ ...valuesFromRecord(model, docParty.role, r), __rec: ridOf(r), __role: docParty.roleKey });
+                  previewWording(k, r);
+                } else previewPerson(k, r);
+              };
+              const unhover = () => { setKindHover(null); setPreview({}); };
               return (
-                <section className="dcx-person" key={k} style={{ '--dcx-party': partyTints.get(k) }}>
+                <section className="dcx-person" key={k} style={multiParty ? { '--dcx-party': partyTints.get(k) } : undefined}>
                   <header className="dcx-person-head">
-                    <span className="dcx-person-dot" aria-hidden="true" />
-                    <span className="dcx-person-name">{legendName(base, i)}</span>
-                    <span className="dcx-person-kind">
-                      {kind === 'org' ? 'Persoană juridică' : 'Persoană fizică'}
-                      {isRep && ` · ${fieldLabelIn({ key: 'representative', label: 'Representative' }, lang)}`}
+                    {multiParty && <span className="dcx-person-dot" aria-hidden="true" />}
+                    <span className="dcx-person-name">
+                      {legendName(base, i)}
+                      {isRep && ' · Legal representative'}
                     </span>
                   </header>
                   <ul className="dcx-person-list">
-                    <li>
-                      <button
-                        type="button"
-                        className={`dcx-person-opt is-custom${chosen ? '' : ' is-on'}`}
-                        onClick={() => { if (chosen) assignPerson(k, null); }}
-                        onMouseLeave={() => setPreview({})}
-                      >
-                        <span className="dcx-person-av">{PenGlyph}</span>
-                        <span className="dcx-person-text">{t.custom}</span>
-                        <span className="dcx-person-mark">{CheckGlyph}</span>
-                      </button>
-                    </li>
-                    {records.map((r) => {
+                    {shown.map((r) => {
                       const rid = ridOf(r);
+                      const file = r._fileName || String(r._path || '').split(/[\\/]/).pop() || '';
+                      const ext = (/\.([^.]+)$/.exec(file) || [])[1] || 'dvc';
                       return (
                         <li key={rid}>
                           <button
                             type="button"
                             className={`dcx-person-opt${chosen === rid ? ' is-on' : ''}`}
-                            onClick={() => assignPerson(k, r)}
-                            onMouseEnter={() => previewPerson(k, r)}
-                            onMouseLeave={() => setPreview({})}
+                            onClick={() => pick(r)}
+                            onMouseEnter={() => hover(r)}
+                            onMouseLeave={unhover}
                           >
-                            <span className="dcx-person-av">{identityInitials(r)}</span>
+                            <span className="dcx-person-file"><ExtGlyph ext={ext} /></span>
                             <span className="dcx-person-text">
-                              <span className="dcx-person-rec">{r.legalName || r.name}</span>
-                              <span className="dcx-person-meta">{identitySummary(r)}</span>
+                              <span className="dcx-person-rec">{file || r.legalName || r.name}</span>
+                              <span className="dcx-person-meta">
+                                {/* The name only when the FILE is not already called by it
+                                    (the heading above is the file name). */}
+                                {[sameName(file, r.legalName || r.name) ? '' : (r.legalName || r.name), ENTITY_KINDS.find((o) => o.id === recordKindOf(r))?.label, identitySummary(r)].filter(Boolean).join(' · ')}
+                              </span>
                             </span>
                             <span className="dcx-person-mark">{CheckGlyph}</span>
                           </button>
@@ -714,77 +949,21 @@ export default function DocParagraphConstructor({
                 </section>
               );
             })}
+            </div>
+            ))}
           </div>
         )}
-
-        <div className="dcx-para-body">
-          {/* The single-party grid is the SAME choice the list above already
-              offers, so it is shown only when there is no list: a clause that
-              identifies a company AND its representative sets both `ownParty`
-              and more than one person, and used to draw the cards underneath
-              the rows that had just replaced them. */}
-          {party && !multiParty && (
-            <div className="dcx-idgrid">
-              {/* Always first: the party typed in by hand — what a party is until
-                  a record is picked. Hovering it shows the hand-typed details in
-                  the paragraph, as hovering a record shows the record's; picking
-                  it lets go of the record and puts them back. */}
-              <button
-                type="button"
-                className={`dcx-identity is-custom${rec ? '' : ' is-on'}`}
-                onClick={() => { if (rec) selectCustom(party); }}
-                onMouseEnter={() => { if (rec) setPreview({ ...customValuesFor(party, draft), __custom: party.roleKey }); }}
-                onMouseLeave={() => setPreview({})}
-              >
-                <span className="dcx-identity-av">{PenGlyph}</span>
-                <span className="dcx-identity-text">
-                  <span className="dcx-identity-name">{t.custom}</span>
-                  <span className="dcx-identity-meta">{t.customMeta}</span>
-                </span>
-                <span className="dcx-identity-mark">{CheckGlyph}</span>
-              </button>
-              {records.map((r) => {
-                const rid = ridOf(r);
-                return (
-                  <button
-                    type="button"
-                    key={rid}
-                    className={`dcx-identity${assigned[party.roleKey] === rid ? ' is-on' : ''}`}
-                    onClick={() => assign(role, r)}
-                    onMouseEnter={() => setPreview({ ...valuesFromRecord(model, role, r), __rec: rid, __role: party.roleKey })}
-                    onMouseLeave={() => setPreview({})}
-                  >
-                    <span className="dcx-identity-av">{identityInitials(r)}</span>
-                    <span className="dcx-identity-text">
-                      <span className="dcx-identity-name">{r.name || r.legalName}</span>
-                      <span className="dcx-identity-meta">
-                        {[r.kind === 'org' ? t.organisation : t.individual, identitySummary(r)].filter(Boolean).join(' · ')}
-                      </span>
-                    </span>
-                    <span className="dcx-identity-mark">{CheckGlyph}</span>
-                  </button>
-                );
-              })}
-              {/* Custom details can become an identity record of their own. */}
-              {canSaveIdentity && (
-                <button
-                  type="button"
-                  className="dcx-identity is-action"
-                  disabled={!!creating[ownParty.roleKey]}
-                  onClick={() => saveAsIdentity(ownParty)}
-                >
-                  <span className="dcx-identity-av">+</span>
-                  <span className="dcx-identity-text">
-                    <span className="dcx-identity-name">{creating[ownParty.roleKey] ? t.saving : t.saveAsIdentity}</span>
-                    <span className="dcx-identity-meta">{t.saveAsIdentityTip}</span>
-                  </span>
-                </button>
-              )}
-            </div>
-          )}
-          {party && records.length === 0 && <p className="dcx-note">{t.noRecords}</p>}
-        </div>
         </>)}
+        {/* APPLY — the changes made here go into the document now and the
+            paragraph closes (closing it any other way does the same). */}
+        {onApply && (
+          <div className="dcx-apply-row">
+            <button type="button" className="dcx-undo" disabled={!undoCount} onClick={undo}>
+              Undo{undoCount > 1 ? ` · ${undoCount}` : ''}
+            </button>
+            <button type="button" className="dcx-apply" disabled={liveText == null} onClick={onApply}>Apply</button>
+          </div>
+        )}
       </div>
   ) : null;
   return (

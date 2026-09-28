@@ -1,9 +1,11 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { Suspense, lazy, useEffect, useMemo, useState } from 'react';
+import RuleOptions from './RuleOptions';
+import { useSelectedProject } from '../context/SelectedProjectContext';
 import Tooltip from './Tooltip';
 import { glyphForFile } from './fileGlyph';
 import { readLocalBlob } from '../lib/localFolder';
 import { openDocViewerWindow } from '../lib/platform';
-import { parseCollection, resolveInProject, METHOD_LABELS } from '../lib/dataCollections';
+import { parseCollection, resolveInProject, METHOD_LABELS, LINK_TYPES } from '../lib/dataCollections';
 import { confidenceLabel } from '../lib/faceMatch';
 import { fieldsFor } from '../lib/identities';
 import './DataCollectionView.css';
@@ -21,6 +23,17 @@ const SUBJECTS = {
   contract: 'Contract', case: 'Case', event: 'Event', other: 'Subject',
 };
 const KIND_LABELS = { image: 'Picture', video: 'Video', audio: 'Audio', doc: 'Document', collection: 'Data collection' };
+
+// Insights about THIS collection's files (components/CaseInsights) — lazy.
+const CaseInsightsView = lazy(() => import('./CaseInsights'));
+const VIEW_FIELD = {
+  label: 'View',
+  options: [
+    { id: 'collection', label: 'Collection', example: 'What the AI gathered, its sources, timeline and links' },
+    { id: 'insights', label: 'Insights', example: 'This collection\u2019s files checked: contradictions, authenticity, missing documents, duplicates, signatures, plates and places, legal history' },
+  ],
+};
+const VIEW_KEY = 'docvex:collection:view:v1';
 
 const dirOf = (p) => {
   const s = String(p || '');
@@ -127,10 +140,21 @@ function mergeFacts(details, gathered) {
 // being shown, hidden or resized, and otherwise runs the full width.
 export default function DataCollectionView({ file }) {
   const [doc, setDoc] = useState(null);
+  const { selectedProjectId } = useSelectedProject() || {};
+  const [view, setView] = useState(() => { try { return localStorage.getItem(VIEW_KEY) === 'insights' ? 'insights' : 'collection'; } catch { return 'collection'; } });
+  const pickView = (v) => { setView(v); try { localStorage.setItem(VIEW_KEY, v); } catch { /* private window */ } };
   const [error, setError] = useState('');
+  // Re-read when a file changes in this window (an AI edit, a scan) — without
+  // blanking the page first.
+  const [tick, setTick] = useState(0);
+  useEffect(() => {
+    const on = () => setTick((n) => n + 1);
+    window.addEventListener('docvex:files-changed', on);
+    return () => window.removeEventListener('docvex:files-changed', on);
+  }, []);
+  useEffect(() => { setDoc(null); setError(''); }, [file.path, file.url]);
   useEffect(() => {
     let cancelled = false;
-    setDoc(null); setError('');
     (async () => {
       try {
         const blob = await readLocalBlob(file.path);
@@ -142,7 +166,7 @@ export default function DataCollectionView({ file }) {
       }
     })();
     return () => { cancelled = true; };
-  }, [file.path, file.url]);
+  }, [file.path, file.url, tick]);
 
   // Sources are stored by their path inside the PROJECT; the collection may sit
   // in a subfolder, so the project's root is the file's path less `self`.
@@ -292,7 +316,31 @@ export default function DataCollectionView({ file }) {
           </ul>
         </section>
 
-        {doc.connections.length > 0 && (
+        {doc.links?.length > 0 && (
+          <section className="dcv-section">
+            <h2 className="dcv-h">How the files connect</h2>
+            <ul className="dcv-links">
+              {doc.links.map((l, i) => (
+                <li key={`${l.from}>${l.to}|${l.type}-${i}`}>
+                  <span className="dcv-link-ends">
+                    <SourceChip rel={l.from} />
+                    <span className={`dcv-link-type is-${l.type}`}>{LINK_TYPES[l.type] || l.type}</span>
+                    <SourceChip rel={l.to} />
+                    <Tooltip content="How sure the AI is of this link">
+                      <span className="dcv-link-conf">{Math.round(l.confidence * 100)}%</span>
+                    </Tooltip>
+                  </span>
+                  <span className="dcv-link-why">{l.why}</span>
+                  {l.evidence.length > 0 && (
+                    <span className="dcv-link-evidence">{l.evidence.map((e, k) => <span key={k}>{e}</span>)}</span>
+                  )}
+                </li>
+              ))}
+            </ul>
+          </section>
+        )}
+
+        {!doc.links?.length && doc.connections.length > 0 && (
           <section className="dcv-section">
             <h2 className="dcv-h">How the files connect</h2>
             <ul className="dcv-links">
@@ -341,5 +389,25 @@ export default function DataCollectionView({ file }) {
       </div>
   );
 
-  return <div className="dcv">{page}</div>;
+  // Collection · Insights: the Insights checks run on THIS collection's
+  // files, and what they settle (a confirmed value, a merge) is written back
+  // into it — the page re-reads itself on the change.
+  const selfRel = String(file.path || '').slice(String(root).length).replace(/^[\\/]+/, '').replace(/\\/g, '/');
+  return (
+    <div className="dcv">
+      <div className="dcv-viewbar">
+        <RuleOptions field={VIEW_FIELD} value={view} onPick={pickView} className="dcv-views" />
+      </div>
+      {view === 'insights' ? (
+        <div className="dcv-inner dcv-insights">
+          <Suspense fallback={<p className="dcv-loading">Loading…</p>}>
+            <CaseInsightsView
+              dir={root} projectId={selectedProjectId || null} collection={selfRel}
+              onOpenPath={(path, name) => openDocViewerWindow({ path, name: name || baseName(path), mime: '' })}
+            />
+          </Suspense>
+        </div>
+      ) : page}
+    </div>
+  );
 }

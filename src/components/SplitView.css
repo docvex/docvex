@@ -1,4 +1,4 @@
-﻿/* Single-pane content shell. One pane fills the main content area, with the
+/* Single-pane content shell. One pane fills the main content area, with the
    in-pane nav chrome (left rail + header) pinned around an independently-
    scrolling content surface. (The former multi-pane split-view tiling — grid,
    resize gutters, vertical/horizontal/T/quad layouts and custom layouts — was
@@ -211,7 +211,7 @@
   background: none;
   cursor: pointer;
   color: var(--text-secondary);
-  transition: background 120ms, color 120ms, transform 200ms;
+  transition: background 120ms, transform 200ms;
 }
 .sv-chrome-refresh:hover {
   background: var(--bg-elevated);

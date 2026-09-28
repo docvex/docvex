@@ -46,7 +46,7 @@
   border: 1px solid var(--ds-hairline, var(--border)); border-radius: 50%;
   background: color-mix(in srgb, var(--text-primary) var(--ds-control-tint, 4%), transparent);
   color: var(--text-secondary); cursor: pointer;
-  transition: background 120ms ease, border-color 120ms ease, color 120ms ease;
+  transition: background 120ms ease, border-color 120ms ease;
 }
 .lgo-info:hover, .lgo-info.is-open { border-color: var(--accent); color: var(--accent); background: var(--accent-tint); }
 .lgo-info:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }

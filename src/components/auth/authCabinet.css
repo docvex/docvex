@@ -6,7 +6,8 @@
    not theme-reactive); all classes are `auv-`-prefixed to avoid global
    collisions. Cinzel (the display serif for the wordmark + pitch) isn't loaded
    app-wide, so it's pulled in here; Inter + Plus Jakarta Sans are already global. */
-@import url('https://fonts.googleapis.com/css2?family=Cinzel:wght@500;600;700&display=swap');
+/* Cinzel is bundled (@fontsource/cinzel, imported by the component) — a
+   remote @import here held up this stylesheet on the network. */
 
 /* The auth shell scrolls when the form is taller than the window; the root
    grows past 100% rather than clipping (min-height, not height). */

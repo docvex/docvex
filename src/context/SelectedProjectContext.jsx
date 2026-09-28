@@ -10,10 +10,8 @@ import React, {
 import { useAuth } from './AuthContext';
 import { getProject } from '../lib/projects';
 import { markProjectAccessed, getMostRecentProjectId } from '../lib/recentProjects';
-import { isElectron } from '../lib/platform';
 import { setAiUsageProject } from '../lib/aiTokenMeter';
 import { setActiveJurisdiction } from '../lib/jurisdictions';
-import { DEMO_PROJECT, DEMO_PROJECT_ID } from '../lib/demoWorkspace';
 
 // Tracks which project the user is "working in" right now. Distinct from
 // ProjectContext (which is URL-scoped, used inside /projects/:projectId):
@@ -85,13 +83,6 @@ export function SelectedProjectProvider({ children }) {
     hydratedForUserRef.current = userId;
 
     if (!userId) {
-      // Web demo: signed-out visitors work in the synthetic Demo Workspace —
-      // its Files live in OPFS, seeded with starter files (lib/demoWorkspace).
-      if (!isElectron) {
-        _setSelectedProjectId(DEMO_PROJECT_ID);
-        setSelectedProject(DEMO_PROJECT);
-        return;
-      }
       _setSelectedProjectId(null);
       setSelectedProject(null);
       return;
@@ -105,15 +96,9 @@ export function SelectedProjectProvider({ children }) {
       // <App>'s ProjectPrefetch) so the "Project" tab opens instantly. The
       // fallback is in-memory only (no localStorage write), so it stays a soft
       // default rather than re-persisting a selection the user cleared.
-      //
-      // Web: the browser build has no Projects hub to pick a project from, so
-      // a signed-in visitor with no working selection still lands in the Demo
-      // Workspace rather than a project-less shell with no Project tabs.
-      _setSelectedProjectId(
-        stored || getMostRecentProjectId(userId) || (isElectron ? null : DEMO_PROJECT_ID),
-      );
+      _setSelectedProjectId(stored || getMostRecentProjectId(userId) || null);
     } catch {
-      _setSelectedProjectId(isElectron ? null : DEMO_PROJECT_ID);
+      _setSelectedProjectId(null);
     }
   }, [userId, authLoading]);
 
@@ -143,13 +128,6 @@ export function SelectedProjectProvider({ children }) {
       setSelectedProject(null);
       return;
     }
-    // The demo project has no Supabase row — resolve it locally so the
-    // fetch-failure path below can't clear the selection.
-    if (selectedProjectId === DEMO_PROJECT_ID) {
-      setSelectedProject(DEMO_PROJECT);
-      setLoading(false);
-      return;
-    }
     const cached = prefetchedProjectRef.current;
     prefetchedProjectRef.current = null;
     if (cached && cached.id === selectedProjectId) {
@@ -162,18 +140,6 @@ export function SelectedProjectProvider({ children }) {
     getProject(selectedProjectId).then(({ data, error }) => {
       if (cancelled) return;
       if (error || !data) {
-        // Web: a dead selection (deleted project, lost access, stale id from
-        // an old session) degrades to the Demo Workspace instead of a
-        // project-less shell — there's no hub on web to pick a new one.
-        if (!isElectron) {
-          if (userId) {
-            try { localStorage.removeItem(storageKey(userId)); } catch { /* ignore */ }
-          }
-          _setSelectedProjectId(DEMO_PROJECT_ID);
-          setSelectedProject(DEMO_PROJECT);
-          setLoading(false);
-          return;
-        }
         _setSelectedProjectId(null);
         setSelectedProject(null);
         if (userId) {

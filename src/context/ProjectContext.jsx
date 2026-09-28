@@ -13,7 +13,6 @@ import { getProject, listMembers } from '../lib/projects';
 import { listCustomRoles, subscribeForProjectRoles } from '../lib/customRoles';
 import { markProjectAccessed } from '../lib/recentProjects';
 import { useAuth } from './AuthContext';
-import { DEMO_PROJECT, DEMO_PROJECT_ID } from '../lib/demoWorkspace';
 
 // Scoped to a single /projects/:projectId subtree. Mounted by App.jsx only
 // inside the project routes so unrelated pages (Dashboard, Account, Updates)
@@ -51,6 +50,9 @@ import { DEMO_PROJECT, DEMO_PROJECT_ID } from '../lib/demoWorkspace';
 //                  + cleans up any member rows that pointed at it (resets
 //                  their custom_role_id to null on the local copy; the FK
 //                  on the server handles the truth).
+//   - patchProjectLocal(patch) — optimistic patch of the project row.
+//   - restoreMemberLocal(member) / restoreCustomRoleLocal(role, memberIds)
+//                — undo the optimistic removals above when the write fails.
 
 const ProjectContext = createContext(null);
 
@@ -106,18 +108,6 @@ export function ProjectProvider({ children }) {
 
   const load = useCallback(async () => {
     if (!projectId) return;
-    // Web demo: the Demo Workspace has no Supabase row — resolve it locally
-    // (owner role so every surface is explorable) instead of letting the
-    // fetch fail and blank the subtree to an error page.
-    if (projectId === DEMO_PROJECT_ID) {
-      setProject({ ...DEMO_PROJECT, role: 'owner' });
-      setRole('owner');
-      setMembers([]);
-      setCustomRoles([]);
-      setError(null);
-      setLoading(false);
-      return;
-    }
     const myRun = ++loadSeqRef.current;
 
     const [
@@ -208,7 +198,7 @@ export function ProjectProvider({ children }) {
   // for a user we never had in the array yet). The debounce coalesces a
   // batch of events into a single network call.
   useEffect(() => {
-    if (!projectId || projectId === DEMO_PROJECT_ID) return;
+    if (!projectId) return;
     // Per-run flag: a debounced refetch that already fired and is awaiting when
     // this effect tears down (projectId change) must not write into the next
     // project's state.
@@ -286,7 +276,7 @@ export function ProjectProvider({ children }) {
   // debounced refetch; and (b) keeping it isolated means a custom-role
   // refresh doesn't churn the members list query.
   useEffect(() => {
-    if (!projectId || projectId === DEMO_PROJECT_ID) return undefined;
+    if (!projectId) return undefined;
 
     let cancelled = false;
     const refreshRolesDebounced = () => {
@@ -376,15 +366,51 @@ export function ProjectProvider({ children }) {
     ));
   }, []);
 
+  // Optimistic patch of the project row itself (a rename, the jurisdiction,
+  // the AI context) — the page shows the new value at once and calls this
+  // again with the old values if the write fails. The Realtime UPDATE echo
+  // merges the same fields, so a successful write never flickers.
+  const patchProjectLocal = useCallback((patch) => {
+    if (!patch) return;
+    setProject((prev) => (prev ? { ...prev, ...patch } : prev));
+  }, []);
+
+  // Rollback helpers for the optimistic removals above: put back exactly the
+  // rows that were taken away when the server refuses the change. Both are
+  // no-ops if the row is already there (a Realtime echo got in first).
+  const restoreMemberLocal = useCallback((member) => {
+    if (!member?.user_id) return;
+    setMembers((prev) => (prev.some((m) => m.user_id === member.user_id) ? prev : [...prev, member]));
+  }, []);
+  const restoreCustomRoleLocal = useCallback((customRole, memberIds = []) => {
+    if (!customRole?.id) return;
+    setCustomRoles((prev) => (prev.some((r) => r.id === customRole.id) ? prev : [...prev, customRole]));
+    if (memberIds.length) {
+      const ids = new Set(memberIds);
+      setMembers((prev) => prev.map((m) => (ids.has(m.user_id) ? { ...m, custom_role_id: customRole.id } : m)));
+    }
+  }, []);
+
+  // Optimistic edit of a custom role in the catalog (the role editor's Save):
+  // the row is swapped for the edited one at once, and swapped back with the
+  // original if the write fails. The catalog refetch that follows a save (or
+  // its Realtime echo) replaces it with the server's copy.
+  const replaceCustomRoleLocal = useCallback((customRole) => {
+    if (!customRole?.id) return;
+    setCustomRoles((prev) => prev.map((r) => (r.id === customRole.id ? customRole : r)));
+  }, []);
+
   const value = useMemo(
     () => ({
       project, role, members, customRoles, loading, error,
       refresh, refreshCustomRoles,
       removeMemberLocal, setMemberRoleLocal, removeCustomRoleLocal,
+      patchProjectLocal, restoreMemberLocal, restoreCustomRoleLocal, replaceCustomRoleLocal,
     }),
     [project, role, members, customRoles, loading, error,
      refresh, refreshCustomRoles,
-     removeMemberLocal, setMemberRoleLocal, removeCustomRoleLocal],
+     removeMemberLocal, setMemberRoleLocal, removeCustomRoleLocal,
+     patchProjectLocal, restoreMemberLocal, restoreCustomRoleLocal, replaceCustomRoleLocal],
   );
 
   return <ProjectContext.Provider value={value}>{children}</ProjectContext.Provider>;

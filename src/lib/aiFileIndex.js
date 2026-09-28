@@ -25,6 +25,7 @@
 import { askProjectAi } from './projectAi';
 import { textForFile, isContentSearchable, captionsFor } from './fileContentSearch';
 import { encodeVisualThumb, isVisualFile } from './visualThumb';
+import { peekFacet, putFacet, clearFacet, cachedEntries, hydratePaths } from './projectIndexClient';
 
 const STORE_KEY = 'docvex:ai-file-index:v1';
 
@@ -57,9 +58,27 @@ const INDEX_SYSTEM = [
 ].join('\n');
 
 // ── Store ────────────────────────────────────────────────────────────────
-// path → { key, desc, at }. `key` is size:mtime, so any edit invalidates the
-// description without needing a content hash. `at` drives eviction.
+// Descriptions live in the project index as the knowledge kind `description`
+// (lib/projectIndexClient): `{ desc, size, cap }`, tied to the file's CONTENT
+// by main — which is what makes them travel with the case and survive a
+// rename. `cap` is the transcript stamp the description was written from (see
+// captionStamp), so a recording transcribed since is described again.
+//
+// The localStorage map below is the old home, and still the whole store when
+// main's side isn't there: path → { key, desc, at }, `key` = size:mtime:cap,
+// `at` drives eviction. It is read for files the index hasn't answered for and
+// moved across on first hydration.
 let store = null;
+
+function indexDescription(file) {
+  const facet = peekFacet(file.path, 'description');
+  if (facet === undefined) return undefined;          // the index isn't answering
+  if (!facet?.data?.desc) return null;
+  const d = facet.data;
+  if (d.size != null && file.sizeBytes != null && Number(d.size) !== Number(file.sizeBytes)) return null;
+  if ((d.cap || '') !== captionStamp(file)) return null;
+  return { desc: d.desc, at: Number(facet.at) || 0 };
+}
 
 function loadStore() {
   if (store) return store;
@@ -109,21 +128,39 @@ export function versionKey(file) {
 // The cached description for a file, or '' when it has none or the file has
 // changed since it was written.
 export function describedText(file) {
-  if (!file?.path) return '';
-  const hit = loadStore()[file.path];
-  return hit && hit.key === versionKey(file) ? (hit.desc || '') : '';
+  return fileIndexRecord(file)?.desc || '';
 }
 
-function putDescription(file, desc) {
+function writeLegacy(file, desc, at) {
   const s = loadStore();
-  s[file.path] = { key: versionKey(file), desc: String(desc || '').slice(0, DESC_CHARS), at: Date.now() };
+  s[file.path] = { key: versionKey(file), desc, at };
   saveStore();
 }
 
-// For account sync (lib/projectSyncData): the file's description with when it
-// was written — only when it describes the file as it is now.
+function putDescription(file, desc, at = Date.now()) {
+  const text = String(desc || '').slice(0, DESC_CHARS);
+  const facet = {
+    kind: 'description',
+    at,
+    engine: INDEX_MODEL,
+    paid: true,
+    stamp: { size: file.sizeBytes ?? null, mtime: file.mtimeIso ?? null },
+    data: { desc: text, size: file.sizeBytes ?? null, cap: captionStamp(file) },
+  };
+  if (putFacet({ path: file.path }, 'description', facet, { onFail: () => writeLegacy(file, text, at) })) {
+    const s = loadStore();
+    if (s[file.path]) { delete s[file.path]; saveStore(); }
+    return;
+  }
+  writeLegacy(file, text, at);
+}
+
+// The file's description with when it was written — only when it describes
+// the file as it is now. Also what account sync used to carry.
 export function fileIndexRecord(file) {
   if (!file?.path) return null;
+  const fromIndex = indexDescription(file);
+  if (fromIndex) return fromIndex;
   const hit = loadStore()[file.path];
   return hit && hit.key === versionKey(file) && hit.desc ? { desc: hit.desc, at: hit.at || 0 } : null;
 }
@@ -134,9 +171,7 @@ export function adoptFileIndexRecord(file, rec) {
   if (!file?.path || !rec?.desc) return false;
   const cur = fileIndexRecord(file);
   if (cur && (cur.at || 0) >= (rec.at || 0)) return false;
-  const s = loadStore();
-  s[file.path] = { key: versionKey(file), desc: String(rec.desc).slice(0, DESC_CHARS), at: rec.at || Date.now() };
-  saveStore();
+  putDescription(file, rec.desc, rec.at || Date.now());
   return true;
 }
 
@@ -151,6 +186,8 @@ export function indexCoverage(files) {
 export function clearAiFileIndex() {
   store = {};
   try { localStorage.removeItem(STORE_KEY); } catch { /* ignore */ }
+  // And every description this window holds from the index.
+  for (const e of cachedEntries()) if (e.facets.description) clearFacet(e.path, 'description');
 }
 
 // ── Describing ───────────────────────────────────────────────────────────
@@ -254,6 +291,9 @@ async function describeImageBatch(batch, signal) {
 // number newly described. `onProgress({ done, total })` fires per batch so the
 // UI can show the one-time cost being paid down.
 export async function indexFiles(files, { signal, onProgress } = {}) {
+  // Descriptions are read synchronously from the index's copy, which only
+  // knows a file once it has been hydrated — else every file looks new.
+  await hydratePaths((files || []).map((f) => f?.path).filter(Boolean));
   const pending = (files || []).filter((f) => f?.path && !describedText(f)).slice(0, MAX_INDEX_PER_RUN);
   if (!pending.length) return 0;
 

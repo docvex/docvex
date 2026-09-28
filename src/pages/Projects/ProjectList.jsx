@@ -14,7 +14,15 @@ import {
 import { readProjectsDir } from '../../lib/projectsDir';
 import { readCachedProjects, writeCachedProjects } from '../../lib/projectListCache';
 import { fetchProjects, peekProjects, invalidateProjects } from '../../lib/projectListPrefetch';
-import { localFolderApi, isElectronBranch } from '../../lib/localFolder';
+import {
+  localFolderApi,
+  isElectronBranch,
+  hasProjectIndex,
+  projectIndexApi,
+  legacyProjectDir,
+  linkProjectFolder,
+  readLocalBlob,
+} from '../../lib/localFolder';
 import { listSyncedProjectIds, countLocalFiles, pullProject } from '../../lib/projectSync';
 import {
   openExternal,
@@ -184,7 +192,6 @@ function ProjectRow({
   const [menuOpen, setMenuOpen] = useState(false);
   const [editing, setEditing] = useState(false);
   const [draftName, setDraftName] = useState(project.name);
-  const [savingName, setSavingName] = useState(false);
   const menuRef = useRef(null);
   const inputRef = useRef(null);
   const cancelRef = useRef(false);
@@ -218,15 +225,16 @@ function ProjectRow({
     if (cancelRef.current) { cancelRef.current = false; setEditing(false); setDraftName(project.name); return; }
     const trimmed = draftName.trim();
     if (!trimmed || trimmed === project.name) { setEditing(false); setDraftName(project.name); return; }
-    setSavingName(true);
-    const ok = await onRename(project, trimmed);
-    setSavingName(false);
+    // Optimistic: the row takes the new name the moment the field is left
+    // (the list shows it, faded, until the server agrees); a failure puts
+    // the old name back in the list and in the draft.
     setEditing(false);
+    const ok = await onRename(project, trimmed);
     if (!ok) setDraftName(project.name);
   };
 
   return (
-    <div className={`lh-row${expanded ? ' is-expanded' : ''}`}>
+    <div className={`lh-row${expanded ? ' is-expanded' : ''}${project._renaming ? ' is-pending' : ''}`}>
       <div className="lh-row-top">
         {/* Dropdown — toggles the project-data panel below. */}
         <button
@@ -252,7 +260,6 @@ function ProjectRow({
               onKeyDown={onRenameKey}
               onBlur={onRenameBlur}
               maxLength={60}
-              disabled={savingName}
               aria-label="Rename project"
             />
             <span className="lh-row-path">{pathLine}</span>
@@ -452,11 +459,29 @@ export default function ProjectList() {
   // Projects the ACCOUNT has a copy of (Project → Sync with account) that this
   // machine hasn't got: they are marked with a cloud in the list and can be
   // brought down from there. One storage call tells us which projects are synced;
-  // only those are then checked against the disk, so the usual case — nothing
-  // synced — costs one request and no folder walks.
+  // only those are then checked, so the usual case — nothing synced — costs one
+  // request. With the project index the check walks nothing either: the machine
+  // registry says whether the project has a folder here, and its index how many
+  // files are in it. A project never linked on this machine is looked for where
+  // the app used to keep its folder (it may be there, not yet linked).
   const [cloudOnly, setCloudOnly] = useState(() => new Set());
   const [pulling, setPulling] = useState('');
   const [pullStep, setPullStep] = useState(null);
+  // How many files a project has on THIS machine (0 = not here).
+  const countHere = useCallback(async (p) => {
+    if (hasProjectIndex()) {
+      const loc = await projectIndexApi.locate(p.id);
+      if (loc?.dir) {
+        const res = await projectIndexApi.files({ projectId: p.id });
+        if (res?.ok) return (res.files || []).length;
+        return countLocalFiles(loc.dir);
+      }
+      const legacy = await legacyProjectDir({ projectId: p.id, name: p.name, baseDir: readProjectsDir(userId) || undefined });
+      return legacy?.path ? countLocalFiles(legacy.path) : 0;
+    }
+    const { path } = await localFolderApi.projectDir(p.id, p.name, readProjectsDir(userId) || undefined);
+    return path ? countLocalFiles(path) : 0;
+  }, [userId]);
   const probeCloud = useCallback(async () => {
     // Desktop only: on the web there is no per-project folder to compare against
     // (one picked directory handle at a time), so every synced project would be
@@ -467,12 +492,10 @@ export default function ProjectList() {
     const mine = projects.filter((p) => ids.has(p.id));
     const away = new Set();
     for (const p of mine) {
-      const { path } = await localFolderApi.projectDir(p.id, p.name, readProjectsDir(userId) || undefined);
-      if (!path) { away.add(p.id); continue; }
-      if (await countLocalFiles(path) === 0) away.add(p.id);
+      if (await countHere(p) === 0) away.add(p.id);
     }
     setCloudOnly(away);
-  }, [userId, projects]);
+  }, [userId, projects, countHere]);
   useEffect(() => { probeCloud(); }, [probeCloud]);
 
   // Bring one down. The folder is made if it isn't there yet, which is what
@@ -524,17 +547,30 @@ export default function ProjectList() {
 
   const onNewProject = () => navigate('/projects/new');
 
-  // Open a project from a folder on disk: pick a directory, read its
-  // `.docvex.json` sidecar for the project id, and open that project if it's
-  // one the user has access to.
+  // Open a project from a folder on disk: pick a directory, read its project
+  // file (`<Project name>.docvex`, src/projectIndex/README.md) for the project
+  // id — or, in a folder from before project files, its legacy `.docvex.json`
+  // sidecar — and open that project if it's one the user has access to. The
+  // folder is linked to the project on this machine, so it is where the
+  // project opens from from now on.
+  const readProjectIdIn = async (dir) => {
+    const { files } = await localFolderApi.list(dir);
+    for (const f of (files || []).filter((x) => /\.docvex$/i.test(x.name || ''))) {
+      try {
+        const json = JSON.parse(await (await readLocalBlob(f.path)).text());
+        if (json?.type === 'docvex/project' && json.projectId) return json.projectId;
+      } catch { /* not a readable project file — try the next */ }
+    }
+    const { json } = await localFolderApi.readSidecar(dir);
+    return json?.projectId || null;
+  };
   const onOpenFromDirectory = async () => {
     setOpenMsg('');
     const dir = await localFolderApi.pick();
     if (!dir) return;
-    const { json } = await localFolderApi.readSidecar(dir);
-    const pid = json?.projectId;
+    const pid = await readProjectIdIn(dir);
     if (!pid) {
-      setOpenMsg("That folder isn't a Docvex project — no .docvex.json was found in it.");
+      setOpenMsg("That folder isn't a DocVex project — there is no .docvex project file in it.");
       return;
     }
     const match = projects.find((p) => p.id === pid);
@@ -542,22 +578,35 @@ export default function ProjectList() {
       setOpenMsg("That project isn't in your account, or you don't have access to it.");
       return;
     }
+    if (hasProjectIndex()) {
+      const linked = await linkProjectFolder({ projectId: match.id, name: match.name, dir });
+      if (!linked?.ok) {
+        setOpenMsg(`Couldn't open “${match.name}” from that folder: ${linked?.error || 'unknown error'}.`);
+        return;
+      }
+      window.dispatchEvent(new CustomEvent('docvex:project-folder-changed', { detail: { projectId: match.id } }));
+    }
     onOpen(match);
   };
 
-  // Rename — inline from the row title. Persists, updates the list in place,
-  // and returns success so the row can revert its draft on failure.
+  // Rename — inline from the row title, optimistically: the list shows the
+  // new name at once (marked `_renaming`, drawn faded), then keeps the name
+  // the server saved or goes back to the old one. Returns success so the row
+  // can revert its draft on failure.
   const onRenameProject = async (project, newName) => {
+    const oldName = project.name;
+    setProjects((prev) => prev.map((p) => (p.id === project.id ? { ...p, name: newName, _renaming: true } : p)));
     const { data, error: err } = await updateProject(project.id, { name: newName });
     if (err) {
-      notify?.({ category: 'project', variant: 'error', icon: 'alert', title: 'Could not rename project', body: err.message, dedupeKey: `rename-fail-${project.id}` });
+      setProjects((prev) => prev.map((p) => (p.id === project.id ? { ...p, name: oldName, _renaming: false } : p)));
+      notify?.({ category: 'project', variant: 'error', icon: 'alert', title: 'Could not rename project', body: err.message || 'The old name was put back. Try again in a moment.', dedupeKey: `rename-fail-${project.id}` });
       return false;
     }
     const finalName = data?.name || newName;
     // The session snapshot still holds the old name; drop it so a later Hub
     // open doesn't paint the pre-rename row for a beat.
     invalidateProjects();
-    setProjects((prev) => prev.map((p) => (p.id === project.id ? { ...p, name: finalName } : p)));
+    setProjects((prev) => prev.map((p) => (p.id === project.id ? { ...p, name: finalName, _renaming: false } : p)));
     notify?.({ category: 'project', variant: 'success', icon: 'folder', title: `Renamed to “${finalName}”`, dedupeKey: `rename-${project.id}` });
     return true;
   };

@@ -46,14 +46,13 @@ bottom for reference. Work the **Outstanding** list top to bottom.
   password. Consider the old one burned.
 - Optional: purge it from git history (filter-repo/BFG) if the repo is/was shared.
 
-### 4. Web build CSP  — MEDIUM (defense-in-depth)
-- **File:** `index.web.html`
-- The Electron build already gets a strict CSP via response headers (packaged
-  only). The web build (`docvex.ro/app`) has none.
-- **Fix:** add a `<meta http-equiv="Content-Security-Policy">` to `index.web.html`
-  (script-src 'self'; object-src 'none'; base-uri 'none'; connect-src limited to
-  self + `*.supabase.co` + GitHub; img/media/font as needed). Test the deployed
-  web app before shipping — a too-strict CSP can break it.
+### 4. Web build CSP  — RESOLVED (web build removed)
+- The browser build (`index.web.html`, `docvex.ro/app`) was deleted — DocVex is
+  desktop only, and the Electron build already gets a strict CSP via response
+  headers (packaged only). Nothing left to do here; if a browser build ever
+  returns, give it a `<meta http-equiv="Content-Security-Policy">` (script-src
+  'self'; object-src 'none'; base-uri 'none'; connect-src limited to self +
+  `*.supabase.co` + GitHub).
 
 ### 5. (Optional hardening) constrain capability grants per base tier
 - **File:** `create_custom_role` / `update_custom_role` RPCs (see

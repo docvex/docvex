@@ -37,11 +37,14 @@
   .project-files-morph-pill.is-closing { animation-duration: 1ms; }
 }
 
+/* EVERY shape of the pill — hover, menu, submenu, confirm, prompt — on the
+   one-line tooltip's ground (--bg-sidebar, Tooltip.css), at the user's request:
+   --bg-card read blue on Ink. */
 .project-files-morph-pill.is-menu {
   padding: 3.2px;
   border-radius: 8px;
   min-width: 160px;
-  background: var(--bg-card);
+  background: var(--bg-sidebar);
   border-color: var(--border-strong);
   box-shadow: 0 9.6px 25.6px rgba(0, 0, 0, 0.5);
   pointer-events: auto;
@@ -88,7 +91,8 @@
 
 .project-files-morph-item:hover:not(:disabled),
 .project-files-morph-item:focus-visible {
-  background: var(--bg-elevated);
+  /* A neutral wash of the text colour, not --bg-elevated (blue on Ink). */
+  background: color-mix(in srgb, var(--text-primary) 7%, transparent);
   outline: none;
 }
 
@@ -163,7 +167,7 @@
      INNER corners too (inner radius = outer − border-width). Sits at z-index
      -1 (behind the label) so the centre fill doesn't cover the text. */
   background:
-    linear-gradient(var(--bg-card), var(--bg-card)) padding-box,
+    linear-gradient(var(--bg-sidebar), var(--bg-sidebar)) padding-box,
     linear-gradient(115deg, #3b82f6 0%, #8b5cf6 25%, #6366f1 50%, #a855f7 75%, #3b82f6 100%) border-box;
   background-size: 100% 100%, 300% 100%;
   background-position: 0 0, 0 0;
@@ -201,7 +205,7 @@
   display: flex;
   flex-direction: column;
   gap: 1.6px;
-  background: var(--bg-card);
+  background: var(--bg-sidebar);
   border: 1px solid var(--border-strong);
   border-radius: 8px;
   box-shadow: 0 9.6px 25.6px rgba(0, 0, 0, 0.5);
@@ -256,7 +260,7 @@
   border: 2px solid transparent;
   border-radius: 7px;
   background:
-    linear-gradient(var(--bg-card), var(--bg-card)) padding-box,
+    linear-gradient(var(--bg-sidebar), var(--bg-sidebar)) padding-box,
     linear-gradient(115deg, #3b82f6 0%, #8b5cf6 25%, #6366f1 50%, #a855f7 75%, #3b82f6 100%) border-box;
   background-size: 100% 100%, 300% 100%;
   background-position: 0 0, 0 0;
@@ -289,62 +293,59 @@
   padding: 0;
   border-radius: 12.8px;
   overflow: hidden;
-  border-color: color-mix(in srgb, var(--danger) 45%, transparent);
-  /* Prominent animated danger shimmer — stronger tints + brisk sweep so the
-     destructive surface clearly reads as "live". Mixed over --bg-card so the
-     popover stays opaque above scrolling content. */
+  /* THE DANGER ZONE'S CARD (components/DangerZone.css .dz-card), at the user's
+     request: its 38% border and its 3 → 9 → 13% sweep on the same 9s cycle —
+     mixed over the tooltip ground, since this one floats over content and
+     must stay opaque. */
+  border-color: color-mix(in srgb, var(--danger) 38%, transparent);
   background: linear-gradient(
     90deg,
-    color-mix(in srgb, var(--danger) 7%, var(--bg-card)) 0%,
-    color-mix(in srgb, var(--danger) 18%, var(--bg-card)) 25%,
-    color-mix(in srgb, var(--danger) 26%, var(--bg-card)) 50%,
-    color-mix(in srgb, var(--danger) 18%, var(--bg-card)) 75%,
-    color-mix(in srgb, var(--danger) 7%, var(--bg-card)) 100%
+    color-mix(in srgb, var(--danger) 3%, var(--bg-sidebar)) 0%,
+    color-mix(in srgb, var(--danger) 9%, var(--bg-sidebar)) 25%,
+    color-mix(in srgb, var(--danger) 13%, var(--bg-sidebar)) 50%,
+    color-mix(in srgb, var(--danger) 9%, var(--bg-sidebar)) 75%,
+    color-mix(in srgb, var(--danger) 3%, var(--bg-sidebar)) 100%
   );
   background-size: 300% 100%;
-  animation: fx-morph-danger-shimmer 6s linear infinite;
+  animation: fx-morph-danger-shimmer 9s linear infinite;
 }
 @keyframes fx-morph-danger-shimmer {
   0%   { background-position: 0% 0; }
   100% { background-position: 300% 0; }
 }
-/* Cursor-tracked spotlight glow (same effect as the sidebar rail's ::before),
-   reading --spot-x / --spot-y written on pointer move in useMorphPill.jsx. */
-.project-files-morph-pill.is-confirm.is-danger::before {
-  content: '';
+/* Cursor-tracked spotlight glow (same effect as the sidebar rail's glow) and
+   a border shine — a bright danger highlight on the 1.2px border ring (the
+   sidebar's shine recipe, the light masked to the edge) — following the
+   pointer. They are lib/pointerSpots' injected lights (styles/spotLights.css,
+   moved by a transform from useMorphPill.jsx's pointer subscription): drawn
+   only in the danger confirm, hidden on every other pill. They were this
+   pill's ::before / ::after with the gradient centred on --spot-x/y, which
+   repainted both on every pointer move. */
+.project-files-morph-pill > .spot-light { display: none; }
+.project-files-morph-pill.is-confirm.is-danger > .spot-light {
+  /* The Danger zone has no pointer light, so neither has its twin. */
+  display: none;
   position: absolute;
   inset: 0;
-  border-radius: inherit;
-  pointer-events: none;
-  z-index: 0;
+  --spot-r: 200px;
+}
+.project-files-morph-pill.is-confirm.is-danger > .spot-glow { z-index: 0; }
+.project-files-morph-pill.is-confirm.is-danger > .spot-shine { z-index: 4; padding: 1.2px; }
+.project-files-morph-pill.is-confirm.is-danger > .spot-glow > .spot-dot {
   background: radial-gradient(
-    200px circle at var(--spot-x, 50%) var(--spot-y, 50%),
+    200px circle at 50% 50%,
     color-mix(in srgb, var(--danger) 16%, transparent) 0%,
     color-mix(in srgb, var(--danger) 5%, transparent) 38%,
     transparent 70%
   );
 }
-/* Border shine — a bright danger highlight on the border ring that follows the
-   pointer (the sidebar's ::after recipe: a radial gradient masked to the 1.2px
-   edge via mask-exclude). */
-.project-files-morph-pill.is-confirm.is-danger::after {
-  content: '';
-  position: absolute;
-  inset: 0;
-  border-radius: inherit;
-  padding: 1.2px;
-  pointer-events: none;
-  z-index: 4;
+.project-files-morph-pill.is-confirm.is-danger > .spot-shine > .spot-dot {
   background: radial-gradient(
-    200px circle at var(--spot-x, 50%) var(--spot-y, 50%),
+    200px circle at 50% 50%,
     color-mix(in srgb, var(--danger) 85%, transparent) 0%,
     color-mix(in srgb, var(--danger) 28%, transparent) 34%,
     transparent 62%
   );
-  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
-  -webkit-mask-composite: xor;
-  mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
-  mask-composite: exclude;
 }
 /* Content sits above the spotlight glow; the masked border shine paints only on
    the ring so it can ride above. */
@@ -357,17 +358,16 @@
    of its own, so the body rows supply it (h matches the header's 12.8px). */
 .project-files-morph-pill.is-confirm.is-danger .project-files-morph-confirm-message {
   margin: 0;
-  padding: 9.6px 12.8px 0;
-  /* Same calm overlay as the button row, so the whole body (description + actions)
-     reads steady while the header keeps the lively shimmer. */
-  background: color-mix(in srgb, var(--bg-card) 80%, transparent);
+  /* The Danger zone's row (.dz-row / .dz-desc): its padding and text, on the
+     card's own sweep — no damping overlay. */
+  padding: 12.8px 17.6px 0;
+  font-size: 0.656rem;
+  line-height: 1.45;
+  color: var(--text-secondary);
 }
 .project-files-morph-pill.is-confirm.is-danger .project-files-morph-confirm-actions {
   margin: 0;
-  padding: 3.2px 12.8px 9.6px;
-  /* Calmer footer — a translucent card overlay damps the shimmer behind the
-     buttons so the action row reads steady while the header stays lively. */
-  background: color-mix(in srgb, var(--bg-card) 80%, transparent);
+  padding: 9.6px 17.6px 12.8px;
 }
 
 .project-files-morph-confirm {
@@ -383,8 +383,8 @@
   display: flex;
   align-items: center;
   gap: 8.8px;
-  /* Compact relative to the admin card's 12.8px 17.6px. */
-  padding: 8px 12.8px;
+  /* The Danger zone's header band (.dz-hd). */
+  padding: 12.8px 17.6px;
   border-bottom: 1px solid color-mix(in srgb, var(--danger) 22%, transparent);
   background: color-mix(in srgb, var(--danger) 8%, transparent);
 }
@@ -398,7 +398,7 @@
 .project-files-morph-confirm-header-icon {
   width: 27.2px;
   height: 27.2px;
-  border-radius: 8px;
+  border-radius: 7.2px;
   flex-shrink: 0;
   display: flex;
   align-items: center;
@@ -460,7 +460,7 @@
   min-height: 48px;
   border: 1px solid var(--border);
   border-radius: 6.4px;
-  background: var(--bg-input);
+  background: color-mix(in srgb, var(--text-primary) 4%, transparent);
   color: var(--text-primary);
   font-family: inherit;
   font-size: 0.64rem;
@@ -510,7 +510,7 @@
   background: radial-gradient(
     64px circle at var(--item-spot-x, 50%) var(--item-spot-y, 50%),
     var(--border-strong) 0%,
-    var(--bg-elevated) 72%
+    color-mix(in srgb, var(--text-primary) 7%, transparent) 72%
   );
   border-color: var(--border-strong);
   color: var(--text-primary);
@@ -534,12 +534,8 @@
 }
 
 .project-files-morph-confirm-btn-danger:hover {
-  /* Cursor-tracked brighten over the solid danger fill (sidebar nav-item glow). */
-  background: radial-gradient(
-    64px circle at var(--item-spot-x, 50%) var(--item-spot-y, 50%),
-    color-mix(in srgb, #fff 34%, var(--danger)) 0%,
-    var(--danger) 66%
-  );
+  /* The Danger zone's button (.dz-btn): a flat danger fill on hover. */
+  background: var(--danger);
   border-color: var(--danger);
   color: #fff;
 }

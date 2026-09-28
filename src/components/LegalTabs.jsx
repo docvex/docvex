@@ -2,6 +2,7 @@ import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import FilterTabs from './FilterTabs';
 import MiniHeaderFade from './MiniHeaderFade';
+import Tooltip from './Tooltip';
 import './LegalTabs.css';
 
 // The Legislation tab's own tab bar — the Activity tab's mini header, to the
@@ -104,6 +105,31 @@ export const LEGAL_STUB_TABS = LEGAL_TABS.filter((t) => t.stub);
 // inside it, and the keys work as Windows' find does.
 // `hotkey`: false leaves out Ctrl/⌘+F — the key and its hint (the
 // Legislation start screen's words box, where the key belongs to the act's find).
+// THE RAIL TOGGLE — shows or hides a page's list down the left (the
+// Legislation tabs, the Advisor's chats): the mini header's tool button
+// (`.lgt-tool-btn`, the Design system's), a panel glyph, PRESSED while the
+// list is shown. It stands first on the bar's second line.
+const PanelGlyph = (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <rect x="3" y="4" width="18" height="16" rx="2.5" /><path d="M9 4v16" />
+  </svg>
+);
+export function RailToggle({ shown, onToggle, what = 'list' }) {
+  return (
+    <Tooltip content={shown ? `Hide the ${what}` : `Show the ${what}`}>
+      <button
+        type="button"
+        className={`lgt-tool-btn lgt-railtoggle${shown ? ' is-on' : ''}`}
+        aria-pressed={shown}
+        aria-label={shown ? `Hide the ${what}` : `Show the ${what}`}
+        onClick={onToggle}
+      >
+        <span className="lgt-tool-ico">{PanelGlyph}</span>
+      </button>
+    </Tooltip>
+  );
+}
+
 export function LegalSearchBox({ search, className = '', hotkey = true }) {
   const searchRef = useRef(null);
   const find = search?.find || null;
@@ -218,13 +244,20 @@ export default function LegalTabs({ search = null, tools = null, status = null, 
   useEffect(() => {
     const el = barRef.current?.closest('.sv-single-scroll, .main-content');
     if (!el) return undefined;
-    const onScroll = () => {
+    // Measured at most once a frame: a scroll can fire several events a frame,
+    // and each used to force two rect reads. A frame requested from a scroll
+    // event runs in that same frame's rendering step, so the bar still pins
+    // on the frame it reaches the top.
+    let raf = 0;
+    const measure = () => {
+      raf = 0;
       const bar = barRef.current;
       setPinned(!!bar && (bar.getBoundingClientRect().top - el.getBoundingClientRect().top) <= 8);
     };
-    onScroll();
+    const onScroll = () => { if (!raf) raf = requestAnimationFrame(measure); };
+    measure();
     el.addEventListener('scroll', onScroll, { passive: true });
-    return () => el.removeEventListener('scroll', onScroll);
+    return () => { el.removeEventListener('scroll', onScroll); if (raf) cancelAnimationFrame(raf); };
   }, []);
 
   const tabs = LEGAL_TABS.map((t) => ({ id: t.id, label: t.label }));

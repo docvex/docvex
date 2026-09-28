@@ -1,7 +1,18 @@
-// Per-folder icon colour, like Finder tags. Keyed by project + folder id and
-// persisted to localStorage so a chosen colour survives reloads; a project
-// synced with the account carries them to its other devices (lib/projectSyncData).
+// Per-folder icon colour, like Finder tags. Keyed by project + folder id.
+//
+// WHERE IT LIVES: the project's settings store `folder-colors`
+// (`.docvex/settings/folder-colors.json`, lib/projectIndexClient), so the
+// colours travel with the case. There a folder is named by its path INSIDE the
+// project (`{ dirs: { rel: colour }, other: { id: colour } }`); on this machine
+// the Files tab names it `dir:<absolute path>`, so the two are converted with
+// the project's folder, once the client knows it (hydrateProject). The old
+// localStorage map is kept as this machine's mirror — it answers the first
+// paint before the settings have been read, and on a machine without main's
+// side it is the whole store, as before.
 import { setIfChanged } from './syncClock';
+import {
+  SETTINGS_STORES, peekSetting, putSetting, projectDirOf, folderColorsToRel, folderColorsFromRel, subscribeIndex,
+} from './projectIndexClient';
 
 // Swatches offered in the folder context menu. `value: null` is the "Default"
 // entry that clears the override and falls back to the theme accent.
@@ -17,10 +28,11 @@ export const FOLDER_COLOR_PRESETS = [
   { id: 'pink', label: 'Pink', value: '#ec4899' },
 ];
 
+const STORE = SETTINGS_STORES.folderColors;
 export const folderColorsKey = (projectId) => `docvex.folderColors.${projectId || '_'}`;
 const keyFor = folderColorsKey;
 
-export function loadFolderColors(projectId) {
+function loadMirror(projectId) {
   try {
     const raw = localStorage.getItem(keyFor(projectId));
     const parsed = raw ? JSON.parse(raw) : null;
@@ -30,6 +42,25 @@ export function loadFolderColors(projectId) {
   }
 }
 
+export function loadFolderColors(projectId) {
+  const mirror = loadMirror(projectId);
+  const dir = projectDirOf(projectId);
+  const value = projectId && dir ? peekSetting(projectId, STORE) : undefined;
+  if (value && typeof value === 'object') return folderColorsFromRel(value, dir, mirror);
+  return mirror;
+}
+
 export function persistFolderColors(projectId, map) {
   setIfChanged(keyFor(projectId), JSON.stringify(map || {}));
+  const dir = projectDirOf(projectId);
+  if (projectId && dir) void putSetting(projectId, STORE, folderColorsToRel(map || {}, dir));
+}
+
+// `fn()` when a project's colours change in the store (read for the first
+// time, or arriving from another machine). Returns the unsubscribe.
+export function subscribeFolderColors(projectId, fn) {
+  return subscribeIndex((ev) => {
+    if ((ev.type === 'settings' && ev.store === STORE && ev.projectId === projectId)
+      || (ev.type === 'project' && ev.projectId === projectId)) fn();
+  });
 }

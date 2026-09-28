@@ -1,4 +1,4 @@
-import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
+import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import * as platform from '../lib/platform';
 
 const UpdatesContext = createContext(null);
@@ -272,9 +272,7 @@ export function UpdatesProvider({ children }) {
       }
     })();
 
-    // Subscribe to autoUpdater lifecycle events. On web this is a no-op
-    // unsubscribe — installerState stays at 'idle' for the page's lifetime,
-    // which is what the web build wants (no installer surface).
+    // Subscribe to autoUpdater lifecycle events.
     const unsubscribe = platform.onUpdateStatus((payload) => {
       setInstallerState(payload);
     });
@@ -283,11 +281,17 @@ export function UpdatesProvider({ children }) {
     // banner — skip the GitHub API call so N open viewers don't burn N
     // requests of the unauthenticated 60/hour rate limit at every boot.
     // The main window owns update checking.
+    // The network call is held back 5 s — the cache is empty on every cold
+    // start, and it has nothing to do with the first screen. A cache hit
+    // still hydrates at once.
+    let releasesTimer = null;
     if (platform.isAuxWindow) setLoading(false);
-    else fetchReleases();
+    else if (readReleasesCache()) fetchReleases();
+    else releasesTimer = setTimeout(() => fetchReleases(), 5000);
 
     return () => {
       cancelled = true;
+      clearTimeout(releasesTimer);
       unsubscribe();
     };
   }, [fetchReleases]);
@@ -316,14 +320,13 @@ export function UpdatesProvider({ children }) {
       await fetchReleases({ force: true });
       const s = await platform.checkForUpdates();
       await finishAfterMinDelay();
-      // On Electron dev (state: 'dev'), the web build (state: 'web'), and
-      // unsigned macOS/Linux packaged builds (state: 'unsupported') no
+      // On Electron dev (state: 'dev') and unsigned macOS/Linux packaged builds (state: 'unsupported') no
       // autoUpdater events will follow — clear the spinner ourselves so the
       // UI quiesces instead of getting stuck on 'checking'. Packaged Windows
       // builds short-circuit on this branch: their checkForUpdates returns a
       // different shape and the autoUpdater status subscription drives
       // installerState past 'checking' via update:status events.
-      if (s?.state === 'dev' || s?.state === 'web' || s?.state === 'unsupported') {
+      if (s?.state === 'dev' || s?.state === 'unsupported') {
         setInstallerState({ state: 'idle' });
       } else if (s?.state === 'downloaded') {
         // Update already fully downloaded + staged (main short-circuits the
@@ -370,7 +373,10 @@ export function UpdatesProvider({ children }) {
     }
   }, [downloadUrl]);
 
-  const value = {
+  // Memoised so a re-render of this provider that changes none of these (its
+  // parents re-render it on every route change) doesn't re-render the sidebar's
+  // update badge, the title bar's pill and every other consumer with it.
+  const value = useMemo(() => ({
     currentVersion,
     latestVersion,
     isPackaged,
@@ -391,7 +397,12 @@ export function UpdatesProvider({ children }) {
     setSimulateUpdate,
     simulateKind,
     setSimulateKind,
-  };
+  }), [
+    currentVersion, latestVersion, isPackaged, osPlatform, osArch, canAutoUpdate,
+    releases, loading, error, hasUpdate, installerState, checkNow, installUpdate,
+    downloadUpdate, downloadAndInstall, downloadUrl, simulateUpdate, setSimulateUpdate,
+    simulateKind, setSimulateKind,
+  ]);
 
   return <UpdatesContext.Provider value={value}>{children}</UpdatesContext.Provider>;
 }

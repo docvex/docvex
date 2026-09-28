@@ -1,4 +1,5 @@
 import React, { Fragment, useCallback, useContext, useDeferredValue, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { foldRuleExchanges } from '../lib/aiSources';
 import { createPortal } from 'react-dom';
 import { useSearchParams } from 'react-router-dom';
 import ReactMarkdown from 'react-markdown';
@@ -33,7 +34,7 @@ import { docKindFromName, buildDocumentBlob, buildDocumentBlobSmart, mimeForKind
 import { renderedOfficeToPdfBlob } from '../lib/exportPdf';
 import ConvertModal from '../components/ConvertModal';
 import ConfirmModal from '../components/ConfirmModal';
-import { loadConversation, saveConversation, clearConversation } from '../lib/conversationHistory';
+import { conversationsSettled, whenConversationsReady, loadConversation, saveConversation, clearConversation } from '../lib/conversationHistory';
 import { embedDocxSource, readDocxSource, sourcePayload } from '../lib/docxSource';
 import { withStyleSteer } from '../lib/writingStyle';
 import { describeQr } from '../lib/barcodes';
@@ -51,7 +52,16 @@ import PhotoEditor from '../components/PhotoEditor';
 import { extractImageText, loadImageText, loadReadingMode, saveReadingMode } from '../lib/textRegions';
 import { pdfToDocx, pdfToImages } from '../lib/pdfConvert';
 import { alignWithSidePanel, docInset } from '../lib/sidePanelEdges';
-import { AI_FACETS, loadAiData, subscribeAiData, facetText } from '../lib/aiData';
+import { AI_FACETS, loadAiData, subscribeAiData, facetText, bestTextFor } from '../lib/aiData';
+import { buildProjectDigest, readCollectionText } from '../lib/aiProjectContext';
+import { splitChoices, withChoicesRule, dropUnanswered } from '../lib/aiChoices';
+import AiChoices from '../components/AiChoices';
+import { splitEdits, withEditRule, applyReplyEdits } from '../lib/aiFileEdits';
+import AiEdits from '../components/AiEdits';
+// What a reply SHOWS: its text without the edit and choices blocks.
+const replyBody = (t) => splitChoices(splitEdits(t).body).body;
+const replyChoices = (t) => splitChoices(splitEdits(t).body).choices;
+import { hydratePath } from '../lib/projectIndexClient';
 
 import { useChatFind } from '../lib/useChatFind';
 import { TEMPLATE_CATEGORIES, searchTemplates } from '../lib/docTemplates';
@@ -61,13 +71,14 @@ import { checkText, reportHasProblems, correctionPrompt } from '../lib/sourceChe
 import { rewriteDocxParagraphs, readDocxParagraphs } from '../lib/docxRewrite';
 import { applyThemeToDocx } from '../lib/docxTheme';
 import { restyleDocument, restyleAvailable } from '../lib/docRestyle';
+import { fieldLabelIn } from '../components/docConstructorStrings';
 import DocParagraphConstructor from '../components/DocConstructor';
 import FilterTabs from '../components/FilterTabs';
 import { DocThemeGrid, DocQuickActions, flashQuickAction } from '../components/DocRibbon';
 import { DOC_THEMES, applyDocTheme, docThemeById, loadDocTheme, readDocSample, saveDocTheme } from '../lib/docThemes';
 import { findLawRefs, lawRefDetails, lawRefLookupUrl, caenContextOf, findCuiRefs, dropOverlaps } from '../lib/lawRefs';
 import { legislationHref } from '../lib/legislation';
-import { loadCaen, resolveCaen, caenHref } from '../lib/caen';
+import { loadCaen, resolveCaen, caenHref, peekCaenRev } from '../lib/caen';
 import {
   replaceFields as constructorReplaceFields, scanBlanks as matchFields, parseSource as parseConstructorSource, composeSource as composeConstructorSource, changedParagraphs,
   findPieceForText, fieldInfo as constructorFieldInfo,
@@ -81,11 +92,14 @@ import { loadMetadata, saveMetadata } from '../lib/metadataHistory';
 import { parseWhatsAppChat, splitTimestamp } from '../lib/whatsappChat';
 import gavelLoader from '../gavel-loader.svg';
 import './DocViewer.css';
+import '../components/RefPill.css';
 // The Generate tab's chat reuses the main app's AI-advisor bubbles/markdown so it
 // looks identical. Those rules are scoped under .ai-hub / .ai-chat-page (we apply
 // both classes to the thread wrapper); width is neutralised in DocViewer.css.
 import './Projects/ProjectAI.css';
 import './Projects/ProjectAIChat.css';
+import { registerHoverSpot } from '../lib/pointer';
+import { useElementSpot } from '../lib/pointerSpots';
 
 // Full-screen document viewer window (opened from the Files page when a file
 // is double-clicked). Each opened file gets its OWN window — the file arrives in
@@ -2785,16 +2799,6 @@ function formatVideoTime(s) {
   return h > 0 ? `${h}:${String(m).padStart(2, '0')}:${sec}` : `${m}:${sec}`;
 }
 
-// Sidebar-style hover: feed the cursor position into --item-spot-x/y so the
-// radial accent gradient brightens at the pointer (same recipe as
-// .nav-item:hover in Sidebar.css). Percentages are ratios of two viewport
-// values, so no toLayoutPx conversion is needed.
-function trackItemSpot(e) {
-  const el = e.currentTarget;
-  const r = el.getBoundingClientRect();
-  el.style.setProperty('--item-spot-x', `${((e.clientX - r.left) / r.width) * 100}%`);
-  el.style.setProperty('--item-spot-y', `${((e.clientY - r.top) / r.height) * 100}%`);
-}
 
 // One snippet card in the Extract panel's grid. Own component so each card
 // gets its own morph pill (hooks can't live in the render loop): hovering
@@ -2804,6 +2808,10 @@ function trackItemSpot(e) {
 // locate highlight; the text stops propagation so copying by selection
 // doesn't toggle it.
 function SnipEntryCard({ entry, kind, active, onToggle, onFind, onDelete }) {
+  // Sidebar-style hover: the pointer's place over the card as --item-spot-x/y,
+  // so the radial accent gradient brightens there (same recipe as
+  // .nav-item:hover in Sidebar.css) — written by the app's one pointer.
+  useEffect(() => registerHoverSpot('.dv-snip-entry'), []);
   const morph = useMorphPill({
     hoverContent: entry.region
       ? (active ? 'Hide selection' : (kind === 'video' ? 'Jump to this moment & show the selection' : 'Show this selection on the image'))
@@ -2827,7 +2835,7 @@ function SnipEntryCard({ entry, kind, active, onToggle, onFind, onDelete }) {
   return (
     <div
       className={`dv-snip-entry${entry.region ? ' is-locatable' : ''}${active ? ' is-active' : ''}`}
-      onMouseMove={(e) => { trackItemSpot(e); morph.handleMouseMove(e); }}
+      onMouseMove={morph.handleMouseMove}
       onMouseLeave={morph.handleMouseLeave}
       onContextMenu={morph.handleContextMenu}
     >
@@ -3092,7 +3100,7 @@ function AiDataSection({ file }) {
     saveReadingMode(next);
     setBusy('text'); setError('');
     try {
-      const res = await extractImageText({ path, name: file.name, projectId: selectedProjectId }, { mode: next });
+      const res = await extractImageText({ path, name: file.name, projectId: selectedProjectId }, { mode: next, rebuild: true });
       if (res?.error) setError(typeof res.error === 'string' && res.error.includes(' ') ? res.error : 'Couldn’t read this picture that way.');
     } catch { setError('Couldn’t read this picture that way.'); }
     setBusy('');
@@ -3570,7 +3578,9 @@ function buildGenMessages(displayed, file, versions, activeVersion, readText = '
       content: 'Understood — I have the current document and will save a complete new version with write_document whenever you ask for a change.',
     });
   }
-  for (const m of displayed) {
+  // An earlier prompt that never got its answer (stopped) is left out — sent
+  // on, it would be MERGED with the new one and answered instead of it.
+  for (const m of dropUnanswered(displayed, (x) => x.role === 'user')) {
     if (m.role === 'user' || m.role === 'assistant') {
       seq.push({ role: m.role, content: m.apiText || m.content });
     } else if (m.role === 'artifact') {
@@ -3817,6 +3827,14 @@ function MultitoolAdvisorProvider({ file, footSlot = null, quickSlot = null, gen
   // path) so a generate-time rename — which changes the path but keeps the id —
   // doesn't wipe the in-progress thread.
   useEffect(() => {
+    // THE SAVED CONVERSATIONS MUST BE IN MEMORY FIRST (lib/conversationHistory
+    // whenConversationsReady): read before they have loaded, the file opened on
+    // an empty thread and its history was lost to the next message. Until then
+    // the previous file's thread is cleared and nothing is saved (hydratedId
+    // still names the previous file).
+    let gone = false;
+    let undo = null;
+    const hydrate = () => {
     setInput(''); setError(null); setBusy(false); setQuestions([]); setOptions([]);
     const saved = file?.path ? loadConversation(file.path) : null;
     const vers = saved?.versions || [];
@@ -3925,6 +3943,13 @@ function MultitoolAdvisorProvider({ file, footSlot = null, quickSlot = null, gen
       })();
     }
     return () => { cancelled = true; };
+    };
+    if (conversationsSettled()) undo = hydrate();
+    else {
+      setMessages([]); setVersions([]);
+      whenConversationsReady().then(() => { if (!gone) undo = hydrate(); });
+    }
+    return () => { gone = true; undo?.(); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [file?.id]);
 
@@ -4352,11 +4377,68 @@ function MultitoolAdvisorProvider({ file, footSlot = null, quickSlot = null, gen
     return parts.join('\n\n');
   }, [file?.name, listProjectFiles]);
 
+  // ── PROJECT KNOWLEDGE, on every turn ─────────────────────────────────────
+  // The advisor answers from everything DocVex has read out of this project:
+  // the OPEN FILE's full contents (a data collection laid out as readable text —
+  // its summary, facts, record, timeline, sources, links and web; any other
+  // file its saved reading or its extracted text) and the PROJECT DIGEST
+  // (lib/aiProjectContext: every file, every data collection in full, what the
+  // AI scan understood of each file, captions, OCR, metadata, chat, timeline).
+  // Attached to the OUTGOING copy of the last user message only — never stored
+  // in the thread — and the digest is cached for a minute. Without it the
+  // advisor saw a data collection as nothing but its NAME, and answered
+  // "I don't have its contents".
+  const digestRef = useRef({ key: '', at: 0, text: '' });
+  const buildKnowledge = useCallback(async ({ openFile = true } = {}) => {
+    const parts = [];
+    if (openFile && file?.path) {
+      let body = '';
+      try {
+        if (/\.dvc$/i.test(file.name || '')) body = await readCollectionText(file.path, file.name);
+        if (!body) body = String(bestTextFor(file.path) || '');
+        if (!body) body = String(fieldsApiRef.current?.documentText?.() || '');
+        if (!body) {
+          const blob = await readLocalBlob(file.path);
+          if (blob) body = String((await extractFileText(blob, file.name))?.text || '');
+        }
+      } catch { /* unreadable — the digest still answers */ }
+      body = body.trim();
+      if (body) parts.push(`<<<THE OPEN FILE: "${file.name}">>>\n${body.slice(0, 40000)}${body.length > 40000 ? '\n…[truncated]' : ''}\n<<<END OF OPEN FILE>>>`);
+      // A historical document is read in the law of its own time
+      // (lib/legalHistory — its era, archaic terms, the decrees it cites,
+      // its land measures converted, the title risks).
+      if (body) {
+        try {
+          const { analyzeLegalHistory, legalHistoryNote } = await import('../lib/legalHistory');
+          const note = legalHistoryNote(analyzeLegalHistory(body));
+          if (note) parts.push(`<<<HISTORICAL LEGAL CONTEXT of "${file.name}" (worked out by DocVex)>>>\n${note}\n<<<END OF HISTORICAL LEGAL CONTEXT>>>`);
+        } catch { /* read as it is */ }
+      }
+    }
+    const key = `${selectedProject?.id || ''}`;
+    let digest = '';
+    const c = digestRef.current;
+    if (c.key === key && Date.now() - c.at < 60_000) digest = c.text;
+    else if (selectedProject?.id) {
+      try {
+        const { files } = await listProjectFiles();
+        digest = await buildProjectDigest({
+          project: selectedProject,
+          files: (files || []).map((f) => ({ name: f.name, path: f.path, folderPath: f.folder || '' })),
+        });
+      } catch { digest = ''; }
+      digestRef.current = { key, at: Date.now(), text: digest };
+    }
+    if (digest) parts.push(`<<<PROJECT KNOWLEDGE — everything DocVex has read from this project>>>\n${digest}\n<<<END OF PROJECT KNOWLEDGE>>>`);
+    if (!parts.length) return '';
+    return `${parts.join('\n\n')}\n\n[Meta: The blocks above are the real contents of this project's files, data collections and data, read by DocVex. Answer questions about the project, its files, people, companies, addresses, dates and links FROM THEM, citing the file a fact comes from. Never say you cannot see or have no access to a file whose contents are here. Only when something is genuinely absent, say what IS known and exactly what is missing.]`;
+  }, [file?.path, file?.name, selectedProject, listProjectFiles]);
+
   // One turn aimed at the PICKED PARAGRAPH — see the note by PARA_TURN_MARKER
   // for why this exists at all. The model is handed that paragraph, the rest of
   // the document as read-only background, and the paragraph's own thread, and
   // writes back at most one paragraph. Returns true when it handled the turn.
-  const runParaTurn = useCallback(async (convo, stopped) => {
+  const runParaTurn = useCallback(async (convo, stopped, knowledge = '') => {
     // The file's own spelling of the pick, so what comes back is written where
     // the reader is looking. paraText is the fallback for a pane that hasn't
     // published one (nothing else reads `src`, so it can only be missing).
@@ -4400,12 +4482,13 @@ function MultitoolAdvisorProvider({ file, footSlot = null, quickSlot = null, gen
     ].join('\n');
 
     const apiMsgs = [
-      { role: 'user', content: frame },
+      // The project's knowledge rides with the frame: a clause is filled and
+      // checked against the parties' real data.
+      { role: 'user', content: knowledge ? `${frame}\n\n${knowledge}` : frame },
       { role: 'assistant', content: `Understood — I have the passage and the document around it, and I will ${many ? 'return those paragraphs' : 'return that paragraph'} only when you ask for a change.` },
       // The VISIBLE text of each turn: `apiText` carries a copy of the passage
       // appended by send(), which is already in the frame above.
-      ...convo
-        .filter((m) => m.role === 'user' || m.role === 'assistant')
+      ...dropUnanswered(convo.filter((m) => m.role === 'user' || m.role === 'assistant'), (m) => m.role === 'user')
         .map((m) => ({ role: m.role, content: m.content })),
     ];
 
@@ -4499,11 +4582,16 @@ function MultitoolAdvisorProvider({ file, footSlot = null, quickSlot = null, gen
     const stopped = () => turnSeqRef.current !== seq;
     // A request aimed at a picked paragraph is answered as a paragraph, not as
     // a new draft of the whole file.
-    if (threadScopeRef.current !== 'document' && await runParaTurn(convo, stopped)) return;
-    // The text of a file the user named outright, if any — nothing else from
-    // the project. Attached to the OUTGOING copy of the last user message only,
-    // so it is never stored in the thread.
-    const filesNote = await buildProjectFilesNote(lastUserText);
+    // Everything DocVex knows about the project (and the open file) rides on
+    // every turn — see buildKnowledge.
+    const knowledge = await buildKnowledge({ openFile: !genMode || !versions.length });
+    if (stopped()) return;
+    if (threadScopeRef.current !== 'document' && await runParaTurn(convo, stopped, knowledge)) return;
+    // The text of a file the user named outright, if any, in full — on top of
+    // the knowledge. Attached to the OUTGOING copy of the last user message
+    // only, so it is never stored in the thread.
+    const namedNote = await buildProjectFilesNote(lastUserText);
+    const filesNote = [namedNote, knowledge].filter(Boolean).join('\n\n');
     const withFiles = (msgs) => (filesNote
       ? msgs.map((m, i) => (
         i === msgs.length - 1 && m.role === 'user' && typeof m.content === 'string'
@@ -4534,7 +4622,8 @@ function MultitoolAdvisorProvider({ file, footSlot = null, quickSlot = null, gen
       // …and the user's own writing style on top of it, learned from the
       // documents they imported in the Playbook. This is the path that WRITES
       // the file, so it is the one that most has to sound like them.
-      const sentMsgs = await withStyleSteer(withFiles(askMsgs));
+      // …and the fixed rule for offering choices (lib/aiChoices), first and last.
+      const sentMsgs = foldRuleExchanges(withChoicesRule(withEditRule(await withStyleSteer(withFiles(askMsgs)))));
       const res = await askProjectAi({ messages: sentMsgs, fileNames: [], model, docTools: true, docKind: k || undefined });
       if (res.error) {
         setError(res.error.message === 'ai_not_configured' ? 'The AI isn’t configured to generate documents.' : 'Couldn’t reach the AI right now.');
@@ -4553,9 +4642,9 @@ function MultitoolAdvisorProvider({ file, footSlot = null, quickSlot = null, gen
     const apiMsgs = [
       { role: 'user', content: persona },
       { role: 'assistant', content: 'Understood — I’ll be direct and genuinely helpful.' },
-      ...convo.filter((m) => m.role === 'user' || m.role === 'assistant').map((m) => ({ role: m.role, content: m.apiText || m.content })),
+      ...dropUnanswered(convo.filter((m) => m.role === 'user' || m.role === 'assistant'), (m) => m.role === 'user').map((m) => ({ role: m.role, content: m.apiText || m.content })),
     ];
-    const res = await askProjectAi({ messages: withFiles(apiMsgs), fileNames: [file?.name], model });
+    const res = await askProjectAi({ messages: foldRuleExchanges(withChoicesRule(withEditRule(withFiles(apiMsgs)))), fileNames: [file?.name], model });
     if (stopped()) return;
     if (res.error) { setError('The AI advisor is unavailable right now.'); return; }
     addUsage(res.usage);
@@ -4566,8 +4655,13 @@ function MultitoolAdvisorProvider({ file, footSlot = null, quickSlot = null, gen
       setPendingAsk({ id: res.askUser.id, input: res.askUser.input, assistantContent: res.assistantContent, base: apiMsgs });
       return;
     }
-    setMessages((m) => [...m, { role: 'assistant', content: res.text, at: Date.now(), usage: res.usage }]);
-  }, [genMode, file, versions, activeVersion, model, addUsage, applyGenResult, buildProjectFilesNote, runParaTurn]);
+    // The project files the reply changes (lib/aiFileEdits) — applied, then
+    // reported under it with Undo.
+    let edits = [];
+    try { edits = await applyReplyEdits(res.text, (await listProjectFiles()).files); } catch { edits = []; }
+    if (stopped()) return;
+    setMessages((m) => [...m, { role: 'assistant', content: res.text, at: Date.now(), usage: res.usage, ...(edits.length ? { edits } : null) }]);
+  }, [genMode, file, versions, activeVersion, model, addUsage, applyGenResult, buildProjectFilesNote, buildKnowledge, runParaTurn, listProjectFiles]);
   runTurnRef.current = runTurn;
 
   // Stop the in-flight turn: invalidate its result (so nothing lands in the
@@ -4647,8 +4741,10 @@ function MultitoolAdvisorProvider({ file, footSlot = null, quickSlot = null, gen
       setPendingAsk({ id: res.askUser.id, input: res.askUser.input, assistantContent: res.assistantContent, base: apiMsgs });
       return;
     }
-    setMessages((m) => [...m, { role: 'assistant', content: res.text, at: Date.now(), usage: res.usage }]);
-  }, [pendingAsk, busy, file, model, addUsage, applyGenResult]);
+    let edits = [];
+    try { edits = await applyReplyEdits(res.text, (await listProjectFiles()).files); } catch { edits = []; }
+    setMessages((m) => [...m, { role: 'assistant', content: res.text, at: Date.now(), usage: res.usage, ...(edits.length ? { edits } : null) }]);
+  }, [pendingAsk, busy, file, model, addUsage, applyGenResult, listProjectFiles]);
 
   // `send()` with no arguments sends whatever is in the composer — that's the
   // composer's own binding (it's also used as an onClick handler, so a click
@@ -5055,6 +5151,9 @@ function MultitoolDebugTray() {
 }
 
 function MultitoolComposer() {
+  // The composer's spotlight — a glow alone, no border shine: the app's one
+  // pointer moves it while the pointer is inside the card (lib/pointerSpots).
+  useElementSpot('.dv-advisor-composer', { gated: true, shine: false });
   const adv = useMultitoolAdvisor();
   const [askSlot, setAskSlot] = useState(null);
   // Keep the panel mounted briefly after it's dismissed so the exit animation
@@ -5189,12 +5288,6 @@ function MultitoolComposer() {
           actions, or Stop while the AI is working. */}
       <div
         className={`dv-advisor-composer${!input.trim() && !asking && !busy ? ' is-empty' : ''}`}
-        onMouseMove={(e) => {
-          const r = e.currentTarget.getBoundingClientRect();
-          // Layout-space vars (see the advisor-card handler) — divide by zoom.
-          e.currentTarget.style.setProperty('--spot-x', `${toLayoutPx(e.clientX - r.left)}px`);
-          e.currentTarget.style.setProperty('--spot-y', `${toLayoutPx(e.clientY - r.top)}px`);
-        }}
       >
         {/* Targeted passage chip — the section the user highlighted in the doc
             preview. The next message is applied to THIS part. */}
@@ -5782,9 +5875,20 @@ function AdvisorPanel({ file }) {
                             )
                             : m.content)
                           : typing === i
-                            ? <AdvTypewriter text={m.content || ''} onTick={() => scrollToBottom(false)} onDone={() => setTyping((t) => (t === i ? null : t))} />
-                            : <div className="aichat-md"><ReactMarkdown remarkPlugins={[remarkGfm]}>{m.content || ''}</ReactMarkdown></div>}
+                            ? <AdvTypewriter text={replyBody(m.content)} onTick={() => scrollToBottom(false)} onDone={() => setTyping((t) => (t === i ? null : t))} />
+                            : <div className="aichat-md"><ReactMarkdown remarkPlugins={[remarkGfm]}>{replyBody(m.content)}</ReactMarkdown></div>}
                       </div>
+                      {/* The reply's options as buttons (lib/aiChoices) — only
+                          on the LATEST reply, once it has finished typing:
+                          pressing one sends it as the answer. */}
+                      {m.role === 'assistant' && m.edits?.length > 0 && typing !== i && <AiEdits edits={m.edits} />}
+                      {m.role === 'assistant' && i === messages.length - 1 && typing !== i && (
+                        <AiChoices
+                          choices={replyChoices(m.content)}
+                          disabled={busy}
+                          onPick={(c) => adv?.send?.(c)}
+                        />
+                      )}
                       {/* What this turn cost, under its own bubble — UNLESS the
                           turn produced a document, in which case it belongs
                           under the version card instead (see below): the note
@@ -6005,29 +6109,23 @@ function textWidthAt100(text) {
   } catch { return 0; }
 }
 
-function TextRegionsLayer({ mediaRef, stageRef, reading, transform, transition, active = -1, activeSrc = '', bare = false, laws = false, onHoverRegion }) {
+function TextRegionsLayer({ mediaRef, stageRef, reading, transform, transition, bare = false, laws = false }) {
   const [box, setBox] = useState(null);
-  // Pointing at a piece of text ON THE PICTURE plays the same thing as pointing
-  // at its row in the Extracted text list: the piece comes forward, everything
-  // else dims. While the BUTTON IS DOWN it doesn't — that is a selection being
-  // dragged, and a snippet standing over the words would cover what is being
-  // selected. It stays off until the pointer enters a piece afresh.
-  const heldRef = useRef(false);
-  useEffect(() => {
-    const up = () => { heldRef.current = false; };
-    window.addEventListener('mouseup', up);
-    return () => window.removeEventListener('mouseup', up);
-  }, []);
-  const enter = onHoverRegion ? (i) => { if (!heldRef.current) onHoverRegion(i); } : undefined;
-  const leave = onHoverRegion ? () => onHoverRegion(-1) : undefined;
-  const press = onHoverRegion ? () => { heldRef.current = true; onHoverRegion(-1); } : undefined;
+  // Prefix for this layer's citation ids (refTextOf reads a citation's words
+  // back by its id, across the word cells it spans).
+  const refPrefix = useMemo(() => `img${Math.random().toString(36).slice(2, 7)}`, []);
   useLayoutEffect(() => {
     const el = mediaRef.current;
     const stage = stageRef.current;
     if (!el || !stage) return undefined;
     // offset* ignore transforms — this is the untransformed box, which is what
     // the shared transform is then applied to.
-    const measure = () => setBox({ left: el.offsetLeft, top: el.offsetTop, width: el.offsetWidth, height: el.offsetHeight });
+    // A box that came out the same keeps its object: a new one would rebuild
+    // every line (and re-scan them for citations) for nothing.
+    const measure = () => {
+      const next = { left: el.offsetLeft, top: el.offsetTop, width: el.offsetWidth, height: el.offsetHeight };
+      setBox((b) => (b && b.left === next.left && b.top === next.top && b.width === next.width && b.height === next.height ? b : next));
+    };
     measure();
     el.addEventListener('load', measure);
     const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(measure) : null;
@@ -6042,11 +6140,14 @@ function TextRegionsLayer({ mediaRef, stageRef, reading, transform, transition, 
   const caenContext = useMemo(() => caenContextOf(regions.map((r) => r.text || '').join('\n')), [regions]);
   const lines = useMemo(() => {
     if (!box?.width) return [];
-    return regions.map((r) => {
+    return regions.map((r, li) => {
       const w = r.w * box.width;
       const h = r.h * box.height;
-      const length = side ? h : w;          // along the text
-      const thick = Math.max(1, side ? w : h);
+      // A TILTED line (a photo taken at an angle) carries its own length,
+      // thickness and angle, so its text lies along it.
+      const tilted = r.a != null && r.len != null && r.th != null;
+      const length = tilted ? r.len * box.width : side ? h : w;          // along the text
+      const thick = Math.max(1, tilted ? r.th * box.width : side ? w : h);
       // Every word gets the room from ITS start to the NEXT word's start (its
       // trailing space included), and is stretched to fill exactly that — so a
       // word's selection sits on that word, however the photograph spaces them.
@@ -6059,32 +6160,33 @@ function TextRegionsLayer({ mediaRef, stageRef, reading, transform, transition, 
         return { text, room, stretch: natural > 0 ? room / natural : 1 };
       });
       // CITATIONS in the picture's text, as the Word preview marks them: each
-      // word cell a reference touches takes that reference's mark (an act only
-      // with the Laws action on; a CAEN code or a CUI always). The cells are
-      // whole words, so a mark runs word by word rather than letter-exact.
-      // With Extract text OFF (`bare`) the Laws action still marks them — on a
-      // layer of its own that only paints (`.dv-textmarks`), every kind.
-      if (!bare || laws) {
+      // word cell a reference touches takes that reference's mark — every kind,
+      // while the Highlights action is on (`laws`), none while it is off. The
+      // cells are whole words, so a mark runs word by word rather than
+      // letter-exact. With Extract text OFF (`bare`) they are painted on a
+      // layer of text with no dimming.
+      if (laws) {
         let at = 0;
         const spans = cells.map((c) => { const s = { from: at, to: at + c.text.length }; at += c.text.length; return s; });
         const joined = cells.map((c) => c.text).join('');
         const hits = dropOverlaps([...findLawRefs(joined, { caenContext }), ...findCuiRefs(joined)])
-          .filter((h) => h.kind !== 'element' && (laws || refClassFor(h) !== 'dv-lawref'));
-        // (bare && !laws never gets here; bare && laws marks everything.)
-        for (const h of hits) {
-          spans.forEach((s, k) => { if (s.from < h.end && s.to > h.start) cells[k].mark = `dv-ref ${refClassFor(h)}`; });
-        }
+          .filter((h) => h.kind !== 'element');
+        hits.forEach((h, hi) => {
+          const attrs = { ...refAttrsFor(h), 'data-ref-id': `${refPrefix}-${li}-${hi}` };
+          spans.forEach((s, k) => { if (s.from < h.end && s.to > h.start) { cells[k].mark = `dv-ref ${refClassFor(h)}`; cells[k].attrs = attrs; } });
+        });
       }
       return {
         cx: (r.x + r.w / 2) * box.width,
         cy: (r.y + r.h / 2) * box.height,
         length,
         thick,
+        rot: tilted ? r.a : -90 * turns,
         lead: Math.max(0, (words[0][1] || 0) * length),
         cells,
       };
     });
-  }, [regions, box, side, bare, laws, caenContext]);
+  }, [regions, box, side, bare, laws, caenContext, refPrefix]);
   const shapePath = useMemo(() => {
     if (!box?.width) return '';
     // A reading with no shapes of its own (an older one): its line boxes.
@@ -6095,82 +6197,15 @@ function TextRegionsLayer({ mediaRef, stageRef, reading, transform, transition, 
     const letter = sorted.length ? sorted[Math.floor(sorted.length / 2)] : 12;
     return textShapesPath(shapes, box, Math.max(2, Math.min(10, letter * 0.42)));
   }, [reading, regions, lines, box]);
-  if (!box || !box.width) return null;
-  // The piece pointed at in the side panel's Extracted text list comes FORWARD:
-  // everything behind it dims (a veil far larger than the layer, so the whole
-  // stage dims whatever the pan / zoom — no blur), and its own snippet — the same
-  // crop the list shows, upright — stands over where it is in the picture,
-  // slightly enlarged. `bare` = Extract text is off: only this shows.
-  const hot = active >= 0 ? regions[active] : null;
-  const spot = hot && (() => {
-    const w = hot.w * box.width; const h = hot.h * box.height;
-    const length = side ? h : w; const thick = Math.max(1, side ? w : h);
-    const margin = Math.min(w, h) * 0.3;               // what `cropTextPiece` leaves round the text
-    // Subtle: it lifts off the picture rather than jumping at the viewer — barely
-    // larger (8%), a little more only for print too small to read (capped at 25%).
-    const grow = Math.min(Math.min(1.25, Math.max(1.08, 20 / thick)), (box.width * 0.92) / (length + margin * 2));
-    const sw = (length + margin * 2) * grow; const sh = (thick + margin * 2) * grow;
-    const cx = Math.min(box.width - sw / 2, Math.max(sw / 2, (hot.x + hot.w / 2) * box.width));
-    const cy = Math.min(box.height - sh / 2, Math.max(sh / 2, (hot.y + hot.h / 2) * box.height));
-    return (
-      <>
-        <div className="dv-textveil" />
-        <div className="dv-textpop" style={{ left: `${cx - sw / 2}px`, top: `${cy - sh / 2}px`, width: `${sw}px`, height: `${sh}px` }}>
-          {activeSrc ? <img src={activeSrc} alt="" draggable={false} /> : null}
-        </div>
-      </>
-    );
-  })();
-  // Extract text is OFF, so there is no live text to point at — a transparent
-  // box over each piece is what the pointer finds. It doesn't stop `mousedown`:
-  // a press on one still reaches the stage and pans the picture.
-  const spots = onHoverRegion ? (
-    <div className="dv-textspots">
-      {lines.map((l, i) => (
-        <div
-          // eslint-disable-next-line react/no-array-index-key
-          key={i}
-          className="dv-textspot"
-          style={{
-            width: `${l.length}px`,
-            height: `${l.thick}px`,
-            transform: `translate(${l.cx - l.length / 2}px, ${l.cy - l.thick / 2}px) rotate(${-90 * turns}deg)`,
-          }}
-          onMouseEnter={enter && (() => enter(i))}
-          onMouseLeave={leave}
-          onMouseDown={press}
-        />
-      ))}
-    </div>
-  ) : null;
-  // The citations alone, with Extract text off: each line laid where it is,
-  // its text invisible, only the marked word cells painted. Nothing here takes
-  // the pointer — a press still pans the picture.
-  const marks = bare && laws ? (
-    <div className="dv-textmarks" aria-hidden="true" style={{ fontFamily: TEXT_LINE_FONT }}>
-      {lines.filter((l) => l.cells.some((c) => c.mark)).map((l, i) => (
-        <div
-          // eslint-disable-next-line react/no-array-index-key
-          key={i}
-          className="dv-textline"
-          style={{
-            width: `${l.length}px`, height: `${l.thick}px`, fontSize: `${l.thick}px`, lineHeight: `${l.thick}px`,
-            transform: `translate(${l.cx - l.length / 2}px, ${l.cy - l.thick / 2}px) rotate(${-90 * turns}deg)`,
-          }}
-        >
-          {l.cells.map((c, k) => (
-            // eslint-disable-next-line react/no-array-index-key
-            <span className={`dv-textword${c.mark ? ` ${c.mark}` : ''}`} key={k} style={{ width: `${c.room}px`, marginLeft: k === 0 && l.lead ? `${l.lead}px` : undefined }}>
-              <span style={{ transform: `scaleX(${c.stretch})` }}>{c.text}</span>
-            </span>
-          ))}
-        </div>
-      ))}
-    </div>
-  ) : null;
-  if (bare) return <div className="dv-textlayer" style={{ ...box, transform, transition }}>{marks}{spots}{spot}</div>;
-  return (
-    <div className="dv-textlayer" style={{ ...box, transform, transition }}>
+  // PERFORMANCE — the layer rides the picture's pan and zoom: `transform`
+  // changes on every frame of a drag, and with it this component renders. The
+  // text itself (the dimming, the rim, hundreds of word cells) doesn't change
+  // with the transform, so it is built once per reading / size and handed back
+  // as the SAME elements, which React then skips — only the outer frame's
+  // style is written while the picture moves.
+  const body = useMemo(() => (box?.width ? (
+    <>
+      {!bare && (<>
       {/* The dimming, with the text shapes CUT OUT of it (the layer's own frame +
           every shape, even-odd): inside a shape the picture is untouched —
           exactly its own pixels — and everything around it is dimmed. The rim
@@ -6182,6 +6217,10 @@ function TextRegionsLayer({ mediaRef, stageRef, reading, transform, transition, 
         <path className="dv-texthit" d={shapePath} fillRule="evenodd" onMouseDown={(e) => e.stopPropagation()} />
         <path d={shapePath} />
       </svg>
+      </>)}
+      {/* The text is there to SELECT whether or not Extract text is on — off,
+          it is just invisible (no dimming, no rim), its citation marks painted
+          when Highlights is on. */}
       {/* The text itself, in reading order (so a drag across lines copies them in
           order, one per line). mousedown stops here: on the stage it starts a pan. */}
       <div className="dv-textlines" style={{ fontFamily: TEXT_LINE_FONT }}>
@@ -6195,106 +6234,41 @@ function TextRegionsLayer({ mediaRef, stageRef, reading, transform, transition, 
               height: `${l.thick}px`,
               fontSize: `${l.thick}px`,
               lineHeight: `${l.thick}px`,
-              transform: `translate(${l.cx - l.length / 2}px, ${l.cy - l.thick / 2}px) rotate(${-90 * turns}deg)`,
+              transform: `translate(${l.cx - l.length / 2}px, ${l.cy - l.thick / 2}px) rotate(${l.rot}deg)`,
             }}
-            onMouseDown={(e) => { e.stopPropagation(); press?.(); }}
+            onMouseDown={(e) => e.stopPropagation()}
             onDoubleClick={(e) => e.stopPropagation()}
-            onMouseEnter={enter && (() => enter(i))}
-            onMouseLeave={leave}
           >
             {l.cells.map((c, k) => (
               // eslint-disable-next-line react/no-array-index-key
-              <span className={`dv-textword${c.mark ? ` ${c.mark}` : ''}`} key={k} style={{ width: `${c.room}px`, marginLeft: k === 0 && l.lead ? `${l.lead}px` : undefined }}>
+              <span className={`dv-textword${c.mark ? ` ${c.mark}` : ''}`} key={k} {...(c.attrs || {})} style={{ width: `${c.room}px`, marginLeft: k === 0 && l.lead ? `${l.lead}px` : undefined }}>
                 <span style={{ transform: `scaleX(${c.stretch})` }}>{c.text}</span>
               </span>
             ))}
           </div>
         ))}
       </div>
-      {spot}
+    </>
+  ) : null), [bare, box, shapePath, lines, turns]);
+  if (!box || !box.width) return null;
+  return (
+    <div className="dv-textlayer" style={{ ...box, transform, transition }}>
+      {body}
     </div>
   );
 }
 
-// The reading as a LIST (the image side panel's **Extracted text** tab): every
-// piece cropped out of the picture — turned upright when the text runs sideways
-// — on the left, the text read from it on the right. HOVERING a row brings that
-// piece forward over the picture, the rest blurred (`onHover` → the layer's
-// `active` + `activeSrc`, this list's own crop); CLICKING it copies
-// its text. The crops are cut from the full-resolution picture when shown.
-function cropTextPiece(img, r, turns) {
-  const W = img.naturalWidth; const H = img.naturalHeight;
-  // A little of the surroundings, so a crop doesn't shave its letters.
-  const m = Math.min(r.w * W, r.h * H) * 0.3;
-  const sx = Math.max(0, r.x * W - m); const sy = Math.max(0, r.y * H - m);
-  const sw = Math.min(W - sx, r.w * W + m * 2); const sh = Math.min(H - sy, r.h * H + m * 2);
-  if (!(sw >= 1) || !(sh >= 1)) return null;
-  const k = Math.min(1, 900 / Math.max(sw, sh));
-  const w = Math.max(1, Math.round(sw * k)); const h = Math.max(1, Math.round(sh * k));
-  const canvas = document.createElement('canvas');
-  const odd = turns % 2 === 1;
-  canvas.width = odd ? h : w; canvas.height = odd ? w : h;
-  const ctx = canvas.getContext('2d');
-  ctx.imageSmoothingQuality = 'high';
-  ctx.translate(canvas.width / 2, canvas.height / 2);
-  ctx.rotate((turns * Math.PI) / 2);
-  ctx.drawImage(img, sx, sy, sw, sh, -w / 2, -h / 2, w, h);
-  return canvas.toDataURL('image/jpeg', 0.9);
-}
-// Every piece's crop of the picture, cut ONCE per reading and kept (the pane
-// warms it as soon as the picture and its saved reading are in, so the
-// Extracted text tab shows its pieces the moment it is opened).
-const PIECE_CROPS = new WeakMap();   // reading → [crop | null]
-function cutPieces(img, reading) {
-  if (!img?.naturalWidth || !reading) return null;
-  const had = PIECE_CROPS.get(reading);
-  if (had) return had;
-  const turns = reading.turns || 0;
-  const crops = (reading.regions || []).map((r) => {
-    try { return cropTextPiece(img, r, turns); } catch { return null; }
-  });
-  PIECE_CROPS.set(reading, crops);
-  return crops;
-}
-
-function TextPiecesList({ mediaRef, reading, busy, onExtract, onHover }) {
-  const [crops, setCrops] = useState(() => (reading && PIECE_CROPS.get(reading)) || []);
-  const [copied, setCopied] = useState(-1);
-  useEffect(() => {
-    if (copied < 0) return undefined;
-    const t = window.setTimeout(() => setCopied(-1), 1200);
-    return () => window.clearTimeout(t);
-  }, [copied]);
-  // Leaving the tab (or the list going away) must not leave a ring on the picture.
-  useEffect(() => () => onHover?.(-1), [onHover]);
-  // The click itself: a quick press (fuller background, the border pulsing
-  // inward) — `pressed` lasts only as long as that animation, so the next click
-  // on the same row plays it again. `copied` just keeps the tooltip saying so.
-  const [pressed, setPressed] = useState(-1);
-  useEffect(() => {
-    if (pressed < 0) return undefined;
-    const t = window.setTimeout(() => setPressed(-1), 260);
-    return () => window.clearTimeout(t);
-  }, [pressed]);
-  const copy = async (text, i) => {
-    setPressed(i);
-    try { await navigator.clipboard.writeText(text); setCopied(i); } catch { /* clipboard unavailable */ }
-  };
-  useEffect(() => {
-    const img = mediaRef.current;
-    if (!reading || !img) { setCrops([]); return undefined; }
-    const cut = () => { const c = cutPieces(img, reading); if (c) setCrops(c); };
-    cut();
-    img.addEventListener('load', cut);
-    return () => img.removeEventListener('load', cut);
-  }, [mediaRef, reading]);
+// The reading as a LIST (the image side panel's **Extracted text** tab): the
+// text read from the picture, piece by piece in reading order — plain text,
+// selected and copied as any text is (click, drag, Ctrl+C).
+function TextPiecesList({ reading, busy, onExtract }) {
   const regions = reading?.regions || [];
   return (
     <div className="dv-ocr-history-scroll dv-textlist">
       {regions.length === 0 ? (
         <>
           <p className="dv-ocr-history-empty">
-            {reading ? 'Nothing readable was found in this picture.' : 'Nothing extracted from this picture yet. Extract its text and every piece is listed here, beside its crop of the picture.'}
+            {reading ? 'Nothing readable was found in this picture.' : 'Nothing extracted from this picture yet. Extract its text and it is listed here.'}
           </p>
           {!reading && (
             <div className="dv-meta-actions">
@@ -6309,22 +6283,7 @@ function TextPiecesList({ mediaRef, reading, busy, onExtract, onHover }) {
         <ol className="dv-textlist-rows">
           {regions.map((r, i) => (
             // eslint-disable-next-line react/no-array-index-key
-            <li key={i}>
-              <Tooltip content={copied === i ? 'Copied' : 'Copy'}>
-                <button
-                  type="button"
-                  className={`dv-textlist-row${pressed === i ? ' is-pressed' : ''}`}
-                  onMouseEnter={() => onHover?.(i, crops[i])}
-                  onMouseLeave={() => onHover?.(-1)}
-                  onFocus={() => onHover?.(i, crops[i])}
-                  onBlur={() => onHover?.(-1)}
-                  onClick={() => copy(r.text, i)}
-                >
-                  <span className="dv-textlist-crop">{crops[i] ? <img src={crops[i]} alt="" draggable={false} /> : null}</span>
-                  <span className="dv-textlist-text">{r.text}</span>
-                </button>
-              </Tooltip>
-            </li>
+            <li key={i} className="dv-textlist-text">{r.text}</li>
           ))}
         </ol>
       )}
@@ -6385,7 +6344,10 @@ function LivePhotoLayer({ live, mode, muted, imgRef, transform, transition, vide
   useLayoutEffect(() => {
     const img = imgRef.current;
     if (!img) return undefined;
-    const measure = () => setBox({ left: img.offsetLeft, top: img.offsetTop, width: img.offsetWidth, height: img.offsetHeight });
+    const measure = () => {
+      const next = { left: img.offsetLeft, top: img.offsetTop, width: img.offsetWidth, height: img.offsetHeight };
+      setBox((b) => (b && b.left === next.left && b.top === next.top && b.width === next.width && b.height === next.height ? b : next));
+    };
     measure();
     if (typeof ResizeObserver === 'undefined') return undefined;
     const ro = new ResizeObserver(measure);
@@ -6477,33 +6439,8 @@ function MediaOcrPane({ file, url, kind, sidePanelSlot = null, sideTabsSlot = nu
   const [codesMode, setCodesMode] = useState('all');
   const codesSeq = useRef(0);
   const [copiedCode, setCopiedCode] = useState(-1);
-  const [textHot, setTextHot] = useState(-1);             // the list row pointed at → brought forward in the picture
-  const [textHotSrc, setTextHotSrc] = useState('');
-  const hoverTextPiece = useCallback((i, src = '') => { setTextHot(i); setTextHotSrc(i >= 0 ? src || '' : ''); }, []);
-  // The same, for a piece pointed at ON THE PICTURE: the list hands its crop
-  // over, the picture has none to hand, so it is cut here — once per piece, kept
-  // for as long as the reading stands.
-  const textCropsRef = useRef({ reading: null, cache: new Map() });
-  const hoverTextRegion = useCallback((i) => {
-    if (i < 0) { setTextHot(-1); setTextHotSrc(''); return; }
-    const r = textReading?.regions?.[i];
-    const img = mediaRef.current;
-    setTextHot(i);
-    if (!r || !img?.naturalWidth) { setTextHotSrc(''); return; }
-    const store = textCropsRef.current;
-    if (store.reading !== textReading) { store.reading = textReading; store.cache = new Map(); }
-    if (!store.cache.has(i)) {
-      let cut = null;
-      try { cut = cropTextPiece(img, r, textReading.turns || 0); } catch { cut = null; }
-      store.cache.set(i, cut);
-    }
-    setTextHotSrc(store.cache.get(i) || '');
-    // `mediaRef` is deliberately not a dependency: it is declared further down
-    // this component, so naming it here would be read before it exists.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [textReading]);
   const textPath = file.path || file.storage_path || '';
-  useEffect(() => { setTextMode('off'); setTextReading(null); setTextHot(-1); ++codesSeq.current; setCodes(null); }, [textPath, photoBust]);
+  useEffect(() => { setTextMode('off'); setTextReading(null); ++codesSeq.current; setCodes(null); }, [textPath, photoBust]);
   // For handlers that outlive a render (the stage's mousedown → mouseup).
   const textModeRef = useRef(textMode);
   textModeRef.current = textMode;
@@ -6555,11 +6492,11 @@ function MediaOcrPane({ file, url, kind, sidePanelSlot = null, sideTabsSlot = nu
     onClick: toggleTextRegions,
   }, ...(textReading?.regions?.length ? [{
     id: 'law-refs',
-    label: 'Laws',
+    label: 'Highlights',
     tooltip: lawRefs
-      ? 'Stop marking the laws, CAEN codes and CUIs in this picture’s text'
-      : 'Mark every law, ordinance and article the picture’s text cites',
-    icon: LawRefsGlyph,
+      ? 'Hide the highlights — the laws, CAEN codes and CUIs marked in this picture’s text'
+      : 'Show the highlights — every law, CAEN code and CUI this picture’s text cites',
+    icon: lawRefs ? EyeOpenGlyph : EyeClosedGlyph,
     pressed: lawRefs,
     onClick: () => {
       const on = !lawRefs;
@@ -6989,7 +6926,7 @@ function MediaOcrPane({ file, url, kind, sidePanelSlot = null, sideTabsSlot = nu
     setRightTab((tab) => (sideTabsForKind(kind).includes(tab) ? tab : sideTabsForKind(kind)[0]));
   }, [kind]);
   // The SAVED reading is loaded as soon as the picture opens — not when the
-  // Extracted text tab is — so its pieces are there the moment the tab is
+  // Extracted text tab is — so its text is there the moment the tab is
   // (the highlights stay off until Extract text is pressed).
   useEffect(() => {
     if (kind !== 'image' || textReading || !textPath) return undefined;
@@ -6997,21 +6934,6 @@ function MediaOcrPane({ file, url, kind, sidePanelSlot = null, sideTabsSlot = nu
     loadImageText(textPath).then((facet) => { if (alive && facet?.data?.regions) setTextReading(facet.data); });
     return () => { alive = false; };
   }, [kind, textReading, textPath]);
-  // …and every piece's crop is cut once the picture has loaded, in idle time.
-  useEffect(() => {
-    const img = mediaRef.current;
-    if (kind !== 'image' || !textReading || !img) return undefined;
-    let idle = 0;
-    const warm = () => {
-      const run = () => cutPieces(img, textReading);
-      idle = window.requestIdleCallback ? window.requestIdleCallback(run, { timeout: 1500 }) : window.setTimeout(run, 60);
-    };
-    if (img.complete && img.naturalWidth) warm(); else img.addEventListener('load', warm, { once: true });
-    return () => {
-      img.removeEventListener('load', warm);
-      if (window.cancelIdleCallback && idle) window.cancelIdleCallback(idle); else window.clearTimeout(idle);
-    };
-  }, [kind, textReading]);
   const [muted, setMuted] = useState(false);
   const [volume, setVolume] = useState(1);
   const [controlsShown, setControlsShown] = useState(true);
@@ -7379,8 +7301,9 @@ function MediaOcrPane({ file, url, kind, sidePanelSlot = null, sideTabsSlot = nu
 
   // Stage mousedown: pan when zoomed, or click-to-play for video (replaces dv-player-click).
   const onStageMouseDown = useCallback((e) => {
-    // Left or MIDDLE (the wheel press) pans; the middle one also over the
-    // picture's live text and while a tool is armed.
+    // Only the MIDDLE button (the wheel press) pans — from anywhere, over the
+    // picture's live text and while a tool is armed too. The left button is a
+    // click: it never moves the picture.
     const middle = e.button === 1;
     if (!middle && (armed || e.button !== 0)) return;
     if (e.target.closest('.dv-player-controls, .dv-stage-tools, .dv-zoom-controls')) return;
@@ -7390,13 +7313,16 @@ function MediaOcrPane({ file, url, kind, sidePanelSlot = null, sideTabsSlot = nu
     // Pressed on the stage's own background — the spotlight around the picture,
     // not the picture (nor the text on it, which never gets here).
     const onBackdrop = !e.target.closest('.dv-media-el');
+    // A left press anywhere off the text lets go of every selection (the
+    // preventDefault above is what stops the browser doing it by itself).
+    if (!middle) { try { window.getSelection()?.removeAllRanges(); } catch { /* nothing selected */ } }
     const { x: startPanX, y: startPanY } = panStateRef.current;
     // Panning works at ANY zoom, 100% included. (It used to be refused at fit for
     // fear of the next zoom jumping — but `applyZoom` scales the pan by the same
     // factor as the zoom, which keeps whatever is at the stage's centre where it
     // is, whatever the offset. Zooming OUT at 100% re-centres, as before.)
     let moved = false;
-    setIsDragging(true);
+    if (middle) setIsDragging(true);
     const onMove = (ev) => {
       // toLayoutPx: these are VIEWPORT deltas going into a CSS transform, and
       // the two differ under a display-scale. Without it the picture drifts
@@ -7405,6 +7331,7 @@ function MediaOcrPane({ file, url, kind, sidePanelSlot = null, sideTabsSlot = nu
       const dy = toLayoutPx(ev.clientY - startY);
       if (!moved && Math.abs(dx) + Math.abs(dy) < 4) return;
       moved = true;
+      if (!middle) return;
       document.body.classList.add('dv-media-panning');
       setPanX(startPanX + dx);
       setPanY(startPanY + dy);
@@ -7809,7 +7736,6 @@ function MediaOcrPane({ file, url, kind, sidePanelSlot = null, sideTabsSlot = nu
       style={{
         cursor: armed ? undefined
           : kind === 'video' && playing && !controlsShown ? 'none'
-          : zoom > 1 ? 'grab'
           : undefined,
       }}
     >
@@ -7940,11 +7866,8 @@ function MediaOcrPane({ file, url, kind, sidePanelSlot = null, sideTabsSlot = nu
 
       {kind === 'image' && textReading && (
         <TextRegionsLayer
-          active={textHot}
-          activeSrc={textHotSrc}
           bare={textMode !== 'on'}
           laws={lawRefs}
-          onHoverRegion={hoverTextRegion}
           mediaRef={mediaRef}
           stageRef={stageRef}
           reading={textReading}
@@ -7952,6 +7875,7 @@ function MediaOcrPane({ file, url, kind, sidePanelSlot = null, sideTabsSlot = nu
           transition={isDragging || zooming ? 'none' : 'transform 120ms ease'}
         />
       )}
+      {kind === 'image' && textReading && lawRefs && <RefCardPill hostRef={stageRef} />}
 
       {frameSnapOverlay && (
         <img
@@ -8228,7 +8152,7 @@ function MediaOcrPane({ file, url, kind, sidePanelSlot = null, sideTabsSlot = nu
       ) : rightTab === 'metadata' ? (
         <MetadataPanel file={file} />
       ) : rightTab === 'extracted' ? (
-        <TextPiecesList mediaRef={mediaRef} reading={textReading} busy={textMode === 'loading'} onExtract={toggleTextRegions} onHover={hoverTextPiece} />
+        <TextPiecesList reading={textReading} busy={textMode === 'loading'} onExtract={toggleTextRegions} />
       ) : rightTab === 'captions' ? (
         <CaptionsPanel file={file} url={url} currentTime={currentTime} onSeek={seekTo} onCaptionsChange={setCaptions} />
       ) : (
@@ -9944,6 +9868,13 @@ const FIELD_DOTS = {
   city: 26, county: 22, country: 20,
   iban: 40, bank: 30, email: 32, phone: 18,
 };
+const RO_TEXT = /[ăâîșțşţĂÂÎȘȚ]/;
+function fieldChipHint(raw, context) {
+  const m = /^\[\[([\s\S]+)\]\]$/.exec(String(raw || ''));
+  if (!m || /^blank\d+$/i.test(m[1].trim())) return '';
+  const info = constructorFieldInfo(m[1].trim());
+  return fieldLabelIn(info, RO_TEXT.test(context) ? 'ro' : 'en') || '';
+}
 function fieldChipLabel(raw) {
   const m = /^\[\[([\s\S]+)\]\]$/.exec(String(raw || ''));
   if (!m) return '';
@@ -9955,6 +9886,26 @@ function fieldChipLabel(raw) {
   return '_'.repeat(Math.round(n * 0.6)); // an underscore is about twice a dot's width
 }
 
+// The element a mark or a blank is wrapped in. docx-preview writes the
+// document's run formatting as rules on SPANS (`.docx span { … }` for the
+// defaults, `p.docx_<style> span { … }` per paragraph style), so a span added
+// inside a run matched them and replaced what it should inherit: a bold, 14pt
+// citation drew as the paragraph's plain 11pt. An element of our own is reached
+// by none of those rules, inherits everything from the run it sits in, and is
+// inline like a span.
+const DOC_MARK_TAG = 'dv-mark';
+
+// PICKING A PARAGRAPH ONLY DIMS THE REST (at the user's request): no zoom onto
+// it, no blur veil, no lifted card, no close button, no paragraph rail, no
+// version dots and no panel docked under it — the picked paragraph stays
+// exactly where and as it is, and everything else recedes (DocViewer.css,
+// `.has-pick`). The camera machinery below is kept behind this switch.
+const PICK_POP_OUT = false;
+// …but the paragraph's DATA stays: the panel under it (its blanks' inputs, the
+// records that autofill it, the acts / CAEN codes it cites) is docked straight
+// under the paragraph where it lies, and follows it as the page scrolls.
+const PICK_DOCK = true;
+
 function wrapFieldRange(segs, hit, id) {
   const from = locateInSegments(segs, hit.start);
   const to = locateInSegments(segs, hit.start + hit.raw.length);
@@ -9963,7 +9914,10 @@ function wrapFieldRange(segs, hit, id) {
     const range = document.createRange();
     range.setStart(from.node, from.offset);
     range.setEnd(to.node, to.offset);
-    const span = document.createElement('span');
+    // Not a <span>: docx-preview styles runs with rules on every span under a
+    // paragraph (`.docx span`, `p.docx_Normal span`), so a span of ours took the
+    // paragraph's default run look over its own run's size, bold and italics.
+    const span = document.createElement(DOC_MARK_TAG);
     span.className = 'dv-field';
     span.dataset.dvfield = id;
     span.dataset.dvfieldRaw = hit.raw;
@@ -9972,6 +9926,17 @@ function wrapFieldRange(segs, hit, id) {
     if (chip) {
       span.classList.add('is-chip');
       span.dataset.label = chip;
+      // Its width in the input's terms (DocConstructor renderInput: the blank's
+      // own length in `ch`, less the input's 8px) — the slot is drawn as that input.
+      span.style.setProperty('--dvf-chars', String(chip.length));
+      // What the blank wants, shown IN the slot (faded, cut to the slot's
+      // width) — the same words the picked paragraph's input shows as its
+      // placeholder, in the document's language.
+      const hintText = fieldChipHint(hit.raw, from.node.parentElement?.closest?.('p, li, td, th, h1, h2, h3, h4, h5, h6')?.textContent || '');
+      if (hintText) span.dataset.hint = hintText;
+      // …and the input's width rule for it: the placeholder's length + 2ch
+      // (renderInput's `ghostCh`), never under 4ch.
+      span.style.setProperty('--dvf-hint', String(Math.max(4, (hintText ? hintText.length : 0) + 2)));
       const host = from.node.parentElement;
       if (host) span.style.setProperty('--dvf-size', getComputedStyle(host).fontSize);
     }
@@ -10968,6 +10933,244 @@ function ParaCaenCodes({ hit, onOpen }) {
   );
 }
 
+// What the hover pill says over a HIGHLIGHT in the Word preview: the platform
+// it belongs to (in that platform's colour), what the document cites, what the
+// app knows about it, and what a click does. Read off the mark's own data
+// (wrapLawRange). `onLoaded` is called once a CAEN code's name can be given.
+function refPill(x, onLoaded, { full = false } = {}) {
+  const d = x.dataset;
+  let tone = 'var(--cat-update)';
+  let kind = 'legislatie.just.ro · Act';
+  let head = d.refHead || x.textContent || '';
+  const lines = [];
+  let action = '';
+  // Expanded: the citation exactly as the document writes it — every run of
+  // it, since Word cuts one reference into several spans.
+  const cited = full ? refTextOf(x) : '';
+  if (x.classList.contains('dv-cuiref')) {
+    tone = 'var(--success)';
+    kind = 'anaf.ro · Fiscal code';
+    head = `CUI ${d.cui}`;
+    if (full) lines.push('A valid fiscal code — its check digit is correct');
+    action = full ? 'Search looks the company up at ANAF, in a new tab' : 'Click for more — and to search it';
+  } else if (x.classList.contains('dv-caenref')) {
+    tone = 'var(--warning)';
+    const codes = (d.caen || '').split(',').filter(Boolean);
+    kind = `insse.ro · CAEN code${d.caenRev ? ` · Rev. ${d.caenRev}` : ''}`;
+    head = codes.map((c) => `CAEN ${c}`).join(', ') || x.textContent || '';
+    const data = peekCaenRev(3);
+    if (data) {
+      for (const c of (full ? codes : codes.slice(0, 3))) {
+        const r = resolveCaen(data, c, d.caenRev ? Number(d.caenRev) : undefined);
+        const old = r.rev === 2 && r.rev2;
+        const name = old ? r.rev2.name : r.entry?.name;
+        lines.push(name ? `${c} — ${name}` : `${c} — not in the CAEN nomenclature`);
+        if (old && full) lines.push(`Rev. 2 — now ${r.rev2.to.map((t) => t.code).join(', ') || 'no direct successor'}`);
+        if (!old && r.changed) lines.push(`Before 2025 (Rev. 2): ${r.rev2.name}`);
+      }
+    } else {
+      lines.push('Reading the nomenclature…');
+      loadCaen().then(() => onLoaded?.()).catch(() => {});
+    }
+    action = full ? 'Search opens it in CAEN codes, in a new tab' : 'Click for more — and to search it';
+  } else {
+    if (d.lawKind === 'code') kind = 'legislatie.just.ro · Code';
+    if (d.refElement) lines.push(d.refElement);
+    if (d.refTitle) lines.push(d.refTitle);
+    if (d.refNotes) lines.push(d.refNotes);
+    action = full
+      ? (d.href ? 'Search finds it on legislatie.just.ro, in a new tab' : 'Search looks for it by its words, in a new tab')
+      : 'Click for more — and to search it';
+  }
+  return (
+    <span className={`dv-refpill${full ? ' is-full' : ''}`} style={{ '--refpill-tone': tone }}>
+      <span className="dv-refpill-kind">{kind}</span>
+      <span className="dv-refpill-head">{head}</span>
+      {lines.map((l) => <span key={l} className="dv-refpill-line">{l}</span>)}
+      {cited && cited !== head && <span className="dv-refpill-quote">“{cited}”</span>}
+      <span className="dv-refpill-act">{action}</span>
+    </span>
+  );
+}
+// A reference's whole text: every span sharing its id, in document order.
+function refTextOf(x) {
+  const id = x.dataset.refId;
+  const host = x.closest('.dv-docx') || x.ownerDocument;
+  const parts = id ? Array.from(host.querySelectorAll(`.dv-ref[data-ref-id="${id}"]`)) : [x];
+  return parts.map((el) => el.textContent).join('').replace(/\s+/g, ' ').trim();
+}
+// Where Search sends a mark: its own link (an act / a CAEN code), the company
+// at ANAF, or — an act too general to open — a words search of the portal;
+// always into a NEW tab of the Legislation browser (`newtab=1`).
+function refSearchHref(x) {
+  const d = x.dataset;
+  let href = d.href || '';
+  if (!href && d.cui) href = `/anaf?cui=${encodeURIComponent(d.cui)}`;
+  if (!href) href = `/legislation?titlu=${encodeURIComponent(d.refHead || refTextOf(x))}`;
+  return `${href}${href.includes('?') ? '&' : '?'}newtab=1&_=${Date.now()}`;
+}
+
+// What a mark carries — what `refPill` and `refSearchHref` read off it — as
+// attributes. ONE recipe for every kind of file: the Word preview's marks
+// (wrapLawRange), a picture's word cells (TextRegionsLayer) and a PDF's text
+// layer (markPdfTextLayer), so a highlight clicked anywhere opens the same card.
+function refAttrsFor(hit) {
+  const a = { 'data-law-kind': hit.kind };
+  if (hit.kind === 'cui') {
+    a['data-cui'] = hit.cui;
+    a.role = 'link';
+  } else if (hit.kind === 'caen' && hit.codes?.length) {
+    a['data-href'] = caenHref(hit.codes[0], hit.rev === 2 ? 2 : 3);
+    a['data-caen'] = hit.codes.join(',');
+    if (hit.rev) a['data-caen-rev'] = String(hit.rev);
+    a.role = 'link';
+  } else if (hit.kind !== 'element' && hit.kind !== 'case') {
+    const d = lawRefDetails(hit);
+    const href = legislationHref(d);
+    if (href) { a['data-href'] = href; a.role = 'link'; }
+    a['data-ref-head'] = d.heading || d.raw || '';
+    if (d.title) a['data-ref-title'] = d.title;
+    if (d.element) a['data-ref-element'] = d.element;
+    if (d.notes?.length) a['data-ref-notes'] = d.notes.join(' \u00b7 ');
+  }
+  return a;
+}
+
+// THE HIGHLIGHT CARD over a PICTURE's or a PDF's text — the Word preview's
+// behaviour (DocParaPill's `card`), for layers that have no paragraphs: hovering
+// a mark shows its pill (`refPill`), a CLICK expands the pill into the card —
+// everything known, the citation as written, Search (a new tab of the
+// Legislation browser in the main window) and Close. A click that ends a drag
+// selecting text is a selection, not a press on the mark.
+function RefCardPill({ hostRef }) {
+  const [label, setLabel] = useState('');
+  const [card, setCard] = useState(null);
+  const [, setCardTick] = useState(0);
+  const markRef = useRef(null);
+  const morph = useMorphPill({
+    hoverContent: label,
+    stickyMenu: !!card,
+    menuHeader: card
+      ? <div className="dv-refcard">{refPill(card, () => setCardTick((n) => n + 1), { full: true })}</div>
+      : undefined,
+    menuItems: card ? [
+      {
+        key: 'search',
+        label: 'Search',
+        className: 'dv-refcard-search',
+        onClick: () => {
+          if (!card.isConnected) return;
+          navigateMainWindow(refSearchHref(card));
+          focusMainWindow();
+        },
+      },
+      { key: 'close', label: 'Close', onClick: () => {} },
+    ] : [],
+  });
+  const morphRef = useRef(morph);
+  morphRef.current = morph;
+  useEffect(() => { if (card && !morph.isMenuOpen) setCard(null); }, [card, morph.isMenuOpen]);
+  useEffect(() => {
+    const host = hostRef.current;
+    if (!host) return undefined;
+    const markUnder = (e) => {
+      const x = e.target?.closest?.('.dv-ref');
+      return x && host.contains(x) ? x : null;
+    };
+    const hide = () => {
+      if (!markRef.current) return;
+      markRef.current = null;
+      morphRef.current.handleMouseLeave();
+    };
+    const onMove = (e) => {
+      const m = morphRef.current;
+      if (m.isMenuOpen) return;
+      const x = e.buttons ? null : markUnder(e);   // a held button = a drag-select
+      if (!x) { hide(); return; }
+      if (markRef.current !== x) {
+        markRef.current = x;
+        setLabel(refPill(x, () => { if (markRef.current === x) setLabel(refPill(x)); }));
+      }
+      m.handleMouseMove(e);
+    };
+    const onClick = (e) => {
+      if (e.button !== 0 || morphRef.current.isMenuOpen) return;
+      const x = markUnder(e);
+      if (!x) return;
+      const sel = window.getSelection?.();
+      if (sel && !sel.isCollapsed && String(sel).trim()) return;
+      e.stopPropagation();
+      markRef.current = x;
+      setCard(x);
+      morphRef.current.handleContextMenu(e);
+    };
+    host.addEventListener('mousemove', onMove);
+    host.addEventListener('mouseleave', hide);
+    host.addEventListener('click', onClick);
+    return () => {
+      host.removeEventListener('mousemove', onMove);
+      host.removeEventListener('mouseleave', hide);
+      host.removeEventListener('click', onClick);
+    };
+  }, [hostRef]);
+  return morph.node;
+}
+
+// A PDF's TEXT LAYER (pdf.js, components/FilePreview) marked as the Word
+// preview is: every act, code, CAEN code and CUI found in the page's text is
+// wrapped where it lies (wrapLawRange — one mark per text node it covers, so
+// pdf.js's positioned runs are left exactly as they were). Cross-references
+// and court files are left alone (there is nowhere in a PDF to jump to).
+function markPdfTextLayer(layer, laws, prefix) {
+  layer.querySelectorAll('.dv-ref').forEach((el) => el.replaceWith(...Array.from(el.childNodes)));
+  try { layer.normalize(); } catch { /* detached */ }
+  if (!laws) return;
+  const segs = [];
+  let text = '';
+  const walk = (el) => {
+    for (const n of Array.from(el.childNodes)) {
+      if (n.nodeType === 3) {
+        if (n.nodeValue) { segs.push({ node: n, start: text.length, end: text.length + n.nodeValue.length }); text += n.nodeValue; }
+      } else if (n.nodeName === 'BR') text += '\n';
+      else if (n.nodeType === 1 && n.getAttribute('role') !== 'img') walk(n);
+    }
+  };
+  walk(layer);
+  if (!text.trim()) return;
+  const hits = dropOverlaps([...findLawRefs(text, { caenContext: caenContextOf(text) }), ...findCuiRefs(text)])
+    .filter((h) => h.kind !== 'element' && h.kind !== 'case')
+    .sort((a, b) => b.start - a.start);   // back to front: earlier offsets stay valid
+  hits.forEach((h, i) => wrapLawRange(segs, h, `${prefix}-${i}`));
+}
+
+// Keeps every text layer under `hostRef` marked while pdf.js lays pages in and
+// out; a layer is marked again only when its text or the Highlights switch
+// changes (the marks themselves change neither).
+function PdfRefMarks({ hostRef, laws }) {
+  useEffect(() => {
+    const host = hostRef.current;
+    if (!host) return undefined;
+    const prefix = `pdf${Math.random().toString(36).slice(2, 7)}`;
+    let n = 0;
+    let raf = 0;
+    const run = () => {
+      raf = 0;
+      host.querySelectorAll('.file-preview-pdf-text').forEach((layer) => {
+        const sig = `${laws ? 1 : 0}:${layer.childElementCount}:${(layer.textContent || '').length}`;
+        if (layer.dataset.refsSig === sig) return;
+        n += 1;
+        markPdfTextLayer(layer, laws, `${prefix}-${n}`);
+        layer.dataset.refsSig = sig;
+      });
+    };
+    run();
+    const mo = new MutationObserver(() => { if (!raf) raf = requestAnimationFrame(run); });
+    mo.observe(host, { childList: true, subtree: true });
+    return () => { mo.disconnect(); if (raf) cancelAnimationFrame(raf); };
+  }, [hostRef, laws]);
+  return null;
+}
+
 function DocParaPill({ hostRef, onOpen, onToggleFold }) {
   const targetRef = useRef(null); // the block the pill is about
   const xrefRef = useRef(null);   // …or the cross-reference inside it
@@ -10975,9 +11178,33 @@ function DocParaPill({ hostRef, onOpen, onToggleFold }) {
   // Whether the block is a foldable heading, and folded — read when the pill
   // turns to a block and again when its menu opens.
   const [fold, setFold] = useState(null); // null | 'open' | 'collapsed'
+  // A HIGHLIGHT CLICKED: the tooltip EXPANDS into a card about it (the pill's
+  // menu state — the same morph a right-click uses) — more of what is known,
+  // the citation as written, and two buttons: Search (a new tab of the
+  // Legislation browser in the main window) and Close. It stays until Close,
+  // a press outside or Escape. `card` = the mark, `cardTick` re-renders it
+  // once a CAEN name has loaded.
+  const [card, setCard] = useState(null);
+  const [, setCardTick] = useState(0);
   const morph = useMorphPill({
     hoverContent: label,
-    menuItems: [
+    stickyMenu: !!card,
+    menuHeader: card
+      ? <div className="dv-refcard">{refPill(card, () => setCardTick((n) => n + 1), { full: true })}</div>
+      : undefined,
+    menuItems: card ? [
+      {
+        key: 'search',
+        label: 'Search',
+        className: 'dv-refcard-search',
+        onClick: () => {
+          if (!card.isConnected) return;
+          navigateMainWindow(refSearchHref(card));
+          focusMainWindow();
+        },
+      },
+      { key: 'close', label: 'Close', onClick: () => {} },
+    ] : [
       {
         key: 'open',
         label: 'Open',
@@ -10992,6 +11219,18 @@ function DocParaPill({ hostRef, onOpen, onToggleFold }) {
   });
   const morphRef = useRef(morph);
   morphRef.current = morph;
+  // The card is over once the pill has closed, however it closed.
+  useEffect(() => { if (card && !morph.isMenuOpen) setCard(null); }, [card, morph.isMenuOpen]);
+  // The pane's click handler hands a highlight's click here (host.__openRefCard).
+  useEffect(() => {
+    const host = hostRef.current;
+    if (!host) return undefined;
+    host.__openRefCard = (mark, e) => {
+      setCard(mark);
+      morphRef.current.handleContextMenu(e);
+    };
+    return () => { if (host.__openRefCard) delete host.__openRefCard; };
+  }, [hostRef]);
 
   useEffect(() => {
     const host = hostRef.current;
@@ -11002,6 +11241,9 @@ function DocParaPill({ hostRef, onOpen, onToggleFold }) {
     // picked paragraph itself, and not text-less blocks (spacers).
     const blockUnder = (e) => {
       if (host.parentElement?.classList.contains('is-zoom-live')) return null;
+      // While a paragraph is PICKED no other paragraph is detected: no hover
+      // pill, no hover dim, no menu — a click outside it only dismisses it.
+      if (host.querySelector('.dv-docx-para.is-selected')) return null;
       if (e.target.closest?.('.dv-docx-livecard')) return null;
       const el = e.target.closest?.(PARA_BLOCKS);
       if (!el || !host.contains(el) || el.classList.contains('is-selected')) return null;
@@ -11018,16 +11260,47 @@ function DocParaPill({ hostRef, onOpen, onToggleFold }) {
     // Over an internal cross-reference the pill stops naming the paragraph the
     // pointer is in and says what pressing the mark will DO, since that is the
     // only question a reader has there.
-    const xrefUnder = (e) => e.target?.closest?.('.dv-xref[data-xref]') || null;
+    // The same over EVERY highlight: the pill tells what the mark is and what
+    // a click on it does (`refPill`), since the click is the mark's, not the
+    // paragraph's.
+    const xrefUnder = (e) => e.target?.closest?.('.dv-ref') || null;
     const jumpLabel = (x) => {
-      const letter = x.dataset.xrefLetter;
-      return `Go to ${x.dataset.xref}${letter ? ` lit. ${letter})` : ''}`;
+      if (x.matches('.dv-xref[data-xref]')) {
+        const letter = x.dataset.xrefLetter;
+        return `Go to ${x.dataset.xref}${letter ? ` lit. ${letter})` : ''}`;
+      }
+      return refPill(x, () => {
+        // A CAEN code's name arrives with the nomenclature: say it once it has.
+        if (xrefRef.current === x) setLabel(refPill(x));
+      });
+    };
+    // THE PARAGRAPH UNDER THE POINTER stays as it is and the REST OF THE
+    // DOCUMENT dims a little (`.dv-docx.has-para-hot` + `.is-para-hot`,
+    // DocViewer.css) — in place of the tint and ring the hovered paragraph
+    // used to get. Marked here, not by `:hover` CSS, so moving from one
+    // paragraph to the next restyles those two and not the whole document.
+    // Crossing the gap between two paragraphs holds the dim a moment
+    // (HOT_GRACE_MS) so the page does not flicker bright in between.
+    let hot = null;
+    let coolTimer = 0;
+    const setHot = (el) => {
+      window.clearTimeout(coolTimer); coolTimer = 0;
+      if (el === hot) return;
+      hot?.classList.remove('is-para-hot');
+      hot = el;
+      if (el) { el.classList.add('is-para-hot'); host.classList.add('has-para-hot'); }
+      else host.classList.remove('has-para-hot');
+    };
+    const coolSoon = () => {
+      if (!hot || coolTimer) return;
+      coolTimer = window.setTimeout(() => { coolTimer = 0; setHot(null); }, HOT_GRACE_MS);
     };
     const onMove = (e) => {
       const m = morphRef.current;
       if (m.isMenuOpen) return;
       // A button held down is a drag-select in progress, not a hover.
       const el = e.buttons ? null : blockUnder(e);
+      if (el) setHot(el); else coolSoon();
       if (!el) { targetRef.current = null; xrefRef.current = null; m.handleMouseLeave(); return; }
       const x = e.buttons ? null : xrefUnder(e);
       if (targetRef.current !== el || xrefRef.current !== x) {
@@ -11039,6 +11312,7 @@ function DocParaPill({ hostRef, onOpen, onToggleFold }) {
       m.handleMouseMove(e);
     };
     const onLeave = () => {
+      setHot(null);
       const m = morphRef.current;
       if (m.isMenuOpen) return;
       targetRef.current = null;
@@ -11060,6 +11334,9 @@ function DocParaPill({ hostRef, onOpen, onToggleFold }) {
     // the menu just appears).
     const onDown = (e) => {
       if (e.button !== 0 || morphRef.current.isMenuOpen) return;
+      // …except on a highlight: its click EXPANDS this tooltip into its card,
+      // which morphs out of the tooltip's rect, so the tooltip must be there.
+      if (e.target?.closest?.('.dv-cuiref[data-cui], .dv-lawref, .dv-caenref[data-href]')) return;
       morphRef.current.handleMouseLeave();
     };
     host.addEventListener('mousemove', onMove);
@@ -11071,11 +11348,13 @@ function DocParaPill({ hostRef, onOpen, onToggleFold }) {
       host.removeEventListener('mouseleave', onLeave);
       host.removeEventListener('contextmenu', onMenu);
       host.removeEventListener('mousedown', onDown);
+      setHot(null);
     };
   }, [hostRef]);
 
   return morph.node;
 }
+const HOT_GRACE_MS = 140;
 
 // Icons for the Word ribbon's quick actions (components/DocRibbon). Authored at 20px like
 // the sidebar's; the ribbon sets them at 18.
@@ -11109,8 +11388,8 @@ const OpenExternalGlyph = (
 // answers whether the request was accepted — NOT whether the window is
 // fullscreen yet, since on macOS that is an animation.
 //
-// It is unavailable more often than it looks: on the web build there is no
-// window to ask, a window pinned non-fullscreenable refuses, and — the case
+// It is unavailable more often than it looks: a window pinned
+// non-fullscreenable refuses, and — the case
 // that actually bites in development — a window whose PRELOAD was built before
 // this channel existed has no such method to call. Vite reloads the renderer on
 // every save but the preload is only rebuilt when Electron restarts, so a
@@ -11148,9 +11427,8 @@ async function goFullscreen(on) {
 // stretches. So it waits for the resizing to stop rather than guessing a delay:
 // every `resize` pushes the fit 150ms further out, and the last one wins.
 //
-// The timer is only a fallback for when nothing resizes AT ALL — the web build
-// has no fullscreen to enter, and a window the OS refuses to make fullscreen
-// stays exactly where it is. It is skipped the moment a resize is seen, so a
+// The timer is only a fallback for when nothing resizes AT ALL — a window
+// the OS refuses to make fullscreen stays exactly where it is. It is skipped the moment a resize is seen, so a
 // slow fullscreen animation can never have the fit taken off it early.
 function useFitForFocus(on, { read, write, fit }) {
   const api = useRef({ read, write, fit });
@@ -11246,11 +11524,25 @@ const BarcodeGlyph = (
     <path d="M4 7V5a1 1 0 0 1 1-1h2M17 4h2a1 1 0 0 1 1 1v2M20 17v2a1 1 0 0 1-1 1h-2M7 20H5a1 1 0 0 1-1-1v-2" /><path d="M7.5 8v8M10 8v8M12.5 8v8M15 8v5M16.5 8v8" />
   </svg>
 );
-const LawRefsGlyph = (
-  <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-    <path d="M12 4v16M8 20h8M6 7h12M6 7l-3 6h6L6 7ZM18 7l-3 6h6l-3-6Z" />
-  </svg>
-);
+// The Highlights action: an eye, open while the highlights show, shut while
+// they are hidden.
+// ONE drawing for both states, so switching animates (the lid blinks — the
+// `.dv-eye` rules at the foot of DocViewer.css) instead of swapping pictures.
+function EyeGlyph({ open }) {
+  return (
+    <svg className={`dv-eye${open ? ' is-open' : ''}`} viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <g className="dv-eye-open">
+        <path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12Z" />
+        <circle className="dv-eye-pupil" cx="12" cy="12" r="3" />
+      </g>
+      <g className="dv-eye-shut">
+        <path d="M3 10.5c2.2 3 5.3 4.8 9 4.8s6.8-1.8 9-4.8" /><path d="m5.6 13.6-1.8 2.3M9.4 15.1l-.7 2.7M14.6 15.1l.7 2.7M18.4 13.6l1.8 2.3" />
+      </g>
+    </svg>
+  );
+}
+const EyeOpenGlyph = <EyeGlyph open />;
+const EyeClosedGlyph = <EyeGlyph open={false} />;
 const FitViewGlyph = (
   <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
     <path d="M4 9V5a1 1 0 0 1 1-1h4M15 4h4a1 1 0 0 1 1 1v4M20 15v4a1 1 0 0 1-1 1h-4M9 20H5a1 1 0 0 1-1-1v-4" /><rect x="8.5" y="8.5" width="7" height="7" rx="1" />
@@ -11390,16 +11682,11 @@ const loadPageRailPref = () => { try { return localStorage.getItem(PAGE_RAIL_PRE
 const savePageRailPref = (on) => { try { localStorage.setItem(PAGE_RAIL_PREF, on ? '1' : '0'); } catch { /* unavailable */ } };
 // ── References in the rendered document ─────────────────────────────────
 // `lib/lawRefs` finds a citation in TEXT; this is what puts it on the page.
-// THREE kinds, and only one of them is a preference:
-//   · an ACT cited from outside the document (a law, an ordinance, a code) —
-//     the gradient mark, switched by the Laws quick action, because on a
-//     document that cites a statute in every clause it can be a lot of colour;
-//   · a CAEN code — always marked. A company's object of activity is written
-//     as a code and nothing else, so hiding it hides the fact itself;
-//   · an INTERNAL cross-reference — always marked, because it is not a
-//     highlight but a CONTROL: it is how the reader gets to the clause it
-//     names, and a control that only exists while a highlighting preference is
-//     on is not a control anyone can rely on.
+// An act (a law, an ordinance, a code), a CAEN code, a CUI and an INTERNAL
+// cross-reference, each in its own look — and ONE preference over all of them
+// and the empty fields: the Highlights quick action (the eye). Off, the
+// document reads exactly as it was written (at the user's request, replacing
+// the Laws action, which switched the acts alone).
 const LAW_REFS_PREF = 'docvex:doc-viewer:law-refs';
 const loadLawRefsPref = () => { try { return localStorage.getItem(LAW_REFS_PREF) !== '0'; } catch { return true; } };
 const saveLawRefsPref = (on) => { try { localStorage.setItem(LAW_REFS_PREF, on ? '1' : '0'); } catch { /* unavailable */ } };
@@ -11408,6 +11695,8 @@ const LAW_BLOCK_SEL = '.dv-docx-para, p, h1, h2, h3, h4, h5, h6, li, td, th';
 // it. Long enough to read the page down to it, short enough that a document
 // left open is not a document with something blinking in it.
 const XREF_LIT_MS = 12000;
+// The highlights' fade in / out (DocViewer.css `.dv-ref`'s transition).
+const REF_FADE_MS = 280;
 
 // One reference, wrapped WHERE IT LIES: a span per text node it covers, never
 // one span across several. Word splits a run at every formatting change (and
@@ -11443,12 +11732,14 @@ function wrapLawRange(segs, hit, refId) {
       const localEnd = to - seg.start;
       if (localEnd < node.nodeValue.length) node.splitText(localEnd);
       const target = localStart > 0 ? node.splitText(localStart) : node;
-      const span = node.ownerDocument.createElement('span');
+      // A tag docx-preview's span rules cannot reach (DOC_MARK_TAG), so the
+      // text keeps its own run's font, size, bold and italics.
+      const span = node.ownerDocument.createElement(DOC_MARK_TAG);
       // `dv-ref` is what every mark shares — it is what the clean-up removes
       // and what carries the rounded outer ends — and the second class is what
       // the kind looks like.
       span.className = `dv-ref ${refClassFor(hit)}`;
-      span.dataset.lawKind = hit.kind;
+      for (const [k, v] of Object.entries(refAttrsFor(hit))) span.setAttribute(k, v);
       // Word splits a citation across runs, so one reference is several spans.
       // They share an id, which is what lets the whole mark light up together
       // rather than the one piece under the pointer.
@@ -11456,11 +11747,9 @@ function wrapLawRange(segs, hit, refId) {
       // An internal cross-reference carries what it points at, so a click can
       // be taken there (see the jump handler in DocxRenderPane).
       // A company's fiscal code: a click opens it in the ANAF tab.
-      if (hit.kind === 'cui') {
-        span.dataset.cui = hit.cui;
-        span.setAttribute('role', 'link');
-        span.setAttribute('aria-label', `${span.textContent || 'CUI'} — look the company up at ANAF`);
-      }
+      // An act, a code, a CAEN code or a CUI is a LINK too (refAttrsFor): a
+      // click expands its card, whose Search opens it in the main window.
+      if (hit.kind === 'cui') span.setAttribute('aria-label', `${span.textContent || 'CUI'} — look the company up at ANAF`);
       if (hit.kind === 'element' && hit.target) {
         span.dataset.xref = hit.target;
         if (hit.letter) span.dataset.xrefLetter = hit.letter;
@@ -11495,12 +11784,15 @@ function clearLawRefs(host) {
   try { host.normalize(); } catch { /* detached — nothing to clean up */ }
 }
 
-// `laws` is the Laws quick action. It governs the ACT marks only: CAEN codes
-// and internal cross-references are marked either way, so a document always
-// shows its codes and is always navigable by its own pointers.
+// `laws` is the Highlights quick action (the eye). It governs EVERY mark —
+// acts, codes, CAEN codes, CUIs and internal cross-references — and, through
+// `.dv-docx.is-plain`, the empty fields' look: off, the document reads as it
+// was written.
 function markLawRefs(host, { laws = true } = {}) {
   if (!host) return 0;
   clearLawRefs(host);
+  host.classList.toggle('is-plain', !laws);
+  if (!laws) return 0;
   let count = 0;
   let seq = 0;
   // A CAEN list ("6210 - Activități …", one per paragraph) is only a CAEN list
@@ -11539,7 +11831,7 @@ function markLawRefs(host, { laws = true } = {}) {
     // party's fiscal code is who the party IS.
     const hits = dropOverlaps([...findLawRefs(joined, { caenContext }), ...findCuiRefs(joined)])
       .filter((h) => !opensTheBlock(h))
-      .filter((h) => laws || refClassFor(h) !== 'dv-lawref');
+      .filter(Boolean);
     for (let i = hits.length - 1; i >= 0; i -= 1) {
       count += wrapLawRange(segs, hits[i], `r${seq}_${i}`) ? 1 : 0;
     }
@@ -11939,6 +12231,12 @@ function DocxRenderPane({ url, regenTick = 0, ctor = null, restyle = null, docNa
   const liftTrackTimer = useRef(null);
   const liftLandTimer = useRef(null);
   const liftPanelRef = useRef(null);
+  // The bar ABOVE the picked paragraph: what each party it names is (the
+  // Constructor portals its kind switches into it). A node in state too, as
+  // the portal's target.
+  const kindBarRef = useRef(null);
+  const [kindBarEl, setKindBarEl] = useState(null);
+  const setKindBar = useCallback((node) => { kindBarRef.current = node; setKindBarEl(node); }, []);
   // The panel RIDES THE CAMERA — in with the
   // paragraph, across to the next one, and back out — but it lives outside the
   // zoomed host (it is React's, and isn't scaled by the zoom at rest), so the
@@ -11982,6 +12280,60 @@ function DocxRenderPane({ url, regenTick = 0, ctor = null, restyle = null, docNa
     const host = hostRef.current;
     const body = host?.parentElement;
     if (!host || !body) return;
+    if (!PICK_POP_OUT) {
+      // Docked: the panel stands under the paragraph (its preview copy when it
+      // has one) as it is on screen — no camera, nothing else moves. Hidden
+      // while the paragraph is scrolled out of the pane.
+      const target = host.querySelector('.dv-docx-para.is-selected');
+      // The preview copy goes with its paragraph: dropped unapplied when the
+      // pick moves to another, and — changes on their way to being saved
+      // written into the page first — when the pick ends.
+      if (liveSnapRef.current && liveSnapRef.current.el !== target) dropLiveCopy(!target);
+      // The KIND BAR stands just above the paragraph (clamped inside the pane).
+      const bar = kindBarRef.current;
+      if (bar) {
+        const bframe = bar.offsetParent;
+        const on = !!target && !!bframe && bar.childElementCount > 0;
+        if (on) {
+          const copyB = liveSnapRef.current?.el === target ? liveSnapRef.current.clone : null;
+          const rb = (copyB && copyB.childNodes.length ? copyB : target).getBoundingClientRect();
+          const bb = body.getBoundingClientRect();
+          const bf = bframe.getBoundingClientRect();
+          const h = bar.offsetHeight;
+          const top = Math.max(bb.top + 8, rb.top - h - 10);
+          bar.style.left = `${toLayoutPx(Math.max(bf.left + 12, rb.left) - bf.left)}px`;
+          bar.style.top = `${toLayoutPx(top - bf.top)}px`;
+          bar.style.maxWidth = `${toLayoutPx(Math.max(260, bf.right - 12 - Math.max(bf.left + 12, rb.left)))}px`;
+          bar.classList.toggle('is-on', rb.bottom > bb.top && rb.top < bb.bottom);
+        } else bar.classList.remove('is-on');
+      }
+      const panel = liftPanelRef.current;
+      if (!panel) return;
+      const frame = panel.offsetParent;
+      if (!target || !frame) { panel.classList.remove('is-on'); return; }
+      const copy = liveSnapRef.current?.el === target ? liveSnapRef.current.clone : null;
+      const r = (copy && copy.childNodes.length ? copy : target).getBoundingClientRect();
+      const br = body.getBoundingClientRect();
+      const fr = frame.getBoundingClientRect();
+      // HOVERING an autofill entry only PREVIEWS it in the copy, which may wrap
+      // to another height — the dock does NOT move for that: it keeps its
+      // distance from the real paragraph (measured while nothing was previewed)
+      // and moves again once a choice is made.
+      const tr = target.getBoundingClientRect();
+      let bottom = r.bottom;
+      if (copy && copy.dataset.previewing === '1' && panel.__dockGap != null) bottom = tr.bottom + panel.__dockGap;
+      else panel.__dockGap = r.bottom - tr.bottom;
+      const width = Math.max(320, Math.min(r.width, fr.width - 24));
+      const left = Math.max(fr.left + 12, Math.min(r.left, fr.right - 12 - width));
+      panel.classList.add('is-docked', 'is-snap');
+      panel.style.transform = '';
+      panel.style.width = `${toLayoutPx(width)}px`;
+      panel.style.maxHeight = `${toLayoutPx(Math.max(220, br.height * 0.52))}px`;
+      panel.style.left = `${toLayoutPx(left - fr.left)}px`;
+      panel.style.top = `${toLayoutPx(bottom + 12 - fr.top)}px`;
+      panel.classList.toggle('is-on', bottom > br.top && bottom < br.bottom - 24);
+      return;
+    }
     let target = null;
     let landing = false;
     paraNodes().forEach((el) => {
@@ -12341,7 +12693,7 @@ function DocxRenderPane({ url, regenTick = 0, ctor = null, restyle = null, docNa
   // pick resolves to a piece, and taken away by dropLiveCopy — which is also
   // where, on the way out, the changes finally reach the document.
   useLayoutEffect(() => {
-    if (!ctorHit) return;
+    if (!ctorHit || !(PICK_POP_OUT || PICK_DOCK)) return;
     const el = hostRef.current?.querySelector('.dv-docx-para.is-selected.is-ctor');
     if (!el || !el.parentElement || liveSnapRef.current?.el === el) return;
     dropLiveCopy(false);
@@ -12459,7 +12811,7 @@ function DocxRenderPane({ url, regenTick = 0, ctor = null, restyle = null, docNa
   }, [ctorHit, syncEdits, syncParas, layoutLift]);
 
   // The pick changed (or the document re-rendered under it, or its panel came).
-  useLayoutEffect(() => { layoutLift(false); }, [layoutLift, paras, renderTick, ctorHit, paraDots.length, paraLawRefs.length]);
+  useLayoutEffect(() => { layoutLift(false); }, [layoutLift, paras, renderTick, ctorHit, paraDots.length, paraLawRefs.length, kindBarEl]);
   useEffect(() => {
     const host = hostRef.current;
     const body = host?.parentElement;
@@ -13006,11 +13358,36 @@ function DocxRenderPane({ url, regenTick = 0, ctor = null, restyle = null, docNa
   // take away. Nothing here changes a text metric — no padding, no font — so
   // marking cannot re-wrap a line, which is why it needs no re-pagination
   // afterwards.
+  // Switching the eye FADES them (`--dv-ref-a`, DocViewer.css): on, the marks
+  // are made at nothing and brought up; off, they go down first and are only
+  // unwrapped once they have. A re-render marks without a fade.
+  const lawRefsWas = useRef(lawRefs);
   useEffect(() => {
     const host = hostRef.current;
     if (!host || !renderTick) return undefined;
-    const id = window.setTimeout(() => { markLawRefs(host, { laws: lawRefs }); }, 0);
-    return () => window.clearTimeout(id);
+    const toggled = lawRefsWas.current !== lawRefs;
+    lawRefsWas.current = lawRefs;
+    let later = 0;
+    let frame = 0;
+    const id = window.setTimeout(() => {
+      if (!toggled) { markLawRefs(host, { laws: lawRefs }); return; }
+      if (lawRefs) {
+        host.classList.add('is-refs-hidden');
+        markLawRefs(host, { laws: true });
+        void host.offsetWidth; // the marks take their faded state first…
+        frame = window.requestAnimationFrame(() => host.classList.remove('is-refs-hidden')); // …then fade up
+      } else {
+        host.classList.add('is-refs-hidden', 'is-plain');
+        later = window.setTimeout(() => {
+          markLawRefs(host, { laws: false });
+          host.classList.remove('is-refs-hidden');
+        }, REF_FADE_MS);
+      }
+    }, 0);
+    return () => {
+      window.clearTimeout(id); window.clearTimeout(later); window.cancelAnimationFrame(frame);
+      host.classList.remove('is-refs-hidden');
+    };
   }, [renderTick, lawRefs]);
   // ── Going to the clause a reference points at ──────────────────────────
   // "…indicată la pct. 6.1. lit. d)" is a pointer INSIDE the document, and the
@@ -13034,10 +13411,25 @@ function DocxRenderPane({ url, regenTick = 0, ctor = null, restyle = null, docNa
     const numberOf = (el) => opener(NUM_RE, el);
     const letterOf = (el) => opener(LETTER_RE, el);
     const go = (e) => {
+      // A paragraph is picked and this press is OUTSIDE it: the marks there
+      // are not live — the press dismisses the pick (the click handler).
+      if (host.querySelector('.dv-docx-para.is-selected') && !e.target?.closest?.('.dv-docx-para.is-selected')) return;
       // A fiscal code → the company, in the MAIN window's ANAF tab.
-      const cuiMark = e.target?.closest?.('.dv-cuiref[data-cui]');
-      if (cuiMark) {
-        navigateMainWindow(`/anaf?cui=${encodeURIComponent(cuiMark.dataset.cui)}&_=${Date.now()}`);
+      // A HIGHLIGHT answers its own click — never the paragraph it sits in
+      // (stopped here, in the capture phase, before the pick handler's bubble
+      // listener on the host). Not while the paragraph is being typed in: a
+      // click there places the caret.
+      const inEdit = !!e.target?.closest?.('[contenteditable], .dv-docx-livecard');
+      // An act / code, a CAEN code or a CUI: its tooltip EXPANDS into a card
+      // (DocParaPill — `host.__openRefCard`), whose Search opens it in a new
+      // Legislation tab. With no pill to expand (paragraph tools off) the
+      // click opens it straight away.
+      const linkMark = !inEdit && e.target?.closest?.('.dv-cuiref[data-cui], .dv-lawref, .dv-caenref[data-href]');
+      if (linkMark) {
+        e.preventDefault();
+        e.stopPropagation();
+        if (host.__openRefCard) { host.__openRefCard(linkMark, e); return; }
+        navigateMainWindow(refSearchHref(linkMark));
         focusMainWindow();
         return;
       }
@@ -13095,14 +13487,14 @@ function DocxRenderPane({ url, regenTick = 0, ctor = null, restyle = null, docNa
     // only reach the piece under the pointer, and a reference lighting up by
     // halves reads as two references.
     //
-    // Arriving somewhere is the other half of pressing it. The clause is lit
-    // and PULSES (`.is-xref-target`, the keyframes in DocViewer.css), because a
-    // page of legal prose gives the eye nothing to land on and a smooth scroll
-    // ends without saying where. The pulse is answered by the reader, not by a
-    // timer: hovering the clause stops it dead (pure CSS) and moving away again
-    // puts the page back as it was — they have found it, so there is nothing
-    // left to point at. A reader who never goes near it is not left with a
-    // paragraph breathing at them for ever either; `XREF_LIT_MS` gives up.
+    // Arriving somewhere is the other half of pressing it. Everything but the
+    // clause (and the item named) FADES BACK (`.has-xref-focus` on the host,
+    // `.is-xref-target` on what stays — DocViewer.css), because a page of legal
+    // prose gives the eye nothing to land on and a smooth scroll ends without
+    // saying where. It is answered by the reader, not by a timer: being over
+    // the clause and moving away again puts the page back as it was — they
+    // have found it. A reader who never goes near it is not left with a faded
+    // document for ever either; `XREF_LIT_MS` gives up.
     const paint = (from, cls, on) => {
       const id = from?.dataset?.refId;
       if (!id) return;
@@ -13113,15 +13505,27 @@ function DocxRenderPane({ url, regenTick = 0, ctor = null, restyle = null, docNa
     let lit = [];        // what a jump landed on — the clause and its item
     let litSeen = false; // …and whether the reader has been over any of it since
     let litTimer = 0;
+    let leaveTimer = 0;
     const unlight = () => {
       if (litTimer) { window.clearTimeout(litTimer); litTimer = 0; }
       for (const el of lit) el.classList.remove('is-xref-target', 'is-xref-exact');
+      if (host.classList.contains('has-xref-focus')) {
+        // Keep the opacity transition for the fade back, then drop it.
+        host.classList.add('is-xref-leaving');
+        window.clearTimeout(leaveTimer);
+        leaveTimer = window.setTimeout(() => host.classList.remove('is-xref-leaving'), 300);
+      }
+      host.classList.remove('has-xref-focus');
       lit = [];
       litSeen = false;
     };
+    host.__dismissXref = unlight;
     const light = (els, exact) => {
       unlight();
       lit = els;
+      // Everything else fades back (DocViewer.css .has-xref-focus); the clause
+      // and its item stand at full strength.
+      host.classList.add('has-xref-focus');
       for (const el of els) {
         el.classList.add('is-xref-target');
         if (el === exact) el.classList.add('is-xref-exact');
@@ -13161,6 +13565,9 @@ function DocxRenderPane({ url, regenTick = 0, ctor = null, restyle = null, docNa
       paint(hot, 'is-hot', false);
       paint(held, 'is-press', false);
       unlight();
+      window.clearTimeout(leaveTimer);
+      host.classList.remove('is-xref-leaving');
+      if (host.__dismissXref === unlight) delete host.__dismissXref;
     };
   }, [renderTick]);
 
@@ -13309,6 +13716,25 @@ function DocxRenderPane({ url, regenTick = 0, ctor = null, restyle = null, docNa
     // the browser's own.
     if (paraOff) return undefined;
 
+    // A CLICK ON THE BACKGROUND dismisses EVERY selection: the picked
+    // paragraph(s) (and with them the zoom), a cross-reference's landing
+    // (the jump handler's `host.__dismissXref`), and selected text. An open
+    // highlight card closes on the same press (the morph pill's outside click).
+    const dismissAll = () => {
+      clearParas();
+      host.__dismissXref?.();
+      const sel = window.getSelection();
+      if (sel && !sel.isCollapsed) sel.removeAllRanges();
+    };
+    // The background OUTSIDE the pages (the pane's grey ground) — anything
+    // that is not a page, nor one of the pane's controls.
+    const pane = host.parentElement;
+    const PANE_CONTROLS = 'button, a, input, textarea, select, [role="button"], [contenteditable], .dv-docx-liftpanel, .dv-docx-livecard, .dv-pagerail, .dv-docpill, .dv-find, .dv-docx-counter';
+    const onPaneClick = (e) => {
+      if (host.contains(e.target)) return; // the pages' own handler (onClick)
+      if (e.target.closest?.(PANE_CONTROLS)) return;
+      dismissAll();
+    };
     const onClick = (e) => {
       if (e.target.closest?.('.dv-docx-livecard')) return; // the preview copy's inputs
       const para = blockAt(e.target);
@@ -13317,7 +13743,14 @@ function DocxRenderPane({ url, regenTick = 0, ctor = null, restyle = null, docNa
       // mouseup below.
       const sel = window.getSelection();
       if (sel && !sel.isCollapsed && sel.toString().trim()) return;
-      if (!para) { clearParas(); return; } // clicking the page margin drops the pick
+      if (!para) { dismissAll(); return; } // clicking the page margin drops every selection
+      // With a paragraph picked, no other paragraph answers a plain click: a
+      // click OUTSIDE the picked one dismisses it, a click inside keeps it.
+      // (Shift / Ctrl / ⌘ clicks still extend or change the pick.)
+      if (!e.shiftKey && !e.metaKey && !e.ctrlKey && host.querySelector('.dv-docx-para.is-selected')) {
+        if (!e.target.closest?.('.dv-docx-para.is-selected')) dismissAll();
+        return;
+      }
       // Already editable: a PLAIN click is the user aiming the caret inside
       // their own text — toggling here would deselect it mid-sentence. Modifier
       // clicks still mean "change the pick".
@@ -13397,6 +13830,7 @@ function DocxRenderPane({ url, regenTick = 0, ctor = null, restyle = null, docNa
 
     host.addEventListener('mousedown', onDown);
     host.addEventListener('click', onClick);
+    pane?.addEventListener('click', onPaneClick);
     host.addEventListener('input', onInput);
     host.addEventListener('paste', onPaste);
     host.addEventListener('keydown', onEditKey);
@@ -13404,6 +13838,7 @@ function DocxRenderPane({ url, regenTick = 0, ctor = null, restyle = null, docNa
     return () => {
       host.removeEventListener('mousedown', onDown);
       host.removeEventListener('click', onClick);
+      pane?.removeEventListener('click', onPaneClick);
       host.removeEventListener('input', onInput);
       host.removeEventListener('paste', onPaste);
       host.removeEventListener('keydown', onEditKey);
@@ -13860,11 +14295,11 @@ function DocxRenderPane({ url, regenTick = 0, ctor = null, restyle = null, docNa
       },
       {
         id: 'law-refs',
-        label: 'Laws',
+        label: 'Highlights',
         tooltip: lawRefs
-          ? 'Stop marking the acts this document cites (CAEN codes and cross-references stay marked)'
-          : 'Mark every law, ordinance and article this document cites',
-        icon: LawRefsGlyph,
+          ? 'Hide the highlights — the laws, CAEN codes, CUIs, cross-references and empty fields marked in this document'
+          : 'Show the highlights — every law, CAEN code, CUI and cross-reference this document cites, and its empty fields',
+        icon: lawRefs ? EyeOpenGlyph : EyeClosedGlyph,
         pressed: lawRefs,
         onClick: toggleLawRefs,
       },
@@ -13949,6 +14384,7 @@ function DocxRenderPane({ url, regenTick = 0, ctor = null, restyle = null, docNa
 
   return (
     <div className="dv-docview">
+      {PICK_POP_OUT && (<>
       <Tooltip content="Close (Esc)">
         <button
           type="button"
@@ -14026,6 +14462,7 @@ function DocxRenderPane({ url, regenTick = 0, ctor = null, restyle = null, docNa
           </svg>
         </button>
       </div>
+      </>)}
       {/* The Constructor's controls for the picked paragraph — its party, its
           blanks, its autofill suggestions — docked under the lifted card by
           layoutLift. Outside the scroller and above the veil, like the close
@@ -14037,7 +14474,7 @@ function DocxRenderPane({ url, regenTick = 0, ctor = null, restyle = null, docNa
           clause it rewrites are then one thing to look at, and the dock rides
           the camera with the paragraph. The side panel's slot collapses when
           nothing is portalled into it (`.dv-advisor-ctorslot:empty`). */}
-      {((ctorHit && ctor) || paraLawRefs.length > 0) && (
+      {(PICK_POP_OUT || PICK_DOCK) && ((ctorHit && ctor) || paraLawRefs.length > 0) && (
         <div className="dv-docx-liftpanel" ref={setLiftPanel}>
           {ctorHit && ctor && (
           <DocParagraphConstructor
@@ -14054,6 +14491,7 @@ function DocxRenderPane({ url, regenTick = 0, ctor = null, restyle = null, docNa
             runStyle={liveSnapRef.current?.run || null}
             versionPreview={hoverVer}
             optionsSlot={null}
+            onApply={clearParas}
             originalHtml={liveSnapRef.current?.el?.innerHTML || ''}
           />
           )}
@@ -14100,7 +14538,7 @@ function DocxRenderPane({ url, regenTick = 0, ctor = null, restyle = null, docNa
           hostRef={hostRef}
           tick={renderTick}
           themeId={docTheme}
-          locked={paras.length > 0}
+          locked={PICK_POP_OUT && paras.length > 0}
           hidden={!showRail || paras.length > 0 || !!adv?.focusMode}
         />
       )}
@@ -16405,6 +16843,11 @@ function DocPane({ file, onWhatsAppDetected, onRenamed, sidePanelSlot = null, si
     () => ({ zoom: pdfZoom, rail: pdfRail && !adv?.focusMode, fitTick: pdfFitTick, pageNums: pdfPageNums }),
     [pdfZoom, pdfRail, pdfFitTick, pdfPageNums, adv?.focusMode],
   );
+  // HIGHLIGHTS on a PDF's text (the eye) — the same device preference as a
+  // Word file's and a picture's; `pdfRefsHost` holds the preview, whose text
+  // layers PdfRefMarks marks and whose marks RefCardPill answers.
+  const [pdfLawRefs, setPdfLawRefs] = useState(loadLawRefsPref);
+  const pdfRefsHost = useRef(null);
   const pdfActions = useMemo(() => (kind === 'pdf' ? [{
     id: 'page-rail',
     label: 'Pages',
@@ -16426,6 +16869,15 @@ function DocPane({ file, onWhatsAppDetected, onRenamed, sidePanelSlot = null, si
     pressed: pdfPageNums,
     onClick: () => setPdfPageNums((v) => !v),
   }, {
+    id: 'law-refs',
+    label: 'Highlights',
+    tooltip: pdfLawRefs
+      ? 'Hide the highlights — the laws, CAEN codes and CUIs marked in this PDF'
+      : 'Show the highlights — every law, CAEN code and CUI this PDF cites',
+    icon: pdfLawRefs ? EyeOpenGlyph : EyeClosedGlyph,
+    pressed: pdfLawRefs,
+    onClick: () => setPdfLawRefs((on) => { saveLawRefsPref(!on); return !on; }),
+  }, {
     // The same mode as a Word file's, driven from the same shell state — a
     // reader stepping between a contract and the PDF it was exported to should
     // not find focus behaving differently in one of them.
@@ -16442,7 +16894,7 @@ function DocPane({ file, onWhatsAppDetected, onRenamed, sidePanelSlot = null, si
     icon: ToPdfGlyph,
     pressed: !!pdfJob,
     onClick: () => setPdfAsk('word'),
-  }] : []), [kind, pdfJob, pdfRail, pdfZoom, stepPdfZoom, pdfPageCount, pdfPageNums, adv?.focusMode, adv?.toggleFocus]);
+  }] : []), [kind, pdfJob, pdfRail, pdfZoom, stepPdfZoom, pdfPageCount, pdfPageNums, pdfLawRefs, adv?.focusMode, adv?.toggleFocus]);
 
   // Extract text from a legacy .doc (binary parsed in the main process).
   useEffect(() => {
@@ -16581,6 +17033,15 @@ function DocPane({ file, onWhatsAppDetected, onRenamed, sidePanelSlot = null, si
   // draft and the chosen view, so it stays mounted and re-keys only the preview
   // inside it.
   if (content && kind !== 'docx') content = React.cloneElement(content, { key: `pv-${regenTick}` });
+  if (content && kind === 'pdf') {
+    content = (
+      <div ref={pdfRefsHost} className="dv-pdf-refs" key={`pr-${regenTick}`}>
+        {content}
+        <PdfRefMarks hostRef={pdfRefsHost} laws={pdfLawRefs} />
+        {pdfLawRefs && <RefCardPill hostRef={pdfRefsHost} />}
+      </div>
+    );
+  }
 
   return (
     <div className={bodyClass}>
@@ -16636,10 +17097,10 @@ function SidebarScrollbar({ scrollRef, refreshKey }) {
     if (!el) return;
     const { scrollTop, scrollHeight, clientHeight } = el;
     if (scrollHeight <= clientHeight + 1) { setThumb(null); return; }
-    setThumb({
-      top: (scrollTop / scrollHeight) * 100,
-      height: (clientHeight / scrollHeight) * 100,
-    });
+    const top = (scrollTop / scrollHeight) * 100;
+    const height = (clientHeight / scrollHeight) * 100;
+    // Unchanged (a resize that moved nothing) → no re-render.
+    setThumb((t) => (t && t.top === top && t.height === height ? t : { top, height }));
   }, [scrollRef]);
 
   useLayoutEffect(() => { recompute(); }, [recompute, refreshKey]);
@@ -17841,36 +18302,32 @@ export default function DocViewer() {
     return () => el.removeEventListener('mousedown', onDown, true);
   }, []);
 
-  // Advisor-card cursor spotlight. A CALLBACK ref (not a useRef + [] effect): the
-  // aside only mounts once a file is active (there's an early `return` above for
-  // the empty state) and it can remount when the file changes, so an effect that
-  // reads the ref once on mount would attach to a null node and never re-try —
-  // leaving the glow frozen at its 50%/50% default. The callback re-runs on every
-  // mount/unmount, so the listener tracks the live node.
-  // It MUST be a NATIVE listener: the side panel is createPortal'd into
-  // .dv-advisor-slot, so React synthetic events bubble along the *React* tree
-  // (where the portalled content's parent is the panel, NOT this <aside>) and
-  // never reach a synthetic handler here — the cursor would only register on the
-  // card's own border. Native events follow the real DOM tree, where the portal
-  // nodes are genuine descendants of the aside, so this fires everywhere inside.
-  const advisorSpotCleanup = useRef(null);
-  const advisorCardRef = useCallback((node) => {
-    if (advisorSpotCleanup.current) { advisorSpotCleanup.current(); advisorSpotCleanup.current = null; }
-    if (!node) return;
-    const onMove = (e) => {
-      const r = node.getBoundingClientRect();
-      // Layout-space CSS lengths (identity at base zoom 1; toLayoutPx compensates
-      // the web display-scale).
-      node.style.setProperty('--spot-x', `${toLayoutPx(e.clientX - r.left)}px`);
-      node.style.setProperty('--spot-y', `${toLayoutPx(e.clientY - r.top)}px`);
-    };
-    node.addEventListener('mousemove', onMove);
-    advisorSpotCleanup.current = () => node.removeEventListener('mousemove', onMove);
-  }, []);
+  // Advisor-card cursor spotlight (--spot-x/y on the card, layout px). Written
+  // by the app's one pointer (lib/pointerSpots), which judges by the DOM
+  // element under the pointer — so it covers the side panel too, which is
+  // createPortal'd into .dv-advisor-slot and so never bubbles a React event
+  // to this <aside> — and finds the card by its class every frame, so a card
+  // that remounts with the file is followed without re-binding anything.
 
   const active = tabs.find((t) => t.id === activeId) || tabs[0] || null;
   // A different file has different blanks — never carry the mode across.
   useEffect(() => { setCompleting(false); }, [active?.id]);
+
+  // What the app knows about the file (AI data, captions, metadata, the
+  // advisor thread…) lives in the project index and is read synchronously
+  // from its in-memory copy (lib/projectIndexClient), so the panes wait for
+  // this file to be hydrated before their first read. Capped: a main that
+  // doesn't answer must never keep the document from opening.
+  const [hydratedPath, setHydratedPath] = useState(null);
+  useEffect(() => {
+    const path = active?.path;
+    if (!path) return undefined;
+    let cancelled = false;
+    const done = () => { if (!cancelled) setHydratedPath(path); };
+    const cap = window.setTimeout(done, 2500);
+    hydratePath(path).catch(() => {}).then(done);
+    return () => { cancelled = true; window.clearTimeout(cap); };
+  }, [active?.path]);
 
   // Tell the title bar which file this is. It can't read it from the URL: a
   // pre-warmed window boots without one, and a generated document changes name
@@ -17933,6 +18390,13 @@ export default function DocViewer() {
       </div>
     ) : (
       <div className="dv-page dv-page-empty">No file to display.</div>
+    );
+  }
+  if (hydratedPath !== active.path) {
+    return (
+      <div className="dv-page dv-page-empty">
+        <span className="dv-boot-spinner" aria-label="Opening document" />
+      </div>
     );
   }
 
@@ -18074,7 +18538,6 @@ export default function DocViewer() {
             {/* Multitool panel — hosts the active file's tabbed side panel,
                 portalled into the slot below by its pane. No chrome header. */}
             <aside
-              ref={advisorCardRef}
               className={`dv-advisor-card${selectedWindow === 'multitool' ? ' is-selected' : ''}`}
               style={{ width: `${advisorW}px` }}
               data-dvwin="multitool"
@@ -18146,7 +18609,7 @@ export default function DocViewer() {
 export const QUICK_ACTIONS_ALL = [
   { id: 'page-rail', label: 'Pages', icon: PagesRailGlyph, why: 'Only for documents with pages — a Word file or a PDF' },
   { id: 'zoom-fit', label: 'Fit', icon: FitViewGlyph, why: 'Only for documents with pages — a Word file or a PDF' },
-  { id: 'law-refs', label: 'Laws', icon: LawRefsGlyph, why: 'For Word files, and pictures once their text is extracted' },
+  { id: 'law-refs', label: 'Highlights', icon: EyeOpenGlyph, why: 'For Word files, and pictures once their text is extracted' },
   { id: 'scan-doc', label: 'Scan', icon: ScanDocGlyph, why: 'Only for pictures' },
   { id: 'edit-photo', label: 'Edit', icon: EditPhotoGlyph, why: 'Only for pictures' },
   { id: 'extract-text', label: 'Extract text', icon: ExtractTextGlyph, why: 'Only for pictures' },

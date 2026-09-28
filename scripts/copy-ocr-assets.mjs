@@ -10,7 +10,14 @@
 //
 // Runs on `npm install` (postinstall). public/ocr/ is gitignored: ~13 MB of
 // third-party binaries that node_modules already pins by version.
-import { copyFileSync, existsSync, mkdirSync, statSync } from 'node:fs';
+//
+// It also puts the MAIN engine in place — PaddleOCR PP-OCRv6 (small), run by
+// ONNX Runtime Web: the runtime's WebAssembly is copied to public/ocr/ort/, and
+// the two models (text detection + recognition, Apache-2.0, ~31 MB) are
+// DOWNLOADED once from PaddlePaddle's own Hugging Face repositories into
+// public/ocr/paddle/ (npm doesn't carry them). A failed download only warns:
+// the app then falls back to Tesseract.
+import { copyFileSync, existsSync, mkdirSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -41,3 +48,41 @@ for (const [from, name] of files) {
   copied += 1;
 }
 console.log(`[ocr-assets] ${copied} copied, ${files.length - copied - missing} up to date${missing ? `, ${missing} MISSING` : ''} → public/ocr/`);
+
+// ── PaddleOCR PP-OCRv6 small (lib/textRegions.js) ─────────────────────────
+const ortOut = join(out, 'ort');
+mkdirSync(ortOut, { recursive: true });
+for (const name of ['ort-wasm-simd-threaded.wasm', 'ort-wasm-simd-threaded.mjs']) {
+  const from = nm('onnxruntime-web', 'dist', name);
+  const to = join(ortOut, name);
+  if (!existsSync(from)) { console.warn(`[ocr-assets] missing: ${from}`); continue; }
+  if (!existsSync(to) || statSync(to).size !== statSync(from).size) copyFileSync(from, to);
+}
+
+const HF = 'https://huggingface.co';
+const MODELS = [
+  // [url, file, minimum size — a truncated download is fetched again]
+  [`${HF}/PaddlePaddle/PP-OCRv6_small_det_onnx/resolve/main/inference.onnx`, 'det.onnx', 9_000_000],
+  [`${HF}/PaddlePaddle/PP-OCRv6_small_rec_onnx/resolve/main/inference.onnx`, 'rec.onnx', 20_000_000],
+  // The recogniser's character list (18,708 entries — ă â î ș ț among them),
+  // one per line, in the order of the model's output classes.
+  [`${HF}/x3zvawq/paddleocr-js-onnx/resolve/main/ppocr_v6_small/ppocrv6_dict.txt`, 'dict.txt', 70_000],
+];
+const paddleOut = join(out, 'paddle');
+mkdirSync(paddleOut, { recursive: true });
+let fetched = 0;
+for (const [url, name, min] of MODELS) {
+  const to = join(paddleOut, name);
+  if (existsSync(to) && statSync(to).size >= min) continue;
+  try {
+    const res = await fetch(url, { redirect: 'follow' });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const buf = Buffer.from(await res.arrayBuffer());
+    if (buf.length < min) throw new Error(`only ${buf.length} bytes`);
+    writeFileSync(to, buf);
+    fetched += 1;
+  } catch (err) {
+    console.warn(`[ocr-assets] couldn't download ${name} (${err?.message || err}) — text extraction falls back to Tesseract until it is.`);
+  }
+}
+console.log(`[ocr-assets] PaddleOCR: ${fetched} model file(s) downloaded → public/ocr/paddle/`);

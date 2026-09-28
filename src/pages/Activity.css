@@ -1,4 +1,4 @@
-﻿/* Activity feed — restyled to mirror the Events timeline tab (ProjectEvents):
+/* Activity feed — restyled to mirror the Events timeline tab (ProjectEvents):
    the same editorial masthead, the same frosted sticky 40px toolbar that pins
    as the mini header, and the same day-grouped vertical-rail timeline. The
    one deliberate divergence: each row's rail marker is the NOTIFICATION'S OWN
@@ -405,7 +405,7 @@
   display: grid; place-items: center;
   opacity: 0;
   pointer-events: none;
-  transition: color 120ms, background 120ms, opacity 120ms;
+  transition: background 120ms, opacity 120ms;
 }
 .avt-item:hover .avt-dismiss,
 .avt-dismiss:focus-visible {

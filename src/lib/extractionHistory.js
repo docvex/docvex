@@ -1,14 +1,20 @@
 // Per-file history of "Extract text" snippets from the DocViewer's photo/video
 // pane. Each entry pairs a small thumbnail of the selected region with the
-// text the AI read from it, persisted to localStorage keyed by the file's
-// on-disk path so reopening the same file restores the history.
+// text the AI read from it, kept per file so reopening the same file restores
+// the history.
+//
+// WHERE IT LIVES: the project index, knowledge kind `extraction` (see
+// lib/projectIndexClient) — tied to the file's content and carried with the
+// case in `.docvex/knowledge/`. The localStorage key is the old home: still read
+// for a file the index hasn't answered for, still written without main, and
+// moved across on first hydration.
+import { peekFacet, putFacet, clearFacet, cachedEntries, indexAvailable, normPath } from './projectIndexClient';
 
 const KEY_PREFIX = 'docvex:doc-viewer:ocr-history:';
 const MAX_ENTRIES = 30;
 
 // Exposed so other surfaces (the AI section's "Extractions" tab) can recognise
-// our localStorage keys — e.g. to refresh on the cross-window `storage` event
-// fired when the Doc Viewer window saves a new snippet.
+// our localStorage keys — e.g. to refresh on the cross-window `storage` event.
 export const OCR_HISTORY_PREFIX = KEY_PREFIX;
 
 // Basename of an on-disk path (handles both / and \ separators).
@@ -29,9 +35,7 @@ function safeRemove(key) {
   try { localStorage.removeItem(key); return true; } catch { return false; }
 }
 
-// Returns [{ id, thumb (data URL), text, createdAt }], newest first.
-export function loadOcrHistory(filePath) {
-  if (!filePath) return [];
+function loadLegacy(filePath) {
   const raw = safeRead(KEY_PREFIX + filePath);
   if (!raw) return [];
   try {
@@ -42,30 +46,60 @@ export function loadOcrHistory(filePath) {
   }
 }
 
-export function saveOcrHistory(filePath, entries) {
-  if (!filePath) return false;
-  if (!entries || entries.length === 0) return safeRemove(KEY_PREFIX + filePath);
-  return safeWrite(KEY_PREFIX + filePath, JSON.stringify(entries.slice(0, MAX_ENTRIES)));
+// Returns [{ id, thumb (data URL), text, createdAt }], newest first.
+export function loadOcrHistory(filePath) {
+  if (!filePath) return [];
+  const facet = peekFacet(filePath, 'extraction');
+  if (facet && Array.isArray(facet.data) && facet.data.length) return facet.data;
+  return loadLegacy(filePath);
 }
 
-// Enumerate every file that has saved OCR snippets, scanning localStorage for
-// the per-file history keys. Returns [{ filePath, fileName, entries, count }],
-// most-recently-updated first (by the newest entry's createdAt). Used by the
-// AI section's "Extractions" tab to build its "All files" sidebar.
+export function saveOcrHistory(filePath, entries) {
+  if (!filePath) return false;
+  if (!entries || entries.length === 0) {
+    const had = indexAvailable() && clearFacet(filePath, 'extraction');
+    return safeRemove(KEY_PREFIX + filePath) || had;
+  }
+  const list = entries.slice(0, MAX_ENTRIES);
+  const facet = {
+    kind: 'extraction',
+    at: Math.max(Date.now(), ...list.map((e) => Number(e?.createdAt) || 0)),
+    engine: 'claude',
+    paid: true,
+    data: list,
+  };
+  const writeLegacy = () => safeWrite(KEY_PREFIX + filePath, JSON.stringify(list));
+  if (putFacet({ path: filePath }, 'extraction', facet, { onFail: writeLegacy })) {
+    safeRemove(KEY_PREFIX + filePath);
+    return true;
+  }
+  return writeLegacy();
+}
+
+// Enumerate every file that has saved OCR snippets — the index's copy (the
+// files hydrated in this window) and any localStorage keys not moved yet.
+// Returns [{ filePath, fileName, entries, count }], most-recently-updated
+// first (by the newest entry's createdAt).
 export function listOcrHistories() {
-  const out = [];
+  const byPath = new Map();
   try {
     for (let i = 0; i < localStorage.length; i++) {
       const key = localStorage.key(i);
       if (!key || !key.startsWith(KEY_PREFIX)) continue;
       const filePath = key.slice(KEY_PREFIX.length);
-      const entries = loadOcrHistory(filePath);
-      if (!entries.length) continue;
-      out.push({ filePath, fileName: fileNameFromPath(filePath), entries, count: entries.length });
+      const entries = loadLegacy(filePath);
+      if (entries.length) byPath.set(normPath(filePath), { filePath, entries });
     }
   } catch {
     /* private mode / quota — return whatever we gathered */
   }
+  for (const e of cachedEntries()) {
+    const list = e.facets.extraction?.data;
+    if (Array.isArray(list) && list.length) byPath.set(normPath(e.path), { filePath: e.path, entries: list });
+  }
+  const out = [...byPath.values()].map(({ filePath, entries }) => ({
+    filePath, fileName: fileNameFromPath(filePath), entries, count: entries.length,
+  }));
   out.sort((a, b) => (b.entries[0]?.createdAt || 0) - (a.entries[0]?.createdAt || 0));
   return out;
 }

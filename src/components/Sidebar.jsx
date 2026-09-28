@@ -7,11 +7,13 @@ import { useUpdates } from '../context/UpdatesContext';
 import { accountIdentity } from '../lib/account';
 import { AiUsageBar } from './AiUsageMeter';
 import { useAccountMenu } from './AccountMenu';
-import { isElectron, isLocalhostWeb, openExternal, listDocViewerTabs, onDocViewerTabs, focusDocViewerTab, closeDocViewerTab, openTabWindow, canOpenTabWindow, isTabWindow, listTabWindows, onTabWindows, focusTabWindow, dockTabWindow } from '../lib/platform';
+import { isElectron, openExternal, listDocViewerTabs, onDocViewerTabs, focusDocViewerTab, closeDocViewerTab, openTabWindow, canOpenTabWindow, isTabWindow, listTabWindows, onTabWindows, focusTabWindow, dockTabWindow } from '../lib/platform';
 import { supabase } from '../lib/supabaseClient';
 import { toLayoutPx } from '../lib/appZoom';
 import { hasNewBrief, onNewsletterChanged } from '../lib/legalFeed';
 import { LEGAL_TAB_PATHS, LEGAL_TABS } from './LegalTabs';
+import './RefPill.css';
+import { subscribeChats, chatsState, bindChats, selectChat, closeChat, openNewChat, moveChat, isBlankChat, chatMeta } from '../lib/advisorChats';
 import { subscribeBrowser, browserState, curPage, pageMeta, selectTab, closeTab, openSearch, isSearchTab, moveTab, flushBrowser } from '../lib/legalBrowser';
 import { prefetchProjects } from '../lib/projectListPrefetch';
 import { preloadProjectList } from '../AppRoutes';
@@ -20,6 +22,9 @@ import { useMorphPill } from './useMorphPill';
 import FileThumbnail from './FileThumbnail';
 import { glyphForFile } from './fileGlyph';
 import './Sidebar.css';
+import { perfAllows } from '../lib/perf';
+import { subscribePointer } from '../lib/pointer';
+import { useAnyScanRunning, useScanOutcome } from '../lib/scanRunner';
 
 // localfile:// URL for an on-disk path so the Open-files rows can show real
 // thumbnails (same scheme the Files page uses). Web paths (web://…) and the
@@ -53,15 +58,6 @@ const AllProjectsIcon = (
     <rect x="14" y="3" width="7" height="7" rx="1.5" />
     <rect x="3" y="14" width="7" height="7" rx="1.5" />
     <rect x="14" y="14" width="7" height="7" rx="1.5" />
-  </svg>
-);
-
-// Globe — the web build's lead rail item: back out to the marketing website.
-const WebsiteIcon = (
-  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-    <circle cx="12" cy="12" r="9" />
-    <path d="M3 12h18" />
-    <path d="M12 3a13.4 13.4 0 0 1 0 18 13.4 13.4 0 0 1 0-18Z" />
   </svg>
 );
 
@@ -231,6 +227,41 @@ const canPopOut = canOpenTabWindow && !isTabWindow;
 // hovering shows its name as the custom tooltip; a RIGHT-CLICK morphs that
 // tooltip into a menu — Open, and Pop out (the tab in a window of its own,
 // main window only). The host is display: contents, so it adds no box.
+const ADVISOR_OPEN_KEY = 'docvex.sidebar.advisorOpen';
+// An Advisor chat's hover pill — the same highlight pill: what it is, its
+// title, the last thing said in it, what a click does.
+function chatTabPill(t, m) {
+  const last = [...(t.messages || [])].reverse().find((x) => String(x.text || '').trim());
+  const said = last ? String(last.text).replace(/```[\s\S]*?```/g, '').replace(/\s+/g, ' ').trim() : '';
+  return (
+    <span className="dv-refpill" style={{ '--refpill-tone': t.unreadAt ? 'var(--success)' : 'var(--accent)' }}>
+      <span className="dv-refpill-kind">{t.unreadAt ? 'Advisor · new reply' : m.kind}</span>
+      <span className="dv-refpill-head">{m.title}</span>
+      {said ? <span className="dv-refpill-line">{last.who === 'me' ? 'You: ' : ''}{said.length > 140 ? `${said.slice(0, 140)}…` : said}</span> : null}
+      <span className="dv-refpill-act">Click to open · right-click for more</span>
+    </span>
+  );
+}
+
+// A Legislation tab's hover pill — the DOC VIEWER'S highlight pill
+// (components/RefPill.css, `refPill` in pages/DocViewer.jsx): the platform in
+// its colour, the item's name, what it is, what a click does.
+function legalTabPill(m, page) {
+  const loaded = page?.loaded || null;
+  const head = loaded?.title || m.title || 'New tab';
+  const kind = loaded?.kind || m.ownKind || m.kind || '';
+  const shownAs = loaded?.title && m.title && loaded.title !== m.title ? m.title : '';
+  return (
+    <span className="dv-refpill" style={{ '--refpill-tone': m.tone || 'var(--accent)' }}>
+      <span className="dv-refpill-kind">{m.siteName || m.site || 'DocVex'}</span>
+      <span className="dv-refpill-head">{head}</span>
+      {kind ? <span className="dv-refpill-line">{kind}</span> : null}
+      {shownAs ? <span className="dv-refpill-line">Opened as “{shownAs}”</span> : null}
+      <span className="dv-refpill-act">Click to open · right-click for more</span>
+    </span>
+  );
+}
+
 function TabMenuPill({ hover, onOpen, popRoute, popTitle, onBeforePop, children }) {
   const morph = useMorphPill({
     hoverContent: hover,
@@ -327,7 +358,57 @@ function FadeText({ className, children }) {
   return <span ref={ref} className={className}>{children}</span>;
 }
 
-export default function Sidebar({ collapsed = false, offstage = false, onHubNav }) {
+// The account row at the rail's foot, in a component of its own: its hover
+// card is a morph pill that sets state on EVERY mouse move over the row, and
+// while the hook lived in Sidebar each of those moves re-rendered the whole
+// rail. Now only this row re-renders as the pointer crosses it.
+function SidebarAccount({ session, selectedProjectId, onSettings, onLogout, loggingOut }) {
+  // Account identity for the footer row (avatar + name + email).
+  const {
+    name: accountName, email: accountEmail, avatarUrl: accountAvatarUrl, initial: accountInitial,
+  } = accountIdentity(session);
+
+  // The account row: HOVER shows a card with the account and the selected
+  // project's AI usage this month; CLICK morphs that card into a menu — Account
+  // settings, Log out (which asks first, in the same pill). Shared with the Doc
+  // Viewer's title-bar avatar (components/AccountMenu).
+  const { aiUsage, pill: accountPill } = useAccountMenu({
+    onSettings,
+    onLogout,
+    loggingOut,
+  });
+
+  return (
+    <div className="sidebar-account">
+      <button
+        type="button"
+        className={`sidebar-account-main${accountPill.isMenuOpen ? ' is-open' : ''}`}
+        onMouseMove={accountPill.handleMouseMove}
+        onMouseLeave={accountPill.handleMouseLeave}
+        onClick={accountPill.handleOpenMenu}
+        aria-haspopup="menu"
+        aria-expanded={accountPill.isMenuOpen}
+        aria-label={`${accountName} — account menu`}
+      >
+        <span className="sidebar-avatar-wrap">
+          {accountAvatarUrl
+            ? <img className="sidebar-avatar" src={accountAvatarUrl} alt="" referrerPolicy="no-referrer" />
+            : <span className="sidebar-avatar sidebar-avatar-fallback">{accountInitial}</span>}
+        </span>
+        <span className="sidebar-account-id">
+          <span className="sidebar-account-name">{accountName}</span>
+          {accountEmail && <span className="sidebar-account-email">{accountEmail}</span>}
+          {/* The selected project's AI usage this month — the numbers are
+              in the hover card. */}
+          {selectedProjectId && <AiUsageBar usage={aiUsage} className="sidebar-account-usage" />}
+        </span>
+      </button>
+      {accountPill.node}
+    </div>
+  );
+}
+
+function Sidebar({ collapsed = false, offstage = false, onHubNav }) {
   const { session, signOut } = useAuth();
   const navigate = useNavigate();
   const { pathname } = useLocation();
@@ -354,8 +435,18 @@ export default function Sidebar({ collapsed = false, offstage = false, onHubNav 
   // thinking, unread once a reply landed in a non-open conversation. Drives
   // the dot on the Advisor nav item.
   const [advisorActivity, setAdvisorActivity] = React.useState({ busy: false, unread: false });
+  // The Files tab's AI scan runs on when the tab is left (lib/scanRunner): a
+  // spinner at the Files row's right end says it is still going.
+  const scanRunning = useAnyScanRunning();
+  // …and, for a moment after it ends, how it ended: a tick or a red dot.
+  const scanOutcome = useScanOutcome();
   React.useEffect(() => {
-    const onEvt = (e) => setAdvisorActivity((s) => ({ ...s, ...(e.detail || {}) }));
+    // Keep the same object when nothing changed, so a repeated signal (the page
+    // re-announcing "busy") doesn't re-render the whole rail.
+    const onEvt = (e) => setAdvisorActivity((s) => {
+      const next = { ...s, ...(e.detail || {}) };
+      return Object.keys(next).every((k) => next[k] === s[k]) && Object.keys(s).length === Object.keys(next).length ? s : next;
+    });
     window.addEventListener('docvex:advisor-activity', onEvt);
     return () => window.removeEventListener('docvex:advisor-activity', onEvt);
   }, []);
@@ -385,21 +476,6 @@ export default function Sidebar({ collapsed = false, offstage = false, onHubNav 
     const off = onNewsletterChanged(check);
     return () => { cancelled = true; off(); };
   }, [session?.user?.id]);
-
-  // Account identity for the footer row (avatar + name + email).
-  const {
-    name: accountName, email: accountEmail, avatarUrl: accountAvatarUrl, initial: accountInitial,
-  } = accountIdentity(session);
-
-  // The account row: HOVER shows a card with the account and the selected
-  // project's AI usage this month; CLICK morphs that card into a menu — Account
-  // settings, Log out (which asks first, in the same pill). Shared with the Doc
-  // Viewer's title-bar avatar (components/AccountMenu).
-  const { aiUsage, pill: accountPill } = useAccountMenu({
-    onSettings: () => navigate('/account'),
-    onLogout: doSignOut,
-    loggingOut: signingOut,
-  });
 
   // Whether the signed-in user is an app admin (the `app_admins` allowlist) —
   // gates the Developer Console (Admin) tab. Probed once per session via the
@@ -446,15 +522,13 @@ export default function Sidebar({ collapsed = false, offstage = false, onHubNav 
     // headed by the project's own name), opening /projects/:id
     // (Overview + Members/Roles/AI/Settings tabs). `end` so it's only active on
     // the exact overview route, not the deeper project surfaces below.
-    // Electron only — the web demo has no members/roles/settings to manage,
-    // so its Project section starts straight at Files.
-    ...(isElectron ? [{
+    {
       to: `/projects/${selectedProjectId}`,
       label: 'Dashboard',
       icon: ProjectSettingsIcon,
       end: true,
-    }] : []),
-    { to: '/files', label: 'Files', icon: FilesIcon },
+    },
+    { to: '/files', label: 'Files', icon: FilesIcon, dot: scanRunning ? 'spin' : scanOutcome === 'ok' ? 'tick' : scanOutcome ? 'fail' : null },
     { to: '/chat', label: 'Chat', icon: ChatIcon },
     { to: '/events', label: 'Timeline', icon: TimelineIcon },
     {
@@ -463,6 +537,8 @@ export default function Sidebar({ collapsed = false, offstage = false, onHubNav 
       icon: AiIcon,
       // Busy = a turn is thinking; done = a reply waits in a conversation.
       dot: advisorActivity.busy ? 'busy' : advisorActivity.unread ? 'done' : null,
+      // Its chats are TABS, listed under it like Legislation's (lib/advisorChats).
+      fold: 'advisor',
     },
     { to: '/roadmap', label: 'Roadmap', icon: RoadmapIcon },
   ] : [];
@@ -500,14 +576,12 @@ export default function Sidebar({ collapsed = false, offstage = false, onHubNav 
 
   // System destinations. Settings is signed-in only (matches where the gear
   // used to live); Admin is app-admin only (is_app_admin probe above); Debug
-  // is dev-only (import.meta.env.DEV is false in packaged + web builds).
+  // is dev-only (import.meta.env.DEV is false in packaged builds).
   const systemItems = [
     ...(session ? [{ to: '/settings', label: 'Settings', icon: GearIcon, end: true }] : []),
     ...(session ? [{ to: '/design', label: 'Design system', icon: SwatchIcon, end: true }] : []),
     ...(session && isAdmin ? [{ to: '/admin', label: 'Admin', icon: AdminIcon, end: true }] : []),
-    // Debug: dev builds, plus the BUILT web app when served from localhost
-    // (import.meta.env.DEV is false there but it's still a dev surface).
-    ...((import.meta.env.DEV || isLocalhostWeb) ? [{ to: '/debug', label: 'Debug', icon: BugIcon, end: true }] : []),
+    ...(import.meta.env.DEV ? [{ to: '/debug', label: 'Debug', icon: BugIcon, end: true }] : []),
   ];
 
   // System section — foldable. Settings is the row anyone actually comes here
@@ -628,6 +702,94 @@ export default function Sidebar({ collapsed = false, offstage = false, onHubNav 
     window.dispatchEvent(new CustomEvent('docvex:legal-listed', { detail: { listed: legalListed } }));
   }, [legalListed]);
 
+  // THE ADVISOR'S dropdown — the Advisor's CHATS as tabs (lib/advisorChats),
+  // the Legislation dropdown's twin to the letter: pinned first, the blank
+  // "New chat" not listed (the Advisor row opens it), drag to reorder, × to
+  // close, the row click opening a new chat while on the Advisor.
+  useEffect(() => { bindChats(session?.user?.id || '_anonymous', selectedProjectId); }, [session?.user?.id, selectedProjectId]);
+  const chats = useSyncExternalStore(subscribeChats, chatsState);
+  const listedChats = chats.threads.filter((t) => !isBlankChat(t));
+  const pinnedChats = listedChats.filter((t) => t.pinned);
+  const openChats = listedChats.filter((t) => !t.pinned);
+  const advisorGroups = [
+    { key: 'pinned', label: 'Pinned', tabs: pinnedChats },
+    { key: 'open', label: pinnedChats.length ? 'Open' : 'Open chats', tabs: openChats },
+  ].filter((g) => g.tabs.length);
+  const advisorCount = listedChats.length;
+  const [advisorOpen, setAdvisorOpen] = useState(() => {
+    try { return localStorage.getItem(ADVISOR_OPEN_KEY) !== '0'; } catch { return true; }
+  });
+  const toggleAdvisor = () => {
+    setAdvisorOpen((v) => {
+      const next = !v;
+      try { localStorage.setItem(ADVISOR_OPEN_KEY, next ? '1' : '0'); } catch { /* ignore */ }
+      return next;
+    });
+  };
+  const [chatDrag, setChatDrag] = useState(null);
+  const chatListRef = useRef(null);
+  const chatDropAt = (y) => {
+    const rows = chatListRef.current ? [...chatListRef.current.querySelectorAll('.nav-cat-row[data-tab-id]')] : [];
+    for (const r of rows) { const b = r.getBoundingClientRect(); if (y < b.top + b.height / 2) return r.dataset.tabId; }
+    return 'end';
+  };
+  const chatFlipFrom = useRef(null);
+  const dropChat = (over) => {
+    const d = chatDrag;
+    setChatDrag(null);
+    if (!d || !over || over === d.id) return;
+    const rows = chatListRef.current ? [...chatListRef.current.querySelectorAll('.nav-cat-row[data-tab-id]')] : [];
+    const from = new Map(rows.map((r) => [r.dataset.tabId, r.getBoundingClientRect().top]));
+    const ids = rows.map((r) => r.dataset.tabId);
+    if (over !== 'end' && ids[ids.indexOf(d.id) + 1] === over) return;
+    if (over === 'end' && ids[ids.length - 1] === d.id) return;
+    chatFlipFrom.current = from;
+    moveChat(d.id, over === 'end' ? null : over);
+  };
+  const chatOrder = chats.threads.map((t) => t.id).join('|');
+  useLayoutEffect(() => {
+    const from = chatFlipFrom.current;
+    chatFlipFrom.current = null;
+    const list = chatListRef.current;
+    if (!from || !list) return;
+    if (document.documentElement.dataset.reduceMotion === 'true') return;
+    const rows = [...list.querySelectorAll('.nav-cat-row[data-tab-id]')];
+    const moved = [];
+    for (const r of rows) {
+      const was = from.get(r.dataset.tabId);
+      if (was == null) continue;
+      const dy = toLayoutPx(was - r.getBoundingClientRect().top);
+      if (Math.abs(dy) < 0.5) continue;
+      r.style.transition = 'none';
+      r.style.transform = `translateY(${dy}px)`;
+      moved.push(r);
+    }
+    if (!moved.length) return;
+    void list.offsetHeight;
+    for (const r of moved) {
+      r.style.transition = 'transform 260ms cubic-bezier(0.16, 1, 0.3, 1)';
+      r.style.transform = '';
+      const done = () => { r.style.transition = ''; r.removeEventListener('transitionend', done); };
+      r.addEventListener('transitionend', done);
+    }
+  }, [chatOrder]);
+  // The Advisor page's rail hands its list over here (`docvex:advisor-list-set`),
+  // and hears back whether the dropdown is listing them (`docvex:advisor-listed`).
+  useEffect(() => {
+    const onSet = (e) => {
+      const next = !!e.detail?.open;
+      setAdvisorOpen(next);
+      try { localStorage.setItem(ADVISOR_OPEN_KEY, next ? '1' : '0'); } catch { /* ignore */ }
+    };
+    window.addEventListener('docvex:advisor-list-set', onSet);
+    return () => window.removeEventListener('docvex:advisor-list-set', onSet);
+  }, []);
+  const advisorListed = advisorOpen && advisorCount > 0;
+  useEffect(() => {
+    window.__docvexAdvisorListed = advisorListed;
+    window.dispatchEvent(new CustomEvent('docvex:advisor-listed', { detail: { listed: advisorListed } }));
+  }, [advisorListed]);
+
   // What survives the fold: Settings alone. Not "the first item" — if Settings
   // is missing (signed out) the section folds to nothing, which is correct.
   const shownSystemItems = systemOpen ? systemItems : systemItems.filter((i) => i.to === '/settings');
@@ -644,7 +806,9 @@ export default function Sidebar({ collapsed = false, offstage = false, onHubNav 
   // Render a single NavLink nav-item from a descriptor (shared by every
   // category group).
   const renderNavItem = ({ to, label, icon, end, badge, pill, dot, onClick, onWarm, activeOn, fold }) => (
-    fold === 'legal' ? renderLegalEntry({ to, label, icon, end, badge, pill, dot, onClick, onWarm, activeOn }) : renderNavItemRow({ to, label, icon, end, badge, pill, dot, onClick, onWarm, activeOn }, null)
+    fold === 'legal' ? renderLegalEntry({ to, label, icon, end, badge, pill, dot, onClick, onWarm, activeOn })
+      : fold === 'advisor' ? renderAdvisorEntry({ to, label, icon, end, badge, pill, dot, onClick, onWarm, activeOn })
+        : renderNavItemRow({ to, label, icon, end, badge, pill, dot, onClick, onWarm, activeOn }, null)
   );
   function renderNavItemRow({ to, label, icon, end, badge, pill, dot, onClick, onWarm, activeOn, notActive }, chev) {
     const name = typeof label === 'string' ? label : '';
@@ -774,7 +938,7 @@ export default function Sidebar({ collapsed = false, offstage = false, onHubNav 
                       {/* The label is the tab's own; what the page LOADED for it (kept
                           for good) is its tooltip. */}
                       <TabMenuPill
-                        hover={m.loadedTip || m.tip || name}
+                        hover={legalTabPill(m, curPage(t))}
                         onOpen={() => selectTab(t.id, legalGo)}
                         popRoute={`${curPage(t).type === 'item' && curPage(t).route ? curPage(t).route : '/legislation'}?ltab=${encodeURIComponent(t.id)}`}
                         popTitle={name}
@@ -817,8 +981,117 @@ export default function Sidebar({ collapsed = false, offstage = false, onHubNav 
     );
   };
 
+  // The Advisor entry — renderLegalEntry's twin, over the chats.
+  const renderAdvisorEntry = (item) => {
+    const chev = advisorCount ? (
+      <Tooltip content={advisorOpen ? 'Hide the open chats' : `Show the open chats (${advisorCount})`}>
+        <span
+          className={`nav-fold-chev${advisorOpen ? ' is-open' : ''}`}
+          role="button"
+          tabIndex={0}
+          aria-expanded={advisorOpen}
+          aria-label={advisorOpen ? 'Hide open chats' : 'Show open chats'}
+          onClick={(e) => { e.preventDefault(); e.stopPropagation(); toggleAdvisor(); }}
+          onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); toggleAdvisor(); } }}
+        >
+          {FoldChevron}
+        </span>
+      </Tooltip>
+    ) : null;
+    const shown = advisorOpen && advisorCount > 0;
+    const selected = pathname === item.to;
+    // ON THE ADVISOR, the row opens a NEW CHAT (the blank one if there is
+    // one); from elsewhere it goes to the Advisor and opens the list.
+    const onRowClick = (e) => {
+      item.onClick?.(e);
+      if (selected) {
+        e.preventDefault();
+        openNewChat();
+        requestAnimationFrame(() => window.dispatchEvent(new Event('docvex:advisor-focus')));
+        return;
+      }
+      if (advisorCount && !advisorOpen) toggleAdvisor();
+    };
+    const openChat = (id) => { selectChat(id); if (pathname !== item.to) navigate(item.to); };
+    const tabOnShow = selected && listedChats.some((t) => t.id === chats.active);
+    return (
+      <div key={item.to} className={`nav-fold${shown ? ' is-cat' : ''}`}>
+        {renderNavItemRow({ ...item, onClick: onRowClick, notActive: tabOnShow }, chev)}
+        {advisorCount > 0 && (
+          <div className={`nav-cat-fold${shown ? ' is-open' : ''}`} inert={!shown} aria-hidden={!shown}>
+          <div className="nav-cat-fold-inner">
+          <div
+            ref={chatListRef}
+            className={`sidebar-cat-items nav-cat-list${chatDrag ? ' is-dragging' : ''}${chatDrag?.over === 'end' ? ' is-drop-end' : ''}`}
+            role="group"
+            aria-label="The Advisor's chats"
+            onDragOver={(e) => {
+              if (!chatDrag) return;
+              e.preventDefault();
+              e.dataTransfer.dropEffect = 'move';
+              const over = chatDropAt(e.clientY);
+              if (over !== chatDrag.over) setChatDrag((d) => (d ? { ...d, over } : d));
+            }}
+            onDrop={(e) => { if (!chatDrag) return; e.preventDefault(); dropChat(chatDropAt(e.clientY)); }}
+          >
+            {advisorGroups.map((g) => (
+              <React.Fragment key={g.key}>
+                <div className="sidebar-cat-label nav-cat-div"><span className="sidebar-cat-text">{g.label}</span></div>
+                {g.tabs.map((t) => {
+                  const m = chatMeta(t, { busy: advisorActivity.busy && chats.active === t.id && pathname === item.to });
+                  const active = selected && chats.active === t.id;
+                  return (
+                    <div
+                      key={t.id}
+                      data-tab-id={t.id}
+                      className={`doc-tab-row nav-sub-row nav-cat-row${chatDrag?.id === t.id ? ' is-dragged' : ''}${chatDrag?.over === t.id && chatDrag.id !== t.id ? ' is-drop' : ''}`}
+                      draggable
+                      onDragStart={(e) => {
+                        e.dataTransfer.effectAllowed = 'move';
+                        try { e.dataTransfer.setData('text/plain', t.id); } catch { /* some hosts refuse */ }
+                        setChatDrag({ id: t.id, over: null });
+                      }}
+                      onDragEnd={() => setChatDrag(null)}
+                    >
+                      <TabMenuPill
+                        hover={chatTabPill(t, m)}
+                        onOpen={() => openChat(t.id)}
+                        popRoute={item.to}
+                        popTitle={m.title}
+                      >
+                        <button
+                          type="button"
+                          className={`nav-item nav-cat-item${active ? ' active' : ''}`}
+                          onClick={() => openChat(t.id)}
+                        >
+                          <span className="label nav-sub-text">
+                            <span className="nav-sub-kind"><FadeText className="nav-cat-kindtext">
+                              <span className="nav-cat-site" style={{ '--tone': t.unreadAt ? 'var(--success)' : m.tone }}>Advisor</span>{m.kind.replace(/^Advisor/, '')}
+                            </FadeText></span>
+                            <FadeText className="nav-sub-title">{m.title}</FadeText>
+                          </span>
+                        </button>
+                      </TabMenuPill>
+                      {!t.pinned ? (
+                        <button type="button" className="doc-tab-close" onClick={() => closeChat(t.id)} aria-label={`Close ${m.title}`}>
+                          {CloseGlyph}
+                        </button>
+                      ) : null}
+                    </div>
+                  );
+                })}
+              </React.Fragment>
+            ))}
+          </div>
+          </div>
+          </div>
+        )}
+      </div>
+    );
+  };
+
   // Cursor-following spotlight: write the pointer position (sidebar-relative,
-  // layout px) into CSS vars on this node so the `.sidebar::before` radial glow
+  // layout px) and moves the rail's light layers (`.sidebar-glow` / `.sidebar-shine`) so the glow
   // tracks the mouse. Scoped to the sidebar element, so the per-move style write
   // only invalidates this subtree (not the whole document).
   // The nav button the cursor was last over — so we can clear its per-button
@@ -832,137 +1105,129 @@ export default function Sidebar({ collapsed = false, offstage = false, onHubNav 
   };
 
   // The <nav> element, plus the eased rail-glow state. The rail glow
-  // (`--spot-x/--spot-y` → `.sidebar::before`) CHASES the cursor target a
+  // (the `.sidebar-glow` / `.sidebar-shine` dots, moved by transform) CHASES the cursor target a
   // fraction of the remaining distance each frame so it trails the pointer with
   // a soft delay (matching the app-wide CursorSpotlight feel), instead of
   // snapping. The per-button highlight below stays immediate so hovered items
   // light up instantly. The loop self-parks once settled and restarts on move.
   const navRef = useRef(null);
-  const spotTargetRef = useRef({ x: 0, y: 0 });
-  const spotPosRef = useRef({ x: 0, y: 0, started: false });
-  const spotFrameRef = useRef(null);
-  const spotLastTsRef = useRef(null); // rAF timestamp of the previous tick
+  const glowDotRef = useRef(null);
+  const shineDotRef = useRef(null);
   const SPOT_EASE = 0.28; // per-60fps-frame ease — higher = snappier follow
   const SPOT_SETTLE = 0.5; // px — snap-and-stop threshold
   const FRAME_60 = 1000 / 60; // reference frame duration the ease is tuned for
+  // The glow's state: where it is (x, y), where it's heading (tx, ty).
+  const spotRef = useRef({ x: 0, y: 0, tx: 0, ty: 0, started: false, lastTs: null, easing: false, inside: false });
 
-  const tickSpot = (ts) => {
-    const el = navRef.current;
-    if (!el) { spotFrameRef.current = null; spotLastTsRef.current = null; return; }
-    const pos = spotPosRef.current;
-    const t = spotTargetRef.current;
-    // FPS-independent easing: convert the per-frame ease into an exponential
-    // decay over elapsed time, so the glow trails the cursor at the same rate
-    // regardless of refresh rate (60Hz vs 144Hz) or dropped frames. dt is
-    // clamped so a long stall (e.g. backgrounded tab) doesn't snap-teleport.
-    const last = spotLastTsRef.current;
-    spotLastTsRef.current = ts;
-    const dt = last == null ? FRAME_60 : Math.min(ts - last, 100);
-    const factor = 1 - Math.pow(1 - SPOT_EASE, dt / FRAME_60);
-    const dx = t.x - pos.x;
-    const dy = t.y - pos.y;
-    if (Math.abs(dx) < SPOT_SETTLE && Math.abs(dy) < SPOT_SETTLE) {
-      pos.x = t.x;
-      pos.y = t.y;
-    } else {
-      pos.x += dx * factor;
-      pos.y += dy * factor;
-    }
-    el.style.setProperty('--spot-x', `${pos.x}px`);
-    el.style.setProperty('--spot-y', `${pos.y}px`);
-    if (pos.x === t.x && pos.y === t.y) { spotFrameRef.current = null; spotLastTsRef.current = null; return; }
-    spotFrameRef.current = requestAnimationFrame(tickSpot);
-  };
-
-  const onSpotMove = (e) => {
-    const r = e.currentTarget.getBoundingClientRect();
-    spotTargetRef.current = {
-      x: toLayoutPx(e.clientX - r.left),
-      y: toLayoutPx(e.clientY - r.top),
-    };
-    // First move after (re)entering the rail: snap the glow to the cursor so it
-    // doesn't slide in from a stale/corner position, then ease from there.
-    if (!spotPosRef.current.started) {
-      spotPosRef.current = { ...spotTargetRef.current, started: true };
-    }
-    if (spotFrameRef.current == null) spotFrameRef.current = requestAnimationFrame(tickSpot);
-    // Feed the nav button under the cursor its OWN (button-relative) spotlight
-    // coords so its hover / selection fill brightens where the pointer is. This
-    // stays immediate (no easing) so the hovered item reads as responsive. When
-    // the cursor moves off a button, reset that button so its fill recenters
-    // (falls back to the 50% default) instead of freezing at the last position.
-    // (The account row at the foot takes the same hover as the tabs.)
-    const item = e.target.closest('.nav-item, .sidebar-account-main');
-    if (item !== lastItemRef.current) {
-      clearItemSpot(lastItemRef.current);
-      lastItemRef.current = item;
-    }
-    if (item) {
-      const ir = item.getBoundingClientRect();
-      item.style.setProperty('--item-spot-x', `${toLayoutPx(e.clientX - ir.left)}px`);
-      item.style.setProperty('--item-spot-y', `${toLayoutPx(e.clientY - ir.top)}px`);
-    }
-    // An entry whose list is open wears its row's hover over the whole of it
-    // (`.nav-fold.is-open`), so it takes the coords too, relative to itself.
-    const fold = e.target.closest('.nav-fold.is-open');
-    if (fold) {
-      const fr = fold.getBoundingClientRect();
-      fold.style.setProperty('--item-spot-x', `${toLayoutPx(e.clientX - fr.left)}px`);
-      fold.style.setProperty('--item-spot-y', `${toLayoutPx(e.clientY - fr.top)}px`);
-    }
-    // The SELECTED tab also reacts to the spotlight even when the cursor is over
-    // a different row: project the cursor onto the active item's box so its
-    // gradient brightens toward the pointer. Runs after the hovered-item block
-    // (which may have just cleared these vars if the active item was the one we
-    // moved off of), so this re-sets them every move.
-    const activeItem = e.currentTarget.querySelector('.nav-item.active');
-    if (activeItem) {
-      const ar = activeItem.getBoundingClientRect();
-      activeItem.style.setProperty('--item-spot-x', `${toLayoutPx(e.clientX - ar.left)}px`);
-      activeItem.style.setProperty('--item-spot-y', `${toLayoutPx(e.clientY - ar.top)}px`);
-    }
-  };
-  const onSpotLeave = () => {
-    clearItemSpot(lastItemRef.current);
-    lastItemRef.current = null;
-    // NOTE: intentionally DON'T reset the selected tab's spotlight here —
-    // snapping its gradient back to centre on leave reads as the tab styling
-    // "changing" as the cursor exits. Holding the last position keeps it steady;
-    // it re-tracks the cursor on the next move.
-    // Re-arm the snap so the next entry doesn't trail in from where it parked.
-    spotPosRef.current.started = false;
-  };
-
-  // Cancel any in-flight easing frame on unmount.
-  useEffect(() => () => {
-    if (spotFrameRef.current != null) cancelAnimationFrame(spotFrameRef.current);
-  }, []);
+  // ALL OF IT runs on the SHARED pointer (lib/pointer) — the app's one mouse
+  // listener — once a frame: the READ pass measures the rail, the hovered
+  // item, an open dropdown and the selected tab; the WRITE pass sets the
+  // per-item lights and moves the glow. No listener, rAF loop or rect read of
+  // the sidebar's own any more, and nothing here ever reads after a write.
+  useEffect(() => subscribePointer({
+    read: (p) => {
+      const nav = navRef.current;
+      if (!nav || !p.moved) return null;
+      const inside = !!p.target && nav.contains(p.target);
+      if (!inside || !perfAllows('spotlight')) return { inside };
+      const item = p.target.closest('.nav-item, .sidebar-account-main');
+      // An entry whose list is open wears its row's hover over the whole of it
+      // (`.nav-fold.is-open`), so it takes the coords too, relative to itself.
+      const fold = p.target.closest('.nav-fold.is-open');
+      // The SELECTED tab also reacts to the spotlight even when the cursor is over
+      // a different row: project the cursor onto the active item's box so its
+      // gradient brightens toward the pointer.
+      const activeItem = nav.querySelector('.nav-item.active');
+      return {
+        inside,
+        r: nav.getBoundingClientRect(),
+        item, ir: item ? item.getBoundingClientRect() : null,
+        fold, fr: fold ? fold.getBoundingClientRect() : null,
+        activeItem, ar: activeItem ? activeItem.getBoundingClientRect() : null,
+      };
+    },
+    write: (p, got) => {
+      const s = spotRef.current;
+      if (got && !got.inside && s.inside) {
+        // Left the rail: clear the hovered item's light. NOTE: intentionally
+        // DON'T reset the selected tab's spotlight — snapping its gradient back
+        // to centre on leave reads as the tab styling "changing" as the cursor
+        // exits. Re-arm the snap so the next entry doesn't trail in from where
+        // it parked.
+        clearItemSpot(lastItemRef.current);
+        lastItemRef.current = null;
+        s.started = false;
+        s.inside = false;
+      } else if (got && got.inside && got.r) {
+        s.inside = true;
+        s.tx = toLayoutPx(p.x - got.r.left);
+        s.ty = toLayoutPx(p.y - got.r.top);
+        // First move after (re)entering the rail: snap the glow to the cursor so
+        // it doesn't slide in from a stale position, then ease from there.
+        if (!s.started) { s.x = s.tx; s.y = s.ty; s.started = true; }
+        s.easing = true;
+        // The nav button under the cursor gets its OWN (button-relative) coords,
+        // immediate (no easing) so the hovered item reads as responsive; the
+        // one it left is cleared (its fill recentres at the 50% default).
+        const { item, ir, fold, fr, activeItem, ar } = got;
+        if (item !== lastItemRef.current) {
+          clearItemSpot(lastItemRef.current);
+          lastItemRef.current = item;
+        }
+        if (item) {
+          item.style.setProperty('--item-spot-x', `${toLayoutPx(p.x - ir.left)}px`);
+          item.style.setProperty('--item-spot-y', `${toLayoutPx(p.y - ir.top)}px`);
+        }
+        if (fold) {
+          fold.style.setProperty('--item-spot-x', `${toLayoutPx(p.x - fr.left)}px`);
+          fold.style.setProperty('--item-spot-y', `${toLayoutPx(p.y - fr.top)}px`);
+        }
+        // After the hovered-item block (which may have just cleared these if the
+        // active item was the one we moved off), so this re-sets them.
+        if (activeItem) {
+          activeItem.style.setProperty('--item-spot-x', `${toLayoutPx(p.x - ar.left)}px`);
+          activeItem.style.setProperty('--item-spot-y', `${toLayoutPx(p.y - ar.top)}px`);
+        }
+      }
+      if (!s.easing) return false;
+      // FPS-independent easing: the per-frame ease as an exponential decay over
+      // elapsed time, so the glow trails the cursor at the same rate at 60Hz or
+      // 144Hz; dt is clamped so a long stall doesn't snap-teleport.
+      const dt = s.lastTs == null ? FRAME_60 : Math.min(p.ts - s.lastTs, 100);
+      s.lastTs = p.ts;
+      const factor = 1 - Math.pow(1 - SPOT_EASE, dt / FRAME_60);
+      const dx = s.tx - s.x;
+      const dy = s.ty - s.y;
+      if (Math.abs(dx) < SPOT_SETTLE && Math.abs(dy) < SPOT_SETTLE) { s.x = s.tx; s.y = s.ty; }
+      else { s.x += dx * factor; s.y += dy * factor; }
+      // Move the two pre-drawn light layers (Sidebar.css .sidebar-glow /
+      // .sidebar-shine): a composited transform, no repaint and no restyle.
+      // Each dot is 528px with the light at its centre, so its corner goes to
+      // pointer − 264px. `left/top` leave their centred default on the first move.
+      const t3d = `translate3d(${s.x - 264}px, ${s.y - 264}px, 0)`;
+      for (const dot of [glowDotRef.current, shineDotRef.current]) {
+        if (!dot) continue;
+        if (!dot.dataset.moved) { dot.style.left = '0'; dot.style.top = '0'; dot.dataset.moved = '1'; }
+        dot.style.transform = t3d;
+      }
+      if (s.x === s.tx && s.y === s.ty) { s.easing = false; s.lastTs = null; return false; }
+      return true; // still travelling: another frame
+    },
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }), []);
 
   return (
     <nav
       className={`sidebar${collapsed ? ' is-collapsed' : ''}`}
       ref={navRef}
-      onMouseMove={onSpotMove}
-      onMouseLeave={onSpotLeave}
       // Off-window on the Hub (slid out via the .app-shell.on-hub margin
       // transition) — inert so the hidden rail can't take keyboard focus.
       inert={offstage || undefined}
     >
+      {/* The cursor light (see Sidebar.css .sidebar-glow / .sidebar-shine). */}
+      <span className="sidebar-glow" aria-hidden="true"><span className="sidebar-glow-dot" ref={glowDotRef} /></span>
+      <span className="sidebar-shine" aria-hidden="true"><span className="sidebar-shine-dot" ref={shineDotRef} /></span>
       <ul className="sidebar-nav">
-        {/* Web build only: a lead row linking back to the marketing website
-            (served at the site root on the same origin). The desktop build has
-            no lead row — its Projects launcher moved down into Personal. */}
-        {!isElectron ? (
-          <li className="sidebar-cat sidebar-cat--lead">
-            <div className="sidebar-cat-items">
-              <a className="nav-item" href="/">
-                <span className="icon">{WebsiteIcon}</span>
-                <span className="label nav-label-row">Website</span>
-              </a>
-            </div>
-          </li>
-        ) : null}
-
         {/* ── DocVex — the user's own feeds (formerly "Personal"). ── */}
         <li className="sidebar-cat">
           <span className="sidebar-cat-label">
@@ -1032,8 +1297,7 @@ export default function Sidebar({ collapsed = false, offstage = false, onHubNav 
         )}
 
         {/* ── Open files — every open document-viewer window. Clicking a row
-            refocuses that window; the × closes it. Hidden when none are open
-            (and always on web, where viewers open in the same tab). ── */}
+            refocuses that window; the × closes it. Hidden when none are open. ── */}
         {docTabs.length > 0 && (
           <li className="sidebar-cat">
             <span className="sidebar-cat-label"><span className="sidebar-cat-text">Open files</span></span>
@@ -1125,32 +1389,13 @@ export default function Sidebar({ collapsed = false, offstage = false, onHubNav 
             settings, Log out). The signed-out "Sign in" CTA shows when
             there's no session. */}
         {session ? (
-          <div className="sidebar-account">
-            <button
-              type="button"
-              className={`sidebar-account-main${accountPill.isMenuOpen ? ' is-open' : ''}`}
-              onMouseMove={accountPill.handleMouseMove}
-              onMouseLeave={accountPill.handleMouseLeave}
-              onClick={accountPill.handleOpenMenu}
-              aria-haspopup="menu"
-              aria-expanded={accountPill.isMenuOpen}
-              aria-label={`${accountName} — account menu`}
-            >
-              <span className="sidebar-avatar-wrap">
-                {accountAvatarUrl
-                  ? <img className="sidebar-avatar" src={accountAvatarUrl} alt="" referrerPolicy="no-referrer" />
-                  : <span className="sidebar-avatar sidebar-avatar-fallback">{accountInitial}</span>}
-              </span>
-              <span className="sidebar-account-id">
-                <span className="sidebar-account-name">{accountName}</span>
-                {accountEmail && <span className="sidebar-account-email">{accountEmail}</span>}
-                {/* The selected project's AI usage this month — the numbers are
-                    in the hover card. */}
-                {selectedProjectId && <AiUsageBar usage={aiUsage} className="sidebar-account-usage" />}
-              </span>
-            </button>
-            {accountPill.node}
-          </div>
+          <SidebarAccount
+            session={session}
+            selectedProjectId={selectedProjectId}
+            onSettings={() => navigate('/account')}
+            onLogout={doSignOut}
+            loggingOut={signingOut}
+          />
         ) : (
           <NavLink to="/auth" className="nav-item signin-btn">
             <span className="icon">{SignInIcon}</span>
@@ -1162,3 +1407,10 @@ export default function Sidebar({ collapsed = false, offstage = false, onHubNav 
     </nav>
   );
 }
+
+// Memoised: the shell re-renders on things that are none of the rail's business
+// (a resize drag starting or ending, the end of the collapse ride, an entrance
+// fade clearing) and each used to re-render this whole list with it. Everything
+// the rail shows comes from its own hooks (route, auth, notifications…), which
+// still re-render it; the shell hands it stable props (AppShell).
+export default React.memo(Sidebar);

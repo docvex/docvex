@@ -337,10 +337,30 @@
   border-radius: 9.6px;
   font-family: var(--font-body);
   color: var(--text-primary);
-  transition: border-color 140ms ease, box-shadow 140ms ease;
+  transition: border-color 140ms ease;
+  /* The hover layer below is placed against the row. */
+  position: relative;
 }
-.lh-row:hover { border-color: var(--accent); box-shadow: var(--shadow-card); }
+/* HOVER IS PRE-DRAWN: the accent border + shadow on `::after`, faded by
+   opacity (composited) instead of transitioning border-color / box-shadow,
+   which repainted the page on every frame of the fade (see .fx-tile::after in
+   FilesWorkspace.css). Over the row's own 1px border: same box, same radius. */
+.lh-row::after {
+  content: '';
+  position: absolute;
+  inset: -1px;
+  border-radius: 9.6px;
+  border: 1px solid var(--accent);
+  box-shadow: var(--shadow-card);
+  opacity: 0;
+  transition: opacity 140ms ease;
+  pointer-events: none;
+}
+.lh-row:hover::after { opacity: 1; }
 .lh-row.is-expanded { border-color: var(--accent); }
+/* Already accent-bordered: the hover layer adds only its shadow (drawing the
+   same border twice would thicken its anti-aliased edge). */
+.lh-row.is-expanded::after { border-color: transparent; }
 
 /* Top row: [dropdown] [name + path] [last accessed] [configure] */
 .lh-row-top {
@@ -364,7 +384,7 @@
   border-radius: 6.4px;
   cursor: pointer;
   color: var(--text-muted);
-  transition: background 140ms ease, color 140ms ease, border-color 140ms ease;
+  transition: background 140ms ease, border-color 140ms ease;
 }
 .lh-row-expand:hover { background: var(--bg-elevated); color: var(--text-primary); }
 .lh-row-expand-caret { display: flex; transition: transform 160ms ease; }
@@ -453,7 +473,7 @@
   border-radius: 7.2px;
   cursor: pointer;
   color: var(--text-muted);
-  transition: background 140ms ease, color 140ms ease, border-color 140ms ease;
+  transition: background 140ms ease, border-color 140ms ease;
 }
 .lh-row-config:hover,
 .lh-row-config.is-open {
@@ -772,3 +792,10 @@
 .lh-row-get svg { width: 13px; height: 13px; }
 .lh-row-get:hover:not(:disabled) { border-color: var(--info); background: var(--info-soft); }
 .lh-row-get:disabled { cursor: default; color: var(--text-muted); }
+
+/* Optimistic rename: the new name shows at once, faded until the server
+   has saved it (ProjectList onRenameProject → `_renaming`). */
+.lh-row.is-pending .lh-row-name-main {
+  opacity: 0.55;
+  transition: opacity 160ms ease;
+}

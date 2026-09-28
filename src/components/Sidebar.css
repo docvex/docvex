@@ -1,4 +1,4 @@
-﻿.sidebar {
+.sidebar {
   /* Vertical app-nav rail, always displayed (no hover-collapse). It fills
      `.sidebar-slot` (AppShell.css) — the slot is the flex item that owns the
      column's width in the chrome row, the rail is painted inside it in its
@@ -63,7 +63,7 @@
      is different on every single frame — the blur is recomputed each time and
      the "composited" transform degenerates into a full repaint per frame.
    - The two cursor-glow pseudos (a radial gradient, and a masked border shine)
-     repaint whenever --spot-x / --spot-y move, and the pointer is by
+     repaint as they follow the pointer, and the pointer is by
      definition sitting on the rail at the moment of the click.
 
    Both are dropped in one style change at the start of the ride: a single
@@ -73,66 +73,81 @@
   backdrop-filter: none;
   -webkit-backdrop-filter: none;
 }
-.app-shell.on-hub .sidebar::before,
-.app-shell.on-hub .sidebar::after {
+.app-shell.on-hub .sidebar > .sidebar-glow,
+.app-shell.on-hub .sidebar > .sidebar-shine {
   display: none;
 }
 
-/* Cursor-following spotlight — a soft accent glow that tracks the pointer via
-   the --spot-x / --spot-y vars written in Sidebar.jsx. Kept subtle; fades in
-   only while the pointer is over the rail. */
-.sidebar::before {
-  content: '';
+/* The rail's cursor light — a soft accent glow (.sidebar-glow) and a bright
+   shine on the border (.sidebar-shine) that follow the pointer.
+
+   They are REAL ELEMENTS holding a pre-drawn gradient that is MOVED by a
+   transform (Sidebar.jsx `tickSpot`), not pseudo-elements whose gradient
+   centre was a custom property. Moving a painted layer only re-composites;
+   re-centring a gradient repainted both full-height layers — one through a
+   ring mask — on every frame of a hover, and inherited custom properties
+   restyled the whole rail with them. That was the lag when the mouse moved
+   over the sidebar. The picture is the same: each "dot" is the old gradient
+   (a 264px circle) drawn once at the centre of a 528px square, placed with its
+   centre where the old gradient's centre was (the layer's 50% / 50% until the
+   pointer first moves). */
+.sidebar > .sidebar-glow,
+.sidebar > .sidebar-shine {
   position: absolute;
   inset: 0;
   border-radius: inherit;
   pointer-events: none;
-  z-index: 0;
-  background: radial-gradient(
-    264px circle at var(--spot-x, 50%) var(--spot-y, 50%),
-    color-mix(in srgb, var(--accent) 4.5%, transparent) 0%,
-    color-mix(in srgb, var(--accent) 1.5%, transparent) 38%,
-    transparent 68%
-  );
+  overflow: hidden;
   opacity: 0;
   transition: opacity 240ms ease;
 }
-.sidebar:hover::before { opacity: 0.7; }
-
-/* Border shine — a bright accent highlight on the rail's border that follows
-   the pointer. A radial gradient masked to just the 2px border ring (the
-   gradient fills the box, then the two masks XOR away everything but the
-   padding-box edge). Padding matches the .sidebar border width so the shine
-   sits exactly on the border. */
-.sidebar::after {
-  content: '';
-  position: absolute;
-  inset: 0;
-  border-radius: inherit;
-  padding: 1.5px;
-  pointer-events: none;
+.sidebar > .sidebar-glow { z-index: 0; }
+/* The shine: the same light, masked to the 1.5px border ring (the mask XORs
+   the content box away from the whole box). Padding = the rail's border
+   width, so the ring sits exactly on the border. */
+.sidebar > .sidebar-shine {
   z-index: 2;
-  background: radial-gradient(
-    264px circle at var(--spot-x, 50%) var(--spot-y, 50%),
-    color-mix(in srgb, var(--accent) 42%, transparent) 0%,
-    color-mix(in srgb, var(--accent) 12%, transparent) 34%,
-    transparent 62%
-  );
+  padding: 1.5px;
   -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
   -webkit-mask-composite: xor;
   mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
   mask-composite: exclude;
-  opacity: 0;
-  transition: opacity 240ms ease;
 }
-.sidebar:hover::after { opacity: 0.7; }
+.sidebar:hover > .sidebar-glow,
+.sidebar:hover > .sidebar-shine { opacity: 0.7; }
+.sidebar-glow-dot,
+.sidebar-shine-dot {
+  position: absolute;
+  left: calc(50% - 264px);
+  top: calc(50% - 264px);
+  width: 528px;
+  height: 528px;
+  pointer-events: none;
+  will-change: transform;
+}
+.sidebar-glow-dot {
+  background: radial-gradient(
+    264px circle at 50% 50%,
+    color-mix(in srgb, var(--accent) 4.5%, transparent) 0%,
+    color-mix(in srgb, var(--accent) 1.5%, transparent) 38%,
+    transparent 68%
+  );
+}
+.sidebar-shine-dot {
+  background: radial-gradient(
+    264px circle at 50% 50%,
+    color-mix(in srgb, var(--accent) 42%, transparent) 0%,
+    color-mix(in srgb, var(--accent) 12%, transparent) 34%,
+    transparent 62%
+  );
+}
 
 /* Lift the nav + footer above the glow layer. */
-.sidebar > * { position: relative; z-index: 1; }
+.sidebar > *:not(.sidebar-glow):not(.sidebar-shine) { position: relative; z-index: 1; }
 
 @media (prefers-reduced-motion: reduce) {
-  .sidebar::before,
-  .sidebar::after { display: none; }
+  .sidebar > .sidebar-glow,
+  .sidebar > .sidebar-shine { display: none; }
 }
 
 /* Labels read in the expanded rail; they fade + collapse to zero width when the
@@ -381,11 +396,6 @@
   flex-direction: column;
   gap: 3.2px;
 }
-/* Lead group — the label-less "Projects" launcher row at the rail's top.
-   Full-height like every other tab; the negative margin tightens the gap to
-   the first section below (the rail's 14.4px group gap reads too airy under
-   a single cap row). */
-.sidebar-cat--lead { margin-bottom: -8px; }
 /* Category title doubles as a section divider: the uppercase label followed by
    a hairline rule that fills the rest of the row. */
 .sidebar-cat-label {
@@ -418,7 +428,7 @@
   letter-spacing: 0.12em; text-transform: uppercase;
   color: var(--text-muted);
   cursor: pointer;
-  transition: color 140ms ease;
+  transition: none;
 }
 .sidebar-cat-fold:hover { color: var(--text-secondary); }
 /* The chevron sits after the hairline, at the rail's right edge — the fold
@@ -573,7 +583,7 @@
   cursor: pointer;
   text-align: left;
   font-family: inherit;
-  transition: background 150ms, color 150ms, border-color 150ms;
+  transition: background 150ms, border-color 150ms;
 }
 
 /* Rail icons (the JSX icons are authored at 20px). */
@@ -582,7 +592,7 @@
 /* Hover/active fill is a radial accent gradient that brightens at the pointer
    (--item-spot-x/y, set per-button in Sidebar.jsx) so the selection + hover
    styling reacts to the cursor spotlight. Translucent throughout, so the rail
-   glow behind (.sidebar::before) still shows through. */
+   glow behind (.sidebar-glow) still shows through. */
 .nav-item:hover {
   background: radial-gradient(
     112px circle at var(--item-spot-x, 50%) var(--item-spot-y, 50%),
@@ -671,7 +681,7 @@
   color: var(--text-muted);
   cursor: pointer;
   opacity: 0;
-  transition: opacity 120ms ease, background 120ms ease, color 120ms ease;
+  transition: opacity 120ms ease, background 120ms ease;
 }
 .doc-tab-row:hover .doc-tab-close,
 .doc-tab-close:focus-visible { opacity: 1; }
@@ -692,7 +702,7 @@
   border-radius: 4px;
   color: var(--text-muted);
   transform: rotate(-90deg);
-  transition: transform 200ms cubic-bezier(0.16, 1, 0.3, 1), background 120ms ease, color 120ms ease;
+  transition: transform 200ms cubic-bezier(0.16, 1, 0.3, 1), background 120ms ease;
 }
 .nav-fold-chev.is-open { transform: none; }
 .nav-fold-chev:hover {
@@ -1081,6 +1091,26 @@
   border-radius: 50%;
 }
 .nav-dot.is-done { background: var(--accent); }
+/* A process still running (the Files tab's AI scan, lib/scanRunner): a small
+   spinning ring in the accent. Its class carries "spin", so the reduce-motion
+   rule in index.css spares it — a spinner that stops says nothing. */
+.nav-dot.is-spin {
+  width: 11px; height: 11px;
+  border: 1.6px solid color-mix(in srgb, var(--accent) 25%, transparent);
+  border-top-color: var(--accent);
+  animation: nav-dot-spin 0.8s linear infinite;
+}
+@keyframes nav-dot-spin { to { transform: rotate(360deg); } }
+/* …and how it ended, for a moment: a tick (done) or a red dot (failed /
+   stopped). */
+.nav-dot.is-tick {
+  width: 10px; height: 6px; border-radius: 0;
+  border-left: 2px solid var(--success); border-bottom: 2px solid var(--success);
+  transform: translateY(-2px) rotate(-45deg);
+  animation: nav-dot-pop 260ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+.nav-dot.is-fail { background: var(--danger); animation: nav-dot-pop 260ms cubic-bezier(0.16, 1, 0.3, 1); }
+@keyframes nav-dot-pop { from { opacity: 0; scale: 0.4; } }
 .nav-dot.is-busy {
   background: var(--text-muted);
   animation: nav-dot-pulse 1.2s ease-in-out infinite;
@@ -2117,7 +2147,7 @@
     0 1px 2px color-mix(in srgb, var(--color-cognac) 35%, transparent),
     0 6px 16px -4px color-mix(in srgb, var(--color-cognac) 55%, transparent),
     inset 0 1px 0 color-mix(in srgb, #fff 18%, transparent);
-  transition: background 150ms, color 150ms, border-color 150ms, transform 150ms, box-shadow 150ms;
+  transition: background 150ms, border-color 150ms, transform 150ms, box-shadow 150ms;
 }
 :root[data-theme="cream"] .sidebar .nav-item.active:hover {
   border-color: var(--color-cognac);

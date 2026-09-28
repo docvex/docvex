@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { CAPABILITIES, createCustomRole, updateCustomRole, resolveCapability, cycleCapability } from '../lib/customRoles';
 import { builtInLabel } from './RoleBadge';
+import { useNotifications } from '../context/NotificationsContext';
 import Tooltip from './Tooltip';
 import './ConfirmModal.css';
 import './InviteMemberModal.css';
@@ -26,6 +27,11 @@ import './CustomRoleEditor.css';
 //   onSaved     — called with the new/updated role's id after a successful
 //                 RPC; the parent uses this to refresh state. (Realtime
 //                 also fires, but the callback gives instant feedback.)
+//   onOptimistic — (edit only) called with the edited role row the moment
+//                 Save is pressed, before the server answers; the parent
+//                 patches its catalog with it.
+//   onFailed    — (edit only) called with the ORIGINAL role row if the
+//                 server then refuses the edit, so the parent can put it back.
 
 // One-tap starting points for the roles a law firm actually staffs. Each maps
 // to a base tier; capabilities stay tweakable after picking one.
@@ -36,8 +42,9 @@ const ROLE_PRESETS = [
   { name: 'Client', base: 'viewer', description: 'Reads shared documents and follows matter progress.' },
 ];
 
-export default function CustomRoleEditor({ open, role, projectId, onClose, onSaved }) {
+export default function CustomRoleEditor({ open, role, projectId, onClose, onSaved, onOptimistic, onFailed }) {
   const isEdit = !!role;
+  const { notify } = useNotifications();
   const nameRef = useRef(null);
 
   const [name, setName] = useState('');
@@ -130,20 +137,46 @@ export default function CustomRoleEditor({ open, role, projectId, onClose, onSav
       baseRole,
       capabilities: buildCapabilitiesPayload(),
     };
-    let result;
+    // EDIT is optimistic: the catalog shows the edited role and the dialog
+    // closes at once (onOptimistic); the server's answer either confirms it
+    // (onSaved → the parent refetches the catalog) or puts the original row
+    // back (onFailed) with a toast. CREATE still waits — the new role has no
+    // id until the server makes one, and nothing can be assigned to it
+    // before then.
     if (isEdit) {
-      result = await updateCustomRole({ id: role.id, ...payload });
-    } else {
-      result = await createCustomRole({ projectId, ...payload });
+      const original = role;
+      onOptimistic?.({
+        ...role,
+        name: payload.name,
+        description: payload.description,
+        base_role: payload.baseRole,
+        capabilities: payload.capabilities,
+      });
+      setPending(false);
+      onClose?.();
+      const { error: updErr } = await updateCustomRole({ id: role.id, ...payload });
+      if (updErr) {
+        onFailed?.(original);
+        notify({
+          category: 'role',
+          variant: 'error',
+          title: 'Role changes not saved',
+          body: `"${original.name}" is back as it was. ${updErr.message || 'The server rejected the request.'}`,
+          dedupeKey: `custom-role-update-failed:${original.id}`,
+        });
+        return;
+      }
+      onSaved?.(original.id);
+      return;
     }
+    const result = await createCustomRole({ projectId, ...payload });
     setPending(false);
     if (result.error) {
       setError(result.error.message || 'Could not save the role.');
       return;
     }
-    // create returns the new role id in result.data; update returns null.
-    const savedId = isEdit ? role.id : result.data;
-    onSaved?.(savedId);
+    // create returns the new role id in result.data.
+    onSaved?.(result.data);
     onClose?.();
   };
 

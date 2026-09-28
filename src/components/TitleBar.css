@@ -1,4 +1,4 @@
-﻿/* Custom frameless title bar. Fixed at the very top, full width, above the
+/* Custom frameless title bar. Fixed at the very top, full width, above the
    sidebar (z 50) but below toasts (z 9999). Height is the global
    --titlebar-h. The whole bar is a drag region; interactive children opt out
    with -webkit-app-region: no-drag. */
@@ -183,7 +183,7 @@ html.dv-bar-peek .tb-bar.is-doc-focus .tb-docview-find,
   border-radius: 6.4px;
   color: var(--text-secondary);
   cursor: pointer;
-  transition: background 140ms ease, border-color 140ms ease, color 140ms ease;
+  transition: background 140ms ease, border-color 140ms ease;
 }
 .tb-burger:hover {
   background: var(--bg-elevated);
@@ -202,7 +202,7 @@ html.dv-bar-peek .tb-bar.is-doc-focus .tb-docview-find,
    sidebar toggle that shares the corner outside focus. */
 .tb-burger.is-back {
   isolation: isolate;
-  transition: background 150ms, color 150ms, border-color 150ms;
+  transition: background 150ms, border-color 150ms;
 }
 .tb-burger.is-back:hover {
   background: radial-gradient(
@@ -522,7 +522,7 @@ html.dv-bar-peek .tb-bar.is-doc-focus .tb-docview-find,
   font-size: 10.4px;
   font-weight: 500;
   color: var(--text-secondary);
-  transition: color 140ms ease, background 140ms ease, border-color 140ms ease;
+  transition: background 140ms ease, border-color 140ms ease;
 }
 
 .tb-btn:hover,
@@ -840,7 +840,7 @@ html.dv-bar-peek .tb-bar.is-doc-focus .tb-docview-find,
   border: none;
   cursor: pointer;
   color: var(--text-secondary);
-  transition: background 120ms ease, color 120ms ease;
+  transition: background 120ms ease;
 }
 
 .tb-win-btn:hover { background: var(--bg-elevated); color: var(--text-primary); }

@@ -166,7 +166,7 @@ html[data-reduce-motion="true"] .lgt-bar.is-enter-left ~ * { animation: none; }
   width: var(--ds-search-w, 256px);
   font-size: var(--ds-control-size, 10.4px);
   color: var(--text-secondary);
-  transition: width 220ms cubic-bezier(.16, 1, .3, 1), background 140ms ease, color 140ms ease, border-color 140ms ease;
+  transition: width 220ms cubic-bezier(.16, 1, .3, 1), background 140ms ease, border-color 140ms ease;
 }
 .lgt-search:hover { background: color-mix(in srgb, var(--text-primary) var(--ds-control-tint-hover, 8%), transparent); color: var(--text-primary); border-color: var(--border-strong); }
 .lgt-search:focus-within,
@@ -194,7 +194,7 @@ html[data-reduce-motion="true"] .lgt-bar.is-enter-left ~ * { animation: none; }
   padding: 0; border: 0; border-radius: 4px; cursor: pointer;
   background: color-mix(in srgb, var(--text-primary) 8%, transparent);
   color: var(--text-secondary);
-  transition: background 120ms ease, color 120ms ease, opacity 120ms ease;
+  transition: background 120ms ease, opacity 120ms ease;
 }
 .lgt-find-btn:hover:not(:disabled) { background: color-mix(in srgb, var(--text-primary) 16%, transparent); color: var(--text-primary); }
 .lgt-find-btn:disabled { opacity: 0.4; cursor: not-allowed; }
@@ -277,7 +277,7 @@ html[data-reduce-motion="true"] .lgt-bar.is-enter-left ~ * { animation: none; }
   font: inherit; font-size: var(--ds-control-size, 10.4px); font-weight: 500; line-height: 1;
   color: var(--text-muted);
   cursor: pointer;
-  transition: background 150ms, color 150ms, border-color 150ms;
+  transition: background 150ms, border-color 150ms;
 }
 /* The glyph and the label are boxes of ONE height (13px), so flex centres
    them on the same line — a text box taller than the glyph sat its letters
@@ -344,7 +344,7 @@ html[data-reduce-motion="true"] .lgt-toggle-btn { transition: none; }
   border-radius: 4px;
   background: color-mix(in srgb, var(--text-primary) 8%, transparent);
   color: var(--text-secondary);
-  transition: background 120ms ease, color 120ms ease;
+  transition: background 120ms ease;
 }
 .lgt-search-clear:hover { background: color-mix(in srgb, var(--text-primary) 16%, transparent); color: var(--text-primary); }
 
@@ -385,3 +385,13 @@ html[data-reduce-motion="true"] .lgt-toggle-btn { transition: none; }
 }
 .lgt-bar.is-standalone.is-pinned::after { opacity: 0; }
 .lgt-bar.is-standalone .lgt-line2 { margin-top: 0; padding-bottom: 0; }
+
+/* The rail toggle (RailToggle): the tool button, icon alone, square; PRESSED
+   while the list is shown — the accent on a soft accent ground and ring. */
+.lgt-tool-btn.lgt-railtoggle { width: var(--ds-control-h, 24px); padding: 0; justify-content: center; flex: none; }
+.lgt-tool-btn.lgt-railtoggle.is-on {
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  border-color: color-mix(in srgb, var(--accent) 40%, transparent);
+}
+.lgt-tool-btn.lgt-railtoggle.is-on:hover { background: color-mix(in srgb, var(--accent) 20%, transparent); color: var(--accent); }

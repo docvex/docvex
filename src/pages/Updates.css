@@ -248,7 +248,7 @@
   cursor: pointer;
   white-space: nowrap;
   flex-shrink: 0;
-  transition: background 150ms, border-color 150ms, color 150ms;
+  transition: background 150ms, border-color 150ms;
 }
 
 .updates-btn:hover:not(:disabled) {
@@ -290,7 +290,7 @@
   cursor: pointer;
   white-space: nowrap;
   flex-shrink: 0;
-  transition: background 150ms, border-color 150ms, color 150ms;
+  transition: background 150ms, border-color 150ms;
 }
 
 .updates-page .btn:hover:not(:disabled) {
@@ -591,7 +591,7 @@
   justify-content: center;
   color: var(--text-muted);
   border-radius: 4.8px;
-  transition: background 140ms, color 140ms;
+  transition: background 140ms;
 }
 .updates-page .disclose:hover {
   background: var(--bg-elevated);
@@ -695,7 +695,7 @@
   gap: 0.24rem;
   color: var(--text-secondary);
   text-decoration: none;
-  transition: color 150ms;
+  transition: none;
 }
 .updates-page .ghlink:hover { color: var(--text-primary); }
 

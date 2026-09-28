@@ -57,7 +57,7 @@
   background: none;
   color: var(--text-secondary);
   cursor: pointer;
-  transition: background 120ms ease, color 120ms ease;
+  transition: background 120ms ease;
 }
 .sp-winbtn:hover { background: var(--bg-elevated); color: var(--text-primary); }
 .sp-winbtn.is-close:hover { background: #e81123; color: #fff; }
@@ -93,7 +93,7 @@
 }
 /* Hover matches the main app's sidebar (.nav-item:hover in Sidebar.css): a
    radial accent gradient that brightens at the pointer — --item-spot-x/y are
-   fed per-button from SnipPanel.jsx (trackSpot). */
+   fed per-button by lib/pointer (registerHoverSpot in SnipPanel.jsx). */
 .sp-btn:hover:not(:disabled) {
   background: radial-gradient(
     112px circle at var(--item-spot-x, 50%) var(--item-spot-y, 50%),
@@ -174,7 +174,7 @@
   font-size: 12px;
   font-weight: 600;
   cursor: pointer;
-  transition: color 120ms ease;
+  transition: none;
 }
 /* Sidebar-style pointer-tracked hover on the not-yet-selected side. */
 .sp-scope-btn:hover:not(.is-active) {

@@ -2,9 +2,8 @@ import React from 'react';
 import { openExternal } from '../../lib/platform';
 import woodHSrc from './assets/wood-h.svg';
 
-// The public legal pages on the marketing site. Opened in a new browser tab
-// from web, and in the user's default browser from the desktop app — either
-// way the signup form the user is filling in stays exactly as it was.
+// The public legal pages on the marketing site. Opened in the user's default
+// browser, so the signup form the user is filling in stays exactly as it was.
 export const TERMS_URL = 'https://docvex.ro/terms.html';
 export const PRIVACY_URL = 'https://docvex.ro/privacy.html';
 
@@ -79,10 +78,10 @@ export function Strength({ strength, label }) {
 }
 
 // Terms acceptance + newsletter opt-in checkboxes (shared confirm step).
-// The two legal links open the real pages in a new tab. They're inside a
+// The two legal links open the real pages in the browser. They're inside a
 // <label>, so a plain click would toggle the checkbox as well — stopPropagation
-// keeps "read the terms" from silently accepting them. openExternal handles the
-// Electron/web split (system browser vs. window.open).
+// keeps "read the terms" from silently accepting them. openExternal opens them
+// in the system browser.
 export function Agreements({ agree, news, onAgree, onNews }) {
   const openLegal = (url) => (e) => {
     e.preventDefault();

@@ -105,14 +105,41 @@ html.is-tray-menu, html.is-tray-menu body { background: transparent; }
    smooth scrolling app-wide. Mirrors the prefers-reduced-motion media query
    but driven by the in-app preference so it works regardless of the OS setting.
    Negative animation-delay lets any in-progress animation jump to its end
-   frame and stop, rather than freezing mid-way. */
+   frame and stop, rather than freezing mid-way. The Low graphics preset
+   (lib/perf) sets the same attribute.
+   Spinners and indeterminate progress bars keep turning: they are how the
+   app says it is working, and a frozen one reads as a hang. */
 html[data-reduce-motion="true"] *,
+html[data-reduce-motion="true"] *::before,
+html[data-reduce-motion="true"] *::after {
+  transition-duration: 0.001ms !important;
+  transition-delay: 0s !important;
+  scroll-behavior: auto !important;
+}
+html[data-reduce-motion="true"] :not([class*="spin"], .is-spinning svg, .is-busy svg, .is-indeterminate, .update-progress-bar),
 html[data-reduce-motion="true"] *::before,
 html[data-reduce-motion="true"] *::after {
   animation-duration: 0.001ms !important;
   animation-iteration-count: 1 !important;
   animation-delay: -0.001ms !important;
-  transition-duration: 0.001ms !important;
-  transition-delay: 0s !important;
-  scroll-behavior: auto !important;
 }
+
+/* ── Hover light position: NOT inherited ─────────────────────────────────────
+   `--item-spot-x/y` is the pointer's position over a hovered control (a
+   sidebar tab, a toolbar button, a rail item…), written every frame of a hover
+   and read ONLY by that control's own background or its own ::before / ::after.
+   As an ordinary custom property it was inherited by everything inside the
+   control — and the sidebar also writes it on an open dropdown (`.nav-fold`),
+   so every tab in the list was restyled on every frame of a hover: that was the
+   lag hovering the sidebar's tabs. Registered non-inheriting, a write restyles
+   the control alone; pseudo-elements take it explicitly. Initial 50% = the old
+   var() fallback everywhere it is read. */
+@property --item-spot-x { syntax: '<length-percentage>'; inherits: false; initial-value: 50%; }
+@property --item-spot-y { syntax: '<length-percentage>'; inherits: false; initial-value: 50%; }
+/* The same for `--spot-x/y` — the pointer's position over a bar, rail,
+   composer or menu (lib/pointerSpots), read only by that element's own
+   ::before / ::after. Inherited, a write restyled everything inside the
+   element on every frame (a whole mini header, a whole rail). */
+@property --spot-x { syntax: '<length-percentage>'; inherits: false; initial-value: 50%; }
+@property --spot-y { syntax: '<length-percentage>'; inherits: false; initial-value: 50%; }
+*::before, *::after { --item-spot-x: inherit; --item-spot-y: inherit; --spot-x: inherit; --spot-y: inherit; }

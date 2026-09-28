@@ -5,10 +5,11 @@ import './LegalBrowser.css';
 import Tooltip from './Tooltip';
 import RuleOptions from './RuleOptions';
 import { useItemSpots } from './DocRibbon';
-import { toLayoutPx } from '../lib/appZoom';
+import { useRailSpotlight } from '../lib/pointerSpots';
 import { LEGAL_TABS } from './LegalTabs';
 import { detectQuery, randomQuery } from '../lib/legalOmni';
 import { isMac } from '../lib/platform';
+import { useLegalViewMode, setLegalViewMode } from '../lib/legalViewMode';
 import {
   subscribeBrowser, browserState, curPage, pageMeta, PLATFORMS, PLATFORM_ORDER,
   navigateActive, openInNewTab, newTab, selectTab, closeTab, closeOthers, reopenClosed, openSearch, isSearchTab,
@@ -28,6 +29,7 @@ import { pageForQuery, platformsFor, searchPlatform, peekPlatform, peekAnswer, f
 
 // ── Hooks ──
 export const useBrowser = () => useSyncExternalStore(subscribeBrowser, browserState);
+const histOf = () => browserState().hist;
 export function useGo() {
   const navigate = useNavigate();
   const { pathname } = useLocation();
@@ -92,7 +94,9 @@ function useTabHandlers(t, go, drag, setDrag, openMenu) {
 // A tab in the rail — the Playbook presets list's item (.lg-rail-item, the
 // Legislation rail's = the app sidebar's .nav-item): two lines, the platform
 // and what it shows on top in small capitals, the name under it; × on hover.
-function RailTab({ t, active, go, drag, setDrag, openMenu }) {
+// Memoised: a keystroke in the address field changes only the ACTIVE tab (its
+// draft), so every other row can skip the render.
+const RailTab = React.memo(function RailTab({ t, active, go, drag, setDrag, openMenu }) {
   const m = pageMeta(curPage(t));
   const h = useTabHandlers(t, go, drag, setDrag, openMenu);
   return (
@@ -127,46 +131,11 @@ function RailTab({ t, active, go, drag, setDrag, openMenu }) {
       </span>
     </div>
   );
-}
+});
 
 // The rail's spotlight — the Playbook list's and the app sidebar's: a soft
-// accent glow and a border shine following the pointer (::before / ::after
-// from --spot-x/y), chased with an exponential ease over elapsed time,
-// parked once settled, snapped on the first move after entering.
-function useRailSpotlight(ref) {
-  useEffect(() => {
-    const el = ref.current;
-    if (!el) return undefined;
-    const EASE = 0.28; const SETTLE = 0.5; const FRAME_60 = 1000 / 60;
-    const target = { x: 0, y: 0 }; const pos = { x: 0, y: 0, started: false };
-    let frame = null; let last = null;
-    const tick = (ts) => {
-      const dt = last == null ? FRAME_60 : Math.min(ts - last, 100);
-      last = ts;
-      const f = 1 - Math.pow(1 - EASE, dt / FRAME_60);
-      const dx = target.x - pos.x; const dy = target.y - pos.y;
-      if (Math.abs(dx) < SETTLE && Math.abs(dy) < SETTLE) { pos.x = target.x; pos.y = target.y; } else { pos.x += dx * f; pos.y += dy * f; }
-      el.style.setProperty('--spot-x', `${pos.x}px`);
-      el.style.setProperty('--spot-y', `${pos.y}px`);
-      if (pos.x === target.x && pos.y === target.y) { frame = null; last = null; return; }
-      frame = requestAnimationFrame(tick);
-    };
-    const move = (e) => {
-      const r = el.getBoundingClientRect();
-      target.x = toLayoutPx(e.clientX - r.left); target.y = toLayoutPx(e.clientY - r.top);
-      if (!pos.started) { pos.x = target.x; pos.y = target.y; pos.started = true; }
-      if (frame == null) frame = requestAnimationFrame(tick);
-    };
-    const leave = () => { pos.started = false; };
-    el.addEventListener('mousemove', move);
-    el.addEventListener('mouseleave', leave);
-    return () => {
-      el.removeEventListener('mousemove', move);
-      el.removeEventListener('mouseleave', leave);
-      if (frame != null) cancelAnimationFrame(frame);
-    };
-  }, [ref]);
-}
+// accent glow and a border shine following the pointer (the light elements
+// lib/pointerSpots injects, moved by a transform). The chase itself is lib/pointerSpots' useRailSpotlight.
 
 function SearchTabButton({ active, go }) {
   const open = () => {
@@ -260,7 +229,7 @@ export function TabStrip({ go, openMenu }) {
     </div>
   );
 }
-function StripTab({ t, active, go, drag, setDrag, openMenu }) {
+const StripTab = React.memo(function StripTab({ t, active, go, drag, setDrag, openMenu }) {
   const m = pageMeta(curPage(t));
   const h = useTabHandlers(t, go, drag, setDrag, openMenu);
   return (
@@ -272,7 +241,7 @@ function StripTab({ t, active, go, drag, setDrag, openMenu }) {
       </div>
     </Tooltip>
   );
-}
+});
 
 export function openHistory(go) {
   const h = browserState().tabs.find((t) => curPage(t).type === 'history');
@@ -341,6 +310,22 @@ function SerpSummary({ page }) {
 }
 
 // `bare`: the field alone (the new-tab page's) — no back / forward / reload.
+// DocVex · Source — how an open item is shown: restyled by DocVex, or the data
+// as the platform's service gave it (the default). lib/legalViewMode.
+function ViewModeToggle() {
+  const mode = useLegalViewMode();
+  return (
+    <div className="lgt-toggle lgb-viewmode" role="tablist" aria-label="How an item is shown">
+      <Tooltip content="Restyled by DocVex — laid out as a document">
+        <button type="button" role="tab" aria-selected={mode === 'docvex'} className={`lgt-toggle-btn${mode === 'docvex' ? ' is-on' : ''}`} onClick={() => setLegalViewMode('docvex')}>DocVex</button>
+      </Tooltip>
+      <Tooltip content="As the platform's service gave it — the raw data">
+        <button type="button" role="tab" aria-selected={mode === 'source'} className={`lgt-toggle-btn${mode === 'source' ? ' is-on' : ''}`} onClick={() => setLegalViewMode('source')}>Source</button>
+      </Tooltip>
+    </div>
+  );
+}
+
 export function AddressRow({ go, status, bare = false, extra = null }) {
   const s = useBrowser();
   const tab = s.tabs.find((t) => t.id === s.active) || s.tabs[0];
@@ -392,6 +377,7 @@ export function AddressRow({ go, status, bare = false, extra = null }) {
   return (
     <div className={`lgb-addr${bare ? ' is-bare' : ''}`}>
       {bare ? null : (<>
+      <ViewModeToggle />
       <Tooltip content="Back (Alt+←)">
         <button type="button" className="lgb-icobtn" aria-label="Back" disabled={tab.idx === 0} onClick={() => stepTab(tab.id, -1, go)}>{G.back}</button>
       </Tooltip>
@@ -701,9 +687,11 @@ const dayLabel = (iso) => {
 };
 export function HistoryPage() {
   const go = useGo();
-  const s = useBrowser();
+  // The history alone: the address row above it changes the store on every
+  // keystroke, and the whole list used to be rebuilt for each one.
+  const hist = useSyncExternalStore(subscribeBrowser, histOf);
   const days = [];
-  for (const h of s.hist) {
+  for (const h of hist) {
     const label = dayLabel(h.at);
     const last = days[days.length - 1];
     if (last?.label === label) last.items.push(h); else days.push({ label, items: [h] });
@@ -712,7 +700,7 @@ export function HistoryPage() {
     <section className="lgb-hist">
       <h2 className="lgb-hist-title">History</h2>
       <p className="lgb-hist-sub">Every search run and everything opened, in every tab. Press one to open it here; Ctrl+click for a new tab.</p>
-      {!s.hist.length ? <p className="lgb-empty">Nothing yet. Every search you run and everything you open is listed here.</p> : null}
+      {!hist.length ? <p className="lgb-empty">Nothing yet. Every search you run and everything you open is listed here.</p> : null}
       {days.map((dg) => (
         <React.Fragment key={dg.label}>
           <p className="lgb-hist-day">{dg.label}</p>

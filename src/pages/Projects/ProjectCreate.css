@@ -1,4 +1,4 @@
-﻿/* New-project form page. Same dark palette as ProjectList.css; form-input
+/* New-project form page. Same dark palette as ProjectList.css; form-input
    styling mirrors AuthPage / Account pages so the visual language is
    consistent. */
 
@@ -23,7 +23,7 @@
   font-size: 0.64rem;
   text-decoration: none;
   width: fit-content;
-  transition: color 150ms;
+  transition: none;
 }
 
 .project-create-back:hover {

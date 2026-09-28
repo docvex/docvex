@@ -73,42 +73,42 @@
   border-radius: var(--ds-bar-radius, 9.6px);
 }
 html[data-reduce-motion="true"] .lg-rail { transition: none; }
-/* The SIDEBAR's SPOTLIGHT (components/Sidebar.css .sidebar::before / ::after,
+/* The SIDEBAR's SPOTLIGHT (components/Sidebar.css .sidebar-glow / .sidebar-shine,
    to the letter): a soft accent glow following the pointer over the rail,
-   and a bright shine on its border — the gradient masked to the 1px ring —
-   both from --spot-x/y (eased toward the pointer in LegalWorkspace.jsx), faded
-   in while the pointer is over the rail. The list sits above them. */
-.lg-rail::before {
-  content: ''; position: absolute; inset: 0; border-radius: inherit;
-  pointer-events: none; z-index: 0;
+   and a bright shine on its border — the light masked to the 1px ring —
+   faded in while the pointer is over the rail. The list sits above them.
+   Both are lib/pointerSpots' injected lights (`.spot-glow` / `.spot-shine`,
+   styles/spotLights.css), eased toward the pointer by useRailSpotlight and
+   moved by a transform: pre-drawn dots, not gradients re-centred on
+   --spot-x/y, which repainted both full-height layers every frame. */
+.lg-rail > .spot-light {
+  position: absolute; --spot-r: 264px;
+  opacity: 0; transition: opacity 240ms ease;
+}
+.lg-rail > .spot-glow { inset: 0; z-index: 0; }
+.lg-rail > .spot-shine { inset: -1px; padding: 1px; z-index: 2; }
+.lg-rail > .spot-glow > .spot-dot {
   background: radial-gradient(
-    264px circle at var(--spot-x, 50%) var(--spot-y, 50%),
+    264px circle at 50% 50%,
     color-mix(in srgb, var(--accent) 4.5%, transparent) 0%,
     color-mix(in srgb, var(--accent) 1.5%, transparent) 38%,
     transparent 68%
   );
-  opacity: 0; transition: opacity 240ms ease;
 }
-.lg-rail::after {
-  content: ''; position: absolute; inset: -1px; border-radius: inherit;
-  padding: 1px; pointer-events: none; z-index: 2;
+.lg-rail > .spot-shine > .spot-dot {
   background: radial-gradient(
-    264px circle at var(--spot-x, 50%) var(--spot-y, 50%),
+    264px circle at 50% 50%,
     color-mix(in srgb, var(--accent) 42%, transparent) 0%,
     color-mix(in srgb, var(--accent) 12%, transparent) 34%,
     transparent 62%
   );
-  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
-  -webkit-mask-composite: xor;
-  mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
-  mask-composite: exclude;
-  opacity: 0; transition: opacity 240ms ease;
 }
 /* The shine rides the rail's BORDER, drawn all round only once pinned. */
-.lg-rail:hover::before, .lg-rail.is-pinned:hover::after { opacity: 0.7; }
+.lg-rail:hover > .spot-glow, .lg-rail.is-pinned:hover > .spot-shine { opacity: 0.7; }
 .lg-rail > .lg-rail-list { position: relative; z-index: 1; }
-@media (prefers-reduced-motion: reduce) { .lg-rail::before, .lg-rail::after { display: none; } }
-html[data-reduce-motion="true"] .lg-rail::before, html[data-reduce-motion="true"] .lg-rail::after { display: none; }
+@media (prefers-reduced-motion: reduce) { .lg-rail > .spot-light { display: none; } }
+/* The user's own Minimize motion only — the Low graphics preset keeps the glow, still. */
+html[data-user-reduce-motion="true"] .lg-rail > .spot-light { display: none; }
 /* The DIVIDER as a drag handle: a 10px band centred on the rail's right
    border, the resize cursor on it; hovered, held or focused, the divider
    lights in the accent. While dragging, the whole window keeps the cursor
@@ -157,7 +157,7 @@ body.lg-resizing, body.lg-resizing * { cursor: col-resize !important; user-selec
   color: var(--text-secondary);
   font: inherit; font-size: var(--ds-control-size, 10.4px); font-weight: 600; line-height: 1;
   cursor: pointer;
-  transition: background 140ms ease, color 140ms ease, border-color 140ms ease;
+  transition: background 140ms ease, border-color 140ms ease;
 }
 /* Its HOVER and SELECTED looks are the APP SIDEBAR's (.nav-item, as the
    rail's items wear them): hovered, a wash brightening where the pointer is
@@ -165,7 +165,7 @@ body.lg-resizing, body.lg-resizing * { cursor: col-resize !important; user-selec
    sidebar's selected tab — Ink: accent tint, ring and text, a brighter
    pointer glow on hover; Cream: the solid cognac pill, lifted. At rest it
    keeps its field look, beside the find. */
-.lg-searchtab { position: relative; isolation: isolate; transition: background 150ms, color 150ms, border-color 150ms, transform 150ms, box-shadow 150ms; }
+.lg-searchtab { position: relative; isolation: isolate; transition: background 150ms, border-color 150ms, transform 150ms, box-shadow 150ms; }
 .lg-searchtab:hover {
   background: radial-gradient(
     112px circle at var(--item-spot-x, 50%) var(--item-spot-y, 50%),
@@ -243,7 +243,7 @@ html[data-reduce-motion="true"] .lg-searchtab::before { transition: none; }
   font: inherit; text-align: left;
   cursor: pointer;
   color: var(--text-secondary);
-  transition: background 150ms, color 150ms, border-color 150ms, transform 150ms, box-shadow 150ms;
+  transition: background 150ms, border-color 150ms, transform 150ms, box-shadow 150ms;
 }
 /* HOVER — the sidebar's: an accent wash brightening where the pointer is
    (--item-spot-x/y, fed by `useItemSpots` on the rail), the text to full
@@ -478,8 +478,8 @@ html[data-reduce-motion="true"] .lg-rail-item::before { transition: none; }
   z-index: 20;
 }
 :root[data-theme="cream"] .lg-rail.is-card { background: color-mix(in srgb, var(--bg-sidebar) 90%, transparent); }
-.lg-rail.is-card::after { inset: -1.5px; padding: 1.5px; }
-.lg-rail.is-card:hover::after { opacity: 0.7; }
+.lg-rail.is-card > .spot-shine { inset: -1.5px; padding: 1.5px; }
+.lg-rail.is-card:hover > .spot-shine { opacity: 0.7; }
 .lg-rail.is-card .lg-rail-resizer { right: -7px; }
 .lg-rail-head {
   position: relative; z-index: 1; flex: none;

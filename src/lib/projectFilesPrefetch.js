@@ -1,23 +1,22 @@
 // Background warm-cache for the Files page, keyed by project id.
 //
-// The app boots on the Hub (/projects). While the user is on the Hub, <App>'s
-// ProjectPrefetch effect calls prefetchProjectFiles() for the currently-
-// selected (most-recently-worked-on) project, resolving its on-disk folder and
-// reading the listings + sidecar up-front. When the user then clicks the
-// "Project" tab (→ /files), ProjectFiles seeds its initial state from this
-// cache so the grid paints on the first frame instead of flashing the
-// folder-resolve + "Loading…" placeholders.
+// While the user is elsewhere (the Hub, another tab), <App>'s ProjectPrefetch
+// calls prefetchProjectFiles() for the selected project, so that when Files
+// opens it paints its grid on the first frame instead of flashing the
+// folder-resolve and "Loading…" placeholders.
 //
-// Electron only: the web build has no ambient per-project folder (it tracks a
-// single FileSystemDirectoryHandle that needs a per-session permission
-// re-grant), so prefetch is a no-op there and ProjectFiles falls back to its
-// normal cold path.
+// With the project index (src/projectIndex/README.md) this is cheap: the
+// project is opened from its project file and its whole listing comes out of
+// the machine index — no walk of the folder. ProjectFiles seeds from the
+// bundle and then asks the index again itself (anything that changed in
+// between arrives as the same rows). Before the index existed in main, the
+// bundle is the old recursive listing plus the root folder's listing.
 
-import { localFolderApi, isElectronBranch } from './localFolder';
+import { localFolderApi, isElectronBranch, hasProjectIndex, projectIndexApi } from './localFolder';
 import { readProjectsDir } from './projectsDir';
-import { loadSidecar } from './localBranchMeta';
 
-// projectId -> { folder, localFiles, rootListing: { files, dirs }, sidecar }
+// projectId -> { folder, localFiles, rootListing: { files, dirs }, index? }
+//   index = { rev, files: Row[], dirs: rel[] } when read from the project index
 const cache = new Map();
 // projectId -> in-flight Promise, so overlapping triggers (id then name
 // resolving) coalesce into one resolution instead of racing.
@@ -41,19 +40,36 @@ export async function prefetchProjectFiles({ projectId, projectName = null, user
 
   const run = (async () => {
     try {
+      if (hasProjectIndex()) {
+        // Only a project this machine already knows is opened here: linking a
+        // folder for the first time (and asking where a moved one went) is the
+        // Files page's job, with the user looking at it.
+        const loc = await projectIndexApi.locate(projectId);
+        if (!loc?.dir) return null;
+        const opened = await projectIndexApi.open({ projectId });
+        if (!opened?.ok) return null;
+        const res = await projectIndexApi.files({ projectId });
+        if (!res?.ok) return null;
+        const bundle = {
+          folder: res.dir || opened.dir,
+          localFiles: res.files || [],
+          rootListing: null,
+          index: { rev: res.rev || 0, files: res.files || [], dirs: res.dirs || [] },
+        };
+        cache.set(projectId, bundle);
+        return bundle;
+      }
       const baseDir = readProjectsDir(userId) || undefined;
       const { path } = await localFolderApi.projectDir(projectId, projectName, baseDir);
       if (!path) return null;
-      const [listAllRes, rootRes, sidecar] = await Promise.all([
+      const [listAllRes, rootRes] = await Promise.all([
         localFolderApi.listAll(path).catch(() => ({ files: [] })),
         localFolderApi.list(path).catch(() => ({ files: [], dirs: [] })),
-        loadSidecar(projectId, path).catch(() => null),
       ]);
       const bundle = {
         folder: path,
         localFiles: listAllRes?.files || [],
         rootListing: { files: rootRes?.files || [], dirs: rootRes?.dirs || [] },
-        sidecar,
       };
       cache.set(projectId, bundle);
       return bundle;
@@ -70,8 +86,8 @@ export async function prefetchProjectFiles({ projectId, projectName = null, user
 
 // Drop a project's warm bundle (e.g. when its data is known to have gone
 // stale). Pass no id to clear everything. ProjectFiles only ever reads the
-// cache for its initial seed, so a stale entry self-corrects via the page's
-// own listing effects + folder watcher; this is just an explicit eviction hook.
+// cache for its initial seed and then asks the disk / index itself, so a
+// stale entry self-corrects; this is just an explicit eviction hook.
 export function clearPrefetchedProjectFiles(projectId) {
   if (projectId) cache.delete(projectId);
   else cache.clear();

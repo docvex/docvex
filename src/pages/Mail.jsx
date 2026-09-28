@@ -1,9 +1,9 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import { useNotifications } from '../context/NotificationsContext';
 import { askProjectAi } from '../lib/projectAi';
-import { isElectron } from '../lib/platform';
-import { miniHeaderSpot } from '../lib/miniHeaderSpot';
+import { useMiniGlowSpot } from '../lib/pointerSpots';
 import MiniHeaderFade from '../components/MiniHeaderFade';
 import {
   getMailStatus, beginMailOAuth, completeMailOAuth, listMail, sendMail, disconnectMail,
@@ -337,8 +337,38 @@ const FILTERS = [
   { id: 'archived', label: 'Archived' },
 ];
 
+// Compact sticky header — fades/slides in once the big "Mail" title scrolls
+// away (mirrors the Versions tab). Listens on the single-pane scroller; it
+// mounts with the connected view, so it always binds to the live root. Its own
+// component so a flip re-renders only the bar and its fade.
+function MailCompactBar({ children }) {
+  useMiniGlowSpot(); // the .mini-glow bar's spotlight (lib/pointerSpots)
+  const barRef = useRef(null);
+  const [scrolled, setScrolled] = useState(false);
+  useEffect(() => {
+    const scroller = barRef.current?.closest('.sv-single-scroll, .main-content');
+    if (!scroller) return undefined;
+    const onScroll = () => {
+      const top = scroller.scrollTop;
+      setScrolled((s) => (s ? top > 8 : top > 32));
+    };
+    onScroll();
+    scroller.addEventListener('scroll', onScroll, { passive: true });
+    return () => scroller.removeEventListener('scroll', onScroll);
+  }, []);
+  return (
+    <>
+      <MiniHeaderFade visible={scrolled} />
+      <div ref={barRef} className={`mx-compact mini-glow${scrolled ? ' is-visible' : ''}`} aria-hidden={!scrolled}>
+        {children}
+      </div>
+    </>
+  );
+}
+
 export default function Mail() {
   const { session } = useAuth();
+  const { notify } = useNotifications();
   const user = session?.user;
   const signature = (user?.user_metadata?.full_name || user?.user_metadata?.name || user?.email || 'me').split(' ')[0];
 
@@ -407,9 +437,8 @@ export default function Mail() {
     refreshInbox();
   }, [refreshInbox]);
 
-  // Electron: AuthContext re-broadcasts docvex://mail/callback as a window event.
+  // AuthContext re-broadcasts docvex://mail/callback as a window event.
   useEffect(() => {
-    if (!isElectron) return undefined;
     const onCallback = (e) => {
       let parsed; try { parsed = new URL(e.detail); } catch { return; }
       const code = parsed.searchParams.get('code');
@@ -423,20 +452,6 @@ export default function Mail() {
     return () => window.removeEventListener('docvex:mail-callback', onCallback);
   }, [handleCode]);
 
-  // Web: the callback bridge lands us back at /mail?mailcode=…&provider=…&nonce=….
-  useEffect(() => {
-    if (isElectron) return;
-    const params = new URLSearchParams(window.location.search);
-    const code = params.get('mailcode');
-    if (!code) return;
-    const provider = params.get('provider') || sessionStorage.getItem('docvex.mail.pendingProvider') || 'gmail';
-    const nonce = params.get('nonce') || '';
-    // Strip the query so a refresh doesn't re-run the exchange.
-    const clean = window.location.pathname + window.location.hash;
-    window.history.replaceState({}, '', clean);
-    handleCode(provider, code, nonce);
-  }, [handleCode]);
-
   const startConnect = async (provider) => {
     setConnecting(provider.id); setConnectError('');
     const { error, code } = await beginMailOAuth(provider.id);
@@ -448,8 +463,21 @@ export default function Mail() {
     }
   };
 
+  // Deliberately NOT optimistic: disconnecting is what deletes the stored
+  // mailbox tokens server-side, so the inbox only reads "disconnected" once
+  // the server has confirmed it. A failure leaves the connection as it is.
   const disconnect = async () => {
-    await disconnectMail();
+    const { error } = await disconnectMail();
+    if (error) {
+      notify?.({
+        category: 'system',
+        variant: 'error',
+        title: 'Mailbox not disconnected',
+        body: 'DocVex still holds access to this mailbox. Try again in a moment.',
+        dedupeKey: 'mail-disconnect-failed',
+      });
+      return;
+    }
     setConn({ connected: false, provider: null, email: null });
     setMessages([]); setStatuses({});
   };
@@ -482,22 +510,9 @@ export default function Mail() {
     return true;
   }), [messages, statuses, filter, query]);
 
-  // Compact sticky header — fades/slides in once the big "Mail" title scrolls
-  // away (mirrors the Versions tab). Listen on the single-pane scroller; rebind
-  // when the connected view (re)mounts so pageRef points at the live root.
+  // The compact header's scroll tracking lives in MailCompactBar (below), so a
+  // show/hide flip re-renders only the bar, not the whole inbox.
   const pageRef = useRef(null);
-  const [scrolled, setScrolled] = useState(false);
-  useEffect(() => {
-    const scroller = pageRef.current?.closest('.sv-single-scroll, .main-content');
-    if (!scroller) return undefined;
-    const onScroll = () => {
-      const top = scroller.scrollTop;
-      setScrolled((s) => (s ? top > 8 : top > 32));
-    };
-    onScroll();
-    scroller.addEventListener('scroll', onScroll, { passive: true });
-    return () => scroller.removeEventListener('scroll', onScroll);
-  }, [conn.connected, statusLoading]);
   const scrollToTop = () => {
     const scroller = pageRef.current?.closest('.sv-single-scroll, .main-content');
     scroller?.scrollTo({ top: 0, behavior: 'smooth' });
@@ -545,8 +560,7 @@ export default function Mail() {
     <div className="mx-page" ref={pageRef}>
       {/* Compact header — fades/slides in once the big "Mail" title scrolls
           away, mirroring the Versions tab. Fixed to the content area. */}
-      <MiniHeaderFade visible={scrolled} />
-      <div className={`mx-compact mini-glow${scrolled ? ' is-visible' : ''}`} aria-hidden={!scrolled} onMouseMove={miniHeaderSpot}>
+      <MailCompactBar>
         <span className="mini-head-text">
           <span className="mx-compact-title">Mail</span>
           <span className="mx-compact-sep" aria-hidden="true">·</span>
@@ -562,7 +576,7 @@ export default function Mail() {
             {pendingCount > 0 ? `${pendingCount} awaiting` : 'All caught up'}
           </button>
         </Tooltip>
-      </div>
+      </MailCompactBar>
       <header className="mx-mast">
         <div className="mx-mast-left">
           <div className="mx-mast-eyebrow">

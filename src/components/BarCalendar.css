@@ -40,7 +40,7 @@
 /* The button is its own section: open, its edge turns to the accent (it is
    what the calendar under it belongs to) and it keeps its HOVER — the bar's
    wash — so it reads as the thing to press to fold the calendar away. */
-.bc-field { transition: background 140ms ease, border-color 140ms ease, color 140ms ease; }
+.bc-field { transition: background 140ms ease, border-color 140ms ease; }
 .bc-field:hover,
 .bc-field.is-open:hover { background: color-mix(in srgb, var(--text-primary) var(--ds-control-tint-hover, 8%), transparent); }
 .bc-field.is-open { border-color: var(--accent); }
@@ -108,7 +108,7 @@ html[data-reduce-motion="true"] .bc.is-reveal .bc-day > span { animation: none; 
   width: 24px; height: 24px; padding: 0;
   border: 0; border-radius: 6px;
   background: transparent; color: var(--text-secondary); cursor: pointer;
-  transition: background 120ms ease, color 120ms ease;
+  transition: background 120ms ease;
 }
 .bc-nav svg { width: 13px; height: 13px; }
 .bc-nav:hover:not(:disabled) { background: color-mix(in srgb, var(--text-primary) 8%, transparent); color: var(--text-primary); }

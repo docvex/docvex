@@ -178,7 +178,7 @@ function readIfd(dv, ifd, tiff, le, names, out) {
   return { exifOffset, gpsOffset };
 }
 
-function readExif(bytes) {
+export function readExif(bytes) {
   const dv = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
   if (dv.getUint16(0) !== 0xffd8) return null;         // not a JPEG
   let p = 2;
@@ -209,7 +209,7 @@ const ORIENTATIONS = {
   5: 'Mirrored, 90° CCW', 6: 'Rotated 90° CW', 7: 'Mirrored, 90° CW', 8: 'Rotated 90° CCW',
 };
 
-function gpsDecimal(dms, ref) {
+export function gpsDecimal(dms, ref) {
   if (!Array.isArray(dms) || dms.length < 3) return null;
   const [d, m, s] = dms;
   const sign = (ref === 'S' || ref === 'W') ? -1 : 1;

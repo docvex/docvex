@@ -17,6 +17,7 @@
 // own file styles it. It is first, and it is the default: a theme list with no
 // way back to the document as written is a list you cannot undo.
 import { setIfChanged, removeAndTouch } from './syncClock';
+import { peekFacet, putFacet, clearFacet, indexAvailable, pathOfLocalUrl } from './projectIndexClient';
 
 export const DOC_THEMES = [
   {
@@ -192,21 +193,40 @@ export function applyDocTheme(el, id) {
   el.style.setProperty('--dt-font-body', theme.fonts.body);
 }
 
-// Remembered per file (the preview's url, less any query).
+// Remembered per file (the preview's url, less any query). The project index
+// keeps it as the file's knowledge kind `theme` (`{ id }`, see
+// lib/projectIndexClient), so the choice travels with the case and follows a
+// rename; the localStorage key below is the old home, still used for a url
+// that isn't a local file and on a machine without main's side.
 const KEY_PREFIX = 'docvex:doc-viewer:doc-theme:';
 export const DOC_THEME_PREFIX = KEY_PREFIX;
 const keyFor = (url) => KEY_PREFIX + String(url || '').split('?')[0];
+const known = (id) => !!id && DOC_THEMES.some((t) => t.id === id);
 
 export function loadDocTheme(url) {
+  const path = pathOfLocalUrl(url);
+  const facet = path ? peekFacet(path, 'theme') : undefined;
+  if (facet && known(facet.data?.id)) return facet.data.id;
   try {
     const id = window.localStorage.getItem(keyFor(url));
-    return id && DOC_THEMES.some((t) => t.id === id) ? id : DEFAULT_DOC_THEME;
+    return known(id) ? id : DEFAULT_DOC_THEME;
   } catch {
     return DEFAULT_DOC_THEME;
   }
 }
 
 export function saveDocTheme(url, id) {
+  const path = pathOfLocalUrl(url);
+  if (path && indexAvailable()) {
+    if (id === DEFAULT_DOC_THEME) clearFacet(path, 'theme');
+    else {
+      putFacet({ path }, 'theme', { kind: 'theme', at: Date.now(), engine: 'user', paid: false, data: { id } }, {
+        onFail: () => { try { setIfChanged(keyFor(url), id); } catch { /* not remembered */ } },
+      });
+    }
+    try { window.localStorage.removeItem(keyFor(url)); } catch { /* the index copy wins on read */ }
+    return;
+  }
   try {
     if (id === DEFAULT_DOC_THEME) removeAndTouch(keyFor(url));
     else setIfChanged(keyFor(url), id);

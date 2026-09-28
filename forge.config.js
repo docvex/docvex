@@ -111,8 +111,32 @@ module.exports = {
     // routes them to a standalone Doc Viewer window. Windows needs no
     // packaging change — main.js writes the Explorer verb into HKCU at
     // runtime.
+    //
+    // The PROJECT file (`<name>.docvex`, src/projectIndex/README.md) is a type
+    // of our own: declared (exported UTI) and owned (role Editor, rank
+    // Owner), so Finder shows it as a DocVex project and double-clicking
+    // opens it here — main.js's open-file handler routes a `.docvex` to the
+    // main window instead of a viewer. It is listed before the catch-all so
+    // Launch Services matches it first.
     extendInfo: {
+      UTExportedTypeDeclarations: [
+        {
+          UTTypeIdentifier: 'ro.docvex.project',
+          UTTypeDescription: 'DocVex project',
+          UTTypeConformsTo: ['public.json', 'public.data'],
+          UTTypeTagSpecification: {
+            'public.filename-extension': ['docvex'],
+          },
+        },
+      ],
       CFBundleDocumentTypes: [
+        {
+          CFBundleTypeName: 'DocVex project',
+          CFBundleTypeRole: 'Editor',
+          LSHandlerRank: 'Owner',
+          LSItemContentTypes: ['ro.docvex.project'],
+          CFBundleTypeExtensions: ['docvex'],
+        },
         {
           CFBundleTypeName: 'Document',
           CFBundleTypeRole: 'Viewer',

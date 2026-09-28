@@ -2,6 +2,8 @@ import { useEffect, useRef } from 'react';
 import Tooltip from './Tooltip';
 import { toLayoutPx } from '../lib/appZoom';
 import './DocRibbon.css';
+import { perfAllows } from '../lib/perf';
+import { subscribePointer } from '../lib/pointer';
 
 // The Word document's tools, as they appear in the Doc Viewer's SIDE PANEL (the
 // one with Advisor and Metadata). They used to be a Word-style ribbon floating
@@ -24,9 +26,11 @@ const CheckGlyph = (
 );
 
 // The sidebar tabs' cursor-tracked wash: every `selector` button under the node
-// gets its own --item-spot-x/y (layout px) as the pointer moves over the node. A
-// NATIVE listener, so it follows the DOM rather than the React tree (the
-// tooltips portal elsewhere).
+// gets its own --item-spot-x/y (layout px) as the pointer moves over the node.
+// Driven by the app's one pointer (lib/pointer): the node is judged by the DOM
+// element under the pointer, so it follows the DOM rather than the React tree
+// (the tooltips portal elsewhere), and every button's rect is read in the
+// frame's read pass, before any frame's writes.
 // Flash a quick-action tile — the answer to a command run by gesture rather
 // than by pressing it. The tile is found in the DOM rather than driven through
 // React state: the actions are memoised in the pane that owns them, and
@@ -46,19 +50,23 @@ export function flashQuickAction(id) {
 
 export function useItemSpots(selector, live = true) {
   const ref = useRef(null);
-  useEffect(() => {
-    const node = ref.current;
-    if (!node) return undefined;
-    const onMove = (e) => {
-      node.querySelectorAll(selector).forEach((btn) => {
-        const br = btn.getBoundingClientRect();
-        btn.style.setProperty('--item-spot-x', `${toLayoutPx(e.clientX - br.left)}px`);
-        btn.style.setProperty('--item-spot-y', `${toLayoutPx(e.clientY - br.top)}px`);
+  useEffect(() => subscribePointer({
+    read(p) {
+      if (!p.moved) return null;
+      const node = ref.current;
+      if (!node || !p.target || !node.contains(p.target)) return null;
+      if (!perfAllows('spotlight')) return null; // graphics preset (lib/perf)
+      const btns = [...node.querySelectorAll(selector)];
+      return { btns, rects: btns.map((b) => b.getBoundingClientRect()) };
+    },
+    write(p, got) {
+      if (!got) return;
+      got.btns.forEach((btn, i) => {
+        btn.style.setProperty('--item-spot-x', `${toLayoutPx(p.x - got.rects[i].left)}px`);
+        btn.style.setProperty('--item-spot-y', `${toLayoutPx(p.y - got.rects[i].top)}px`);
       });
-    };
-    node.addEventListener('mousemove', onMove);
-    return () => node.removeEventListener('mousemove', onMove);
-  }, [selector, live]);
+    },
+  }), [selector, live]);
   return ref;
 }
 

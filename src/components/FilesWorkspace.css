@@ -1,4 +1,4 @@
-﻿/* ─────────────────────────────────────────────────────────────────────
+/* ─────────────────────────────────────────────────────────────────────
    Files tab redesign — File-Explorer-inspired workspace.
    Ported from the Claude Design handoff (docvex-files-redesign). All
    classes are `fx-` prefixed so the generic design names (.tile, .tab,
@@ -463,7 +463,7 @@
   font-weight: 500;
   color: var(--text-secondary);
   cursor: pointer;
-  transition: background 140ms ease, color 140ms ease, border-color 140ms ease;
+  transition: background 140ms ease, border-color 140ms ease;
   white-space: nowrap;
 }
 /* Hover + selected match the mini header's buttons (.fx-cat-btn) so the bars
@@ -681,7 +681,7 @@
 /* While the bar is in-flow and transparent (not pinned, not edit-tinted)
    there's no border for the shared shine to ride — keep just the interior
    spotlight. */
-.fx-pathbar:not(.is-pinned):not(.is-editing)::after { opacity: 0; }
+.fx-pathbar:not(.is-pinned):not(.is-editing) > .spot-shine { opacity: 0; }
 .fx-pathbar.is-pinned {
   /* Pinned → the SIDEBAR's frosted surface (see styles/miniHeader.css);
      spotlight + border shine come from the shared .mini-glow class. The
@@ -758,7 +758,7 @@
   border-radius: 5.6px;
   cursor: pointer;
   background: transparent; border: 0; font: inherit; font-size: 10px; font-weight: 500;
-  transition: background 120ms ease, color 120ms ease;
+  transition: background 120ms ease;
 }
 .fx-crumb-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* Optically centre the filled folder glyph with the "Home" label: the filled
@@ -826,7 +826,7 @@
   background: transparent; border: 0; cursor: pointer;
   border-radius: 4.8px;
   color: var(--text-secondary);
-  transition: background 140ms ease, color 140ms ease;
+  transition: background 140ms ease;
 }
 .fx-cat-btn:hover { background: color-mix(in srgb, var(--text-primary) 8%, transparent); color: var(--text-primary); }
 /* Active: accent-tinted chip + the icon fills with the accent (folder colour)
@@ -1075,7 +1075,7 @@
   width: 224px;
   font-size: 10.4px;
   color: var(--text-secondary);
-  transition: width 220ms cubic-bezier(.16, 1, .3, 1), background 140ms ease, color 140ms ease, border-color 140ms ease;
+  transition: width 220ms cubic-bezier(.16, 1, .3, 1), background 140ms ease, border-color 140ms ease;
 }
 .fx-search:hover { background: color-mix(in srgb, var(--text-primary) 8%, transparent); color: var(--text-primary); border-color: var(--border-strong); }
 .fx-search:focus-within,
@@ -1118,7 +1118,7 @@
   border-radius: 4px;
   background: color-mix(in srgb, var(--text-primary) 8%, transparent);
   color: var(--text-secondary);
-  transition: background 120ms ease, color 120ms ease;
+  transition: background 120ms ease;
 }
 .fx-search-clear:hover {
   background: color-mix(in srgb, var(--text-primary) 16%, transparent);
@@ -1237,13 +1237,16 @@
   padding: 6.4px 6.4px 7.2px;
   display: flex;
   flex-direction: column;
-  /* Center the thumb + name block vertically: grid rows stretch every tile to
-     the tallest one's height (e.g. a 2-line name), so centering keeps all the
-     thumbnails aligned on a common middle line instead of pinned to the top. */
+  /* The tile — and so its hover / selection fill — WRAPS its thumb and
+     name: it is not stretched to the row's height (a portrait photo's taller
+     thumb, a 2-line name elsewhere in the row) but sized to its own content
+     and centred in the row. */
+  align-self: center;
   justify-content: center;
   gap: 6.4px;
   cursor: pointer;
-  transition: transform 120ms, box-shadow 120ms, border-color 120ms, background 120ms;
+  /* No `background`: hover switches it (see .fx-tile::after below). */
+  transition: transform 120ms, box-shadow 120ms, border-color 120ms;
   text-align: center;
   font: inherit;
 }
@@ -1251,11 +1254,31 @@
    colour (no blue on Ink, no white slab on Cream); the border and selected
    ring do the rest. */
 :root { --fx-item-fill: color-mix(in srgb, var(--text-primary) 5%, transparent); }
-.fx-tile:hover {
-  background: var(--fx-item-fill);
+/* HOVER IS PRE-DRAWN. The hover's border + shadow live on `::after`, drawn
+   once and faded by OPACITY (composited — no repaint per frame); the fill is
+   the tile's own background, switched without a fade. Transitioning
+   background / box-shadow / border-color on hover repainted and re-layered the
+   whole page on every frame of every fade — a fast sweep across the grid kept
+   several running at once (measured in Electron, 150 tiles: ~1.5 s of render
+   work per sweep → ~0.45 s). The layer sits ABOVE the content and carries no
+   fill: under the content it would take the tile's text off its LCD
+   smoothing while it fades, and a fill on top would tint the thumbnail. */
+.fx-tile::after {
+  content: '';
+  position: absolute;
+  inset: -1px; /* over the tile's own 1px border: same box, same radius */
+  border-radius: 8px;
+  border: 1px solid var(--border-strong);
   box-shadow: var(--shadow-card);
-  border-color: var(--border-strong);
+  opacity: 0;
+  transition: opacity 120ms;
+  pointer-events: none;
 }
+.fx-tile:hover { background: var(--fx-item-fill); }
+.fx-tile:hover::after { opacity: 1; }
+/* States with a look of their own replace the hover look, as before. */
+.fx-tile:is(.is-selected, .is-droptarget)::after { opacity: 0; }
+.fx-tile.is-bindrop::after { border-color: transparent; }
 .fx-tile.is-selected {
   background: var(--fx-item-fill);
   border-color: var(--accent);
@@ -1281,6 +1304,24 @@
 }
 /* Files cut to the clipboard render dimmed until pasted (Explorer-style). */
 .fx-tile.is-cut, .fx-list-row.is-cut { opacity: 0.45; }
+
+/* An item whose rename / move / creation / restore is still on its way to the
+   disk (ProjectFiles' optimistic ops). It is already where it will be, just
+   faded a little and inert until the disk answers — so it can't be renamed,
+   moved or deleted a second time mid-flight. Settles in a fraction of a
+   second on a fast disk, and the fade is delayed so that case never flickers. */
+.fx-tile.is-pending, .fx-list-row.is-pending {
+  opacity: 0.6;
+  pointer-events: none;
+  animation: fx-pending-in 160ms ease 120ms both;
+}
+@keyframes fx-pending-in {
+  from { opacity: 1; }
+  to { opacity: 0.6; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .fx-tile.is-pending, .fx-list-row.is-pending { animation: none; }
+}
 
 /* Trash hover tooltip: a time-remaining chip (bg matches the countdown ring's
    urgency) followed by the file name. Lives in the portalled morph pill. */
@@ -1309,9 +1350,12 @@
 }
 .fx-tile-thumb {
   /* Height tracks the Ctrl+scroll zoom (--fx-tile) so tiles grow in BOTH
-     dimensions, not just width. ~0.58 keeps a pleasant landscape-ish thumb. */
-  height: calc(var(--fx-tile, 134.4px) * 0.58);
-  border-radius: 5.6px;
+     dimensions, not just width. ~0.58 keeps a pleasant landscape-ish thumb;
+     a PORTRAIT PHOTO's tile sets --fx-thumb-ar to its own shape, clamped
+     0.58 … 4/3 (usePhotoAspect in FilesWorkspace.jsx). */
+  height: calc(var(--fx-tile, 134.4px) * var(--fx-thumb-ar, 0.58));
+  /* Square corners: a preview shows the file's own edges. */
+  border-radius: 0;
   background: var(--bg-elevated);
   display: grid; place-items: center;
   overflow: hidden;
@@ -1326,6 +1370,9 @@
 /* The embedded FileThumbnail fills the box. */
 .fx-tile-thumb .project-files-thumb,
 .fx-tile-thumb img { width: 100%; height: 100%; object-fit: contain; }
+/* No rounded corners on a preview, in the grid or the list (type badges keep theirs). */
+.fx-tile-thumb .project-files-thumb, .fx-tile-thumb img,
+.fx-list-thumb .project-files-thumb, .fx-list-thumb img { border-radius: 0; }
 .fx-tile-thumb .project-files-icon { width: 100%; height: 100%; display: grid; place-items: center; color: var(--accent); }
 /* Bigger folder glyph that scales with the tile zoom (overrides the svg's
    intrinsic 42px). Near-fills the thumb box. */
@@ -1469,85 +1516,10 @@
    flex-center. */
 .fx-list-thumb .fx-glyph-whatsapp { width: 68%; height: 68%; }
 
-/* Recognised WhatsApp export — the file keeps its real document-type glyph and
-   the brand-green WhatsApp pill is ALWAYS shown in the corner. On hover the pill
-   grows out from its corner, squares off and dissolves — transforming into the
-   file thumbnail it sits on. The host shrinks to the glyph so the badge anchors
-   to the glyph's corner (relative sizing → scales with tile zoom / list size). */
-.fx-wa-host { position: relative; display: inline-grid; place-items: center; }
-.fx-wa-badge {
-  /* Anchored exactly to the glyph's top-right corner. Width is 42% of the
-     glyph, so scaling by 1/0.42 from that corner makes the pill grow to cover
-     the glyph precisely — matching the file's own thumbnail size + corners. */
-  position: absolute; right: 0; top: 0;
-  width: 42%; aspect-ratio: 1;
-  display: grid; place-items: center;
-  /* 50% (a perfect circle on a square pill) instead of a huge fixed px radius,
-     so the corner-squaring interpolates proportionally and stays in sync with
-     the scale rather than snapping square near the end. */
-  border-radius: 50%;
-  background: linear-gradient(135deg, #25D366 0%, #128C7E 100%);
-  color: #fff;
-  /* Grow from the corner so the pill expands across the glyph as it morphs. */
-  transform-origin: top right;
-  transition: transform 340ms cubic-bezier(0.16, 1, 0.3, 1), border-radius 340ms ease;
-  pointer-events: none;
-}
-.fx-wa-badge .fx-glyph-wa-logo { width: 64%; height: 64%; }
-/* Hover the file (tile / list row / doc-viewer tab): the pill scales up from its
-   corner to exactly cover the glyph and squares its corners to match the
-   thumbnail's radius — staying green with the WhatsApp logo. */
-.fx-tile:hover .fx-wa-badge,
-.fx-list-row:hover .fx-wa-badge,
-.dv-filetab:hover .fx-wa-badge,
-.fx-wa-host:hover .fx-wa-badge {
-  transform: scale(2.381);
-  border-radius: 20%;
-}
-/* Fade the file's own glyph out as the pill expands over it, so the old icon
-   never peeks from behind the matched-size pill. (The glyph is the host's only
-   non-badge child.) */
-.fx-wa-host > :not(.fx-wa-badge) { transition: opacity 200ms ease; }
-.fx-tile:hover .fx-wa-host > :not(.fx-wa-badge),
-.fx-list-row:hover .fx-wa-host > :not(.fx-wa-badge),
-.dv-filetab:hover .fx-wa-host > :not(.fx-wa-badge),
-.fx-wa-host:hover > :not(.fx-wa-badge) { opacity: 0; }
-@media (prefers-reduced-motion: reduce) {
-  .fx-wa-badge { transition-duration: 1ms; }
-}
-
-/* ── WhatsApp ZIP export — vertical push glyph ───────────────────────────
-   Two stacked, clipped layers. At rest: a plain accent folder (reads like any
-   other folder). On hover: the folder slides UP and out of frame while the
-   WhatsApp logo slides UP into view from below. Smooth, both directions. */
-.fx-wa-zip-glyph { position: relative; overflow: hidden; }
-.fx-wa-layer {
-  position: absolute; inset: 0;
-  display: block;
-  transition: transform 300ms cubic-bezier(0.16, 1, 0.3, 1);
-}
-.fx-wa-layer .fx-type-icon { width: 100%; height: 100%; display: block; }
-/* The base layer hosts the file's own ExtGlyph (a nested .fx-glyph) — make it
-   fill the layer regardless of the tile/list sizing rules. */
-.fx-wa-layer > .fx-glyph { width: 100%; height: 100%; }
-/* File-type icon sits in frame; WhatsApp is parked one glyph-height below. */
-.fx-wa-layer-folder { transform: translateY(0); }
-.fx-wa-layer-wa { transform: translateY(100%); }
-.fx-wa-layer-wa .fx-wa-mark-path { fill: #25D366; }
-
-.fx-tile:hover .fx-wa-zip-glyph .fx-wa-layer-folder,
-.fx-list-row:hover .fx-wa-zip-glyph .fx-wa-layer-folder,
-.dv-filetab:hover .fx-wa-zip-glyph .fx-wa-layer-folder,
-.fx-wa-zip-glyph:hover .fx-wa-layer-folder { transform: translateY(-100%); }
-
-.fx-tile:hover .fx-wa-zip-glyph .fx-wa-layer-wa,
-.fx-list-row:hover .fx-wa-zip-glyph .fx-wa-layer-wa,
-.dv-filetab:hover .fx-wa-zip-glyph .fx-wa-layer-wa,
-.fx-wa-zip-glyph:hover .fx-wa-layer-wa { transform: translateY(0); }
-
-@media (prefers-reduced-motion: reduce) {
-  .fx-wa-layer { transition-duration: 1ms; }
-}
+/* (The WhatsApp corner-pill host / badge and the zip push-glyph rules that
+   stood here were removed: nothing renders .fx-wa-host, .fx-wa-badge,
+   .fx-wa-zip-glyph or .fx-wa-layer any more, and their `:hover > :not(…)`
+   selectors made every hover change restyle whole subtrees app-wide.) */
 
 /* WhatsApp hover-tooltip note (inside the morph pill). */
 /* Base font = the normal custom tooltip size (.tooltip is 0.6rem) so the
@@ -1865,16 +1837,32 @@
      in every state. */
   border: 1px solid transparent;
   z-index: -1;
-  transition: background 120ms, box-shadow 120ms, border-color 120ms;
+  /* No `background`: hover switches it (the hover layer below). */
+  transition: box-shadow 120ms, border-color 120ms;
 }
 /* Hover + selection mirror the GRID tiles (.fx-tile:hover / .is-selected):
    card fill + strong border on hover; card fill + accent border + soft
-   accent ring when selected. */
-.fx-list-row:hover::before {
-  background: var(--fx-item-fill);
+   accent ring when selected. The hover's border + shadow are PRE-DRAWN on
+   `::after` above the content and faded by opacity, as the tiles' are (see
+   .fx-tile::after for why); the fill switches without a fade. */
+.fx-list-row:hover::before { background: var(--fx-item-fill); }
+.fx-list-row::after {
+  content: '';
+  position: absolute;
+  top: 1.6px;
+  bottom: 1.6px;
+  left: 3.2px;
+  right: 9.6px;
+  border-radius: 8px;
+  border: 1px solid var(--border-strong);
   box-shadow: var(--shadow-card);
-  border-color: var(--border-strong);
+  opacity: 0;
+  transition: opacity 120ms;
+  pointer-events: none;
 }
+.fx-list-row:hover::after { opacity: 1; }
+.fx-list-row:is(.is-selected, .is-droptarget)::after { opacity: 0; }
+.fx-list-row.is-bindrop::after { border-color: transparent; }
 .fx-list-row.is-selected::before {
   background: var(--fx-item-fill);
   border-color: var(--accent);
@@ -1889,7 +1877,7 @@
 .fx-list-thumb {
   /* Scales with the slider (set on .fx-list-row) so the thumbnail grows with
      row density; falls back to 24px when the var is unset (chrome header). */
-  width: var(--fx-row-thumb, 24px); height: var(--fx-row-thumb, 24px); border-radius: 4.8px;
+  width: var(--fx-row-thumb, 24px); height: var(--fx-row-thumb, 24px); border-radius: 0;
   overflow: hidden; flex: 0 0 var(--fx-row-thumb, 24px);
   /* Containing block for the absolutely-positioned video indicators (the
      centred play badge + duration pill) — without this they'd anchor to the
@@ -2392,7 +2380,7 @@
 /* Renaming / new-folder draft shells are non-interactive (plain divs reusing
    the tile/row classes) — kill the hover lift + pointer cues. */
 .fx-tile.is-renaming { cursor: default; transform: none; }
-.fx-tile.is-renaming:hover { transform: none; box-shadow: var(--shadow-card); }
+.fx-tile.is-renaming:hover { transform: none; } /* its shadow is the hover layer's (.fx-tile::after) */
 .fx-list-row.is-renaming { cursor: default; }
 .fx-list-row.is-renaming:hover { background: transparent; }
 .fx-props-head {
@@ -2673,18 +2661,50 @@ body.fx-marqueeing, body.fx-marqueeing * { user-select: none !important; }
 .fx-list-thumb .fx-scan-mark { top: 0; right: 0; width: 11px; height: 11px; box-shadow: 0 0 0 1px var(--bg-page); }
 .fx-list-thumb .fx-scan-mark svg { width: 7px; height: 7px; }
 
+/* The EXTRACTED-TEXT mark: a small disc with a "T", just inside the
+   thumbnail's top-LEFT corner (the AI mark has the right), on tiles and list
+   rows alike. On the page ground, not the accent, so the two never blur. */
+.fx-text-mark {
+  position: absolute; top: 4px; left: 4px; z-index: 2;
+  display: grid; place-items: center;
+  width: 16px; height: 16px; border-radius: 50%;
+  background: var(--text-primary); color: var(--bg-page);
+  box-shadow: 0 0 0 1.5px var(--bg-page);
+  pointer-events: none;
+}
+.fx-text-mark svg { width: 10px; height: 10px; }
+.fx-list-thumb .fx-text-mark { top: 0; left: 0; width: 11px; height: 11px; box-shadow: 0 0 0 1px var(--bg-page); }
+.fx-list-thumb .fx-text-mark svg { width: 7px; height: 7px; }
+
 /* A file a phone sent, WAITING to be let in (ProjectFiles incomingItems):
    faded, with a download mark on its thumbnail — a click adds it to the
    folder; the right-click menu accepts, previews or rejects. It comes back to
    full strength under the pointer, so it reads as something to press. */
-.fx-tile.is-incoming .fx-tile-thumb > :not(.fx-incoming-mark),
+/* The thumbnail's children are named by element (an <img> or <span>, a glyph's
+   <svg> / <div>) rather than as `> :not(.fx-incoming-mark)`: a hover selector
+   whose last part is only a :not() has nothing to look for, so Chromium restyles
+   the WHOLE subtree of every hovered element that takes part in a descendant
+   :hover rule — on every pointer crossing, app-wide. Same elements matched. */
+.fx-tile.is-incoming .fx-tile-thumb > img,
+.fx-tile.is-incoming .fx-tile-thumb > span:not(.fx-incoming-mark),
+.fx-tile.is-incoming .fx-tile-thumb > svg,
+.fx-tile.is-incoming .fx-tile-thumb > div,
 .fx-tile.is-incoming .fx-tile-name,
-.fx-list-row.is-incoming .fx-list-thumb > :not(.fx-incoming-mark),
+.fx-list-row.is-incoming .fx-list-thumb > img,
+.fx-list-row.is-incoming .fx-list-thumb > span:not(.fx-incoming-mark),
+.fx-list-row.is-incoming .fx-list-thumb > svg,
+.fx-list-row.is-incoming .fx-list-thumb > div,
 .fx-list-row.is-incoming .fx-name,
 .fx-list-row.is-incoming .fx-list-muted { opacity: 0.42; transition: opacity 140ms ease; }
-.fx-tile.is-incoming:hover .fx-tile-thumb > :not(.fx-incoming-mark),
+.fx-tile.is-incoming:hover .fx-tile-thumb > img,
+.fx-tile.is-incoming:hover .fx-tile-thumb > span:not(.fx-incoming-mark),
+.fx-tile.is-incoming:hover .fx-tile-thumb > svg,
+.fx-tile.is-incoming:hover .fx-tile-thumb > div,
 .fx-tile.is-incoming:hover .fx-tile-name,
-.fx-list-row.is-incoming:hover .fx-list-thumb > :not(.fx-incoming-mark),
+.fx-list-row.is-incoming:hover .fx-list-thumb > img,
+.fx-list-row.is-incoming:hover .fx-list-thumb > span:not(.fx-incoming-mark),
+.fx-list-row.is-incoming:hover .fx-list-thumb > svg,
+.fx-list-row.is-incoming:hover .fx-list-thumb > div,
 .fx-list-row.is-incoming:hover .fx-name,
 .fx-list-row.is-incoming:hover .fx-list-muted { opacity: 0.75; }
 .fx-tile.is-incoming .fx-tile-thumb { position: relative; }
@@ -2707,3 +2727,8 @@ body.fx-marqueeing, body.fx-marqueeing * { user-select: none !important; }
 /* The header's Sort dropdown (LegalBar's solo BarPicker) — the bar's control
    height, a little air before the Categorize button. */
 .fx-sort { display: flex; align-items: center; margin: 0 4.8px 0 6.4px; -webkit-app-region: no-drag; }
+
+/* Windowed grid / list (VirtualCells in FilesWorkspace.jsx): the empty space
+   standing in for the rows above and below the ones drawn. Never shrunk by a
+   flex parent (a category section is a flex column). */
+.fx-vspacer { flex-shrink: 0; }

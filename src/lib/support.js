@@ -10,13 +10,12 @@
 // Edge Function re-validates as defence in depth.
 
 import { supabase } from './supabaseClient';
-import { isElectron, isWebBuild, getAppVersion } from './platform';
+import { isElectron, getAppVersion } from './platform';
 
 // Decode a Blob into a JSON-safe base64 string (no `data:<mime>;base64,`
 // prefix — just the raw payload Resend expects). Uses FileReader because
-// it's available in both Electron renderer and web build; alternatives
-// like `Buffer.from(await blob.arrayBuffer())` aren't available in the
-// browser.
+// it's available in the renderer; alternatives like
+// `Buffer.from(await blob.arrayBuffer())` aren't (no Node in the renderer).
 async function blobToBase64(blob) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -47,7 +46,7 @@ async function blobToBase64(blob) {
 // or a synthesized Error from the function's `{ error, detail }` body.
 export async function sendSupportReport({ subject, description, attachments, debug }) {
   const appVersion = await getAppVersion();
-  const platform = isElectron ? 'electron' : (isWebBuild ? 'web' : 'unknown');
+  const platform = isElectron ? 'electron' : 'unknown';
   const userAgent = typeof navigator !== 'undefined' ? navigator.userAgent : 'unknown';
   const url = typeof window !== 'undefined' ? window.location.href : 'unknown';
   const submittedAt = new Date().toISOString();

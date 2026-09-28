@@ -115,6 +115,25 @@
 .dcv-link-ends .dcv-chips { margin: 0; }
 .dcv-link-arrow { color: var(--accent); }
 .dcv-link-why { color: var(--text-secondary); font-size: 12.5px; line-height: 1.5; }
+/* A typed link: the type as a soft pill between its two files (the Design
+   system's pill recipe), coloured by what it means — a contradiction warns. */
+.dcv-link-type {
+  --pill-tone: var(--accent);
+  display: inline-flex; align-items: center; height: var(--ds-pill-h, 18px); padding: 0 var(--ds-pill-pad, 7px);
+  border-radius: var(--ds-pill-radius, 999px); font-size: var(--ds-tag-size, 10.4px); font-weight: var(--ds-pill-weight, 600);
+  color: var(--pill-tone); background: color-mix(in srgb, var(--pill-tone) 12%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--pill-tone) 30%, transparent); white-space: nowrap;
+}
+.dcv-link-type.is-contradicts { --pill-tone: var(--danger); }
+.dcv-link-type.is-amends, .dcv-link-type.is-supersedes { --pill-tone: var(--warning); }
+.dcv-link-type.is-financial_link { --pill-tone: var(--success); }
+.dcv-link-type.is-same_party, .dcv-link-type.is-same_subject { --pill-tone: var(--info); }
+.dcv-link-conf { margin-left: auto; color: var(--text-muted); font-size: 11px; font-variant-numeric: tabular-nums; }
+.dcv-link-evidence { display: flex; flex-wrap: wrap; gap: 4px; }
+.dcv-link-evidence > span {
+  font-size: 11px; color: var(--text-secondary); padding: 1px 6px; border-radius: 5px;
+  border: 1px solid var(--ds-hairline, var(--border));
+}
 
 /* The web — related collections, and the names this one holds. */
 .dcv-related { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 2px; }
@@ -161,3 +180,9 @@
 @media (min-width: 1900px) {
   .dcv-sources { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 }
+
+/* Collection · Insights — the Design system's Segmented choice over the page;
+   Insights (components/CaseInsights) runs on this collection's files. */
+.dcv-viewbar { display: flex; margin-bottom: 18px; }
+.dcv-views.pbk-rule-opts { flex: 0 1 auto; }
+.dcv-insights .ci-view { min-height: 0; padding-top: 0; }

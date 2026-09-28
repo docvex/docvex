@@ -19,9 +19,15 @@
 //   • very large files are left for the button, since hashing them would spin
 //     a core for seconds to save a click,
 //   • a new listing cancels the previous sweep instead of queueing behind it.
+//
+// The snapshots live in the project index now (lib/projectIndexClient), whose
+// reads are only synchronous once a file has been hydrated. So the sweep first
+// hydrates the files it was handed — without that, every file of a project not
+// yet hydrated would look undescribed and be extracted again.
 
 import { extractFileMetadata } from './fileMetadata';
 import { loadMetadata, saveMetadata } from './metadataHistory';
+import { hydratePaths } from './projectIndexClient';
 
 // Past this we don't pre-hash. The Metadata tab still works on demand — it
 // just isn't worth reading a 300MB video end to end on the chance someone
@@ -66,25 +72,31 @@ async function extractOne(file) {
 // between files. `onDone(count)` fires with how many snapshots were written.
 export function prefetchMetadata(files, { onDone } = {}) {
   current?.cancel();
-  const pending = (files || []).filter(needsExtraction);
-  if (!pending.length) { current = null; return () => {}; }
+  const all = (files || []).filter((f) => f?.path);
+  if (!all.length) { current = null; return () => {}; }
 
   let cancelled = false;
   const cancel = () => { cancelled = true; };
   current = { cancel };
 
   let written = 0;
+  let pending = null;
   const step = async () => {
     if (cancelled) return;
     const file = pending.shift();
-    if (!file) { current = null; onDone?.(written); return; }
+    if (!file) { if (current?.cancel === cancel) current = null; onDone?.(written); return; }
     // Re-check: another surface (the Metadata tab itself) may have cached it
     // while this sweep was working through the queue.
     if (needsExtraction(file) && await extractOne(file)) written += 1;
     if (cancelled) return;
     setTimeout(() => idle(step), GAP_MS);
   };
-  idle(step);
+  hydratePaths(all.map((f) => f.path)).catch(() => {}).then(() => {
+    if (cancelled) return;
+    pending = all.filter(needsExtraction);
+    if (!pending.length) { if (current?.cancel === cancel) current = null; return; }
+    idle(step);
+  });
 
   return cancel;
 }

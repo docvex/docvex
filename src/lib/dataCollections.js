@@ -29,15 +29,24 @@
 // `rel` is the source's path inside the project, so a collection still finds
 // its files on another machine.
 import { localFolderApi, readLocalBlob } from './localFolder';
-import { askProjectAi } from './projectAi';
-import { getAiFacet, saveAiFacet, stampFor } from './aiData';
+import { askProjectAi, crossrefPassports, passportFiles } from './projectAi';
+import { clearAiFacet, getAiFacet, saveAiFacet, stampFor } from './aiData';
 import { extractImageText } from './textRegions';
 import { readSourceText } from './identityExtract';
 import { loadCaptions, saveCaptions } from './captionsHistory';
 import { transcribeAudio } from './transcribe';
 import { notifyFilesChanged } from './platform';
 import { isScanTagged } from './scanTags';
+import { DEFAULT_SCAN_FEATURES } from './scanFeatures';
+
+export { SCAN_FEATURES, DEFAULT_SCAN_FEATURES, loadScanFeatures, saveScanFeatures } from './scanFeatures';
+import { SETTINGS_STORES, settingsAvailable, loadSetting, putSetting, rememberProjectDir, hydrateProject, hydratePaths } from './projectIndexClient';
 import { emptyIdentity, fieldsFor, parseIdentity, relativeSourcePath } from './identities';
+import { normalizeRoId, roIdToRecordFields, sameAddress, mergeAddresses, hasMrzLines } from './roIdDocuments';
+import { readMrzWithAi } from './mrzAi';
+import { MRZ_PROMPT } from './roIdDocuments';
+import { documentAuthority, AUTHORITY_RULE } from './docAuthority';
+import { analyzeLegalHistory, compactLegalHistory, legalHistoryNote } from './legalHistory';
 
 export const COLLECTION_EXT = 'dvc';
 export const COLLECTION_TYPE = 'docvex/data-collection';
@@ -100,15 +109,15 @@ async function readFileForScan(file, { projectId, force }) {
   const kind = scanKindOf(file.name, file.mimeType);
   const e = extOf(file.name);
   if (kind === 'image') {
-    const res = await extractImageText({ path: file.path, name: file.name, projectId }, { force });
+    // A picture is its EXTRACTED TEXT and nothing more: the text Extract text
+    // saved for it (any reading of this version of the file), else the local
+    // engine's reading made now — Local mode, so no part of the picture is sent
+    // to the AI to be re-read, and no AI transcription of the whole picture
+    // either. From here on it is plain text, like any document. (Reading every
+    // picture as a picture made the scan far too slow.)
+    const res = await extractImageText({ path: file.path, name: file.name, projectId }, { mode: { result: 'local' }, reuseAny: true });
     const text = String(res?.data?.text || '').trim();
     if (text) return { text, method: 'image-text' };
-    // The measured reading failed (engine couldn't start): the AI transcription.
-    try {
-      const blob = await readLocalBlob(file.path);
-      const r = await readSourceText(blob, file.name, { path: file.path, projectId, force });
-      if (r?.text) return { text: r.text, method: 'image-text' };
-    } catch { /* fall through */ }
     return { error: res?.error || 'no_text' };
   }
   if (kind === 'video' || kind === 'audio') {
@@ -147,9 +156,11 @@ const cleanList = (v) => (Array.isArray(v) ? v : []);
 const str = (v, max = 2000) => String(v ?? '').trim().slice(0, max);
 
 // ── Step 2: understand each file (batched; kept per file) ───────────────
+const MRZ_RULES_TEXT = `MRZ rules (an identity document's strip of capitals and "<"): ${MRZ_PROMPT.split('\n').filter((l) => /^\d\./.test(l)).join(' ')} Schema: {"last_name","first_names","date_of_birth":"YYYY-MM-DD","gender":"M|F","expiration_date":"YYYY-MM-DD","nationality":"ROU"}.`;
 const UNDERSTAND_PROMPT = `You are reading files from a legal case folder (mostly Romanian). For EACH file below, say what it is and what it establishes.
 Answer ONLY with JSON: {"files":[{"i":<file number>,"summary":"2-4 sentences: what the file is and what it says","subject":"the main person, company, property, event or matter it is about","facts":[{"label":"short name of the fact","value":"the fact, exactly as the file states it"}],"entities":["every person, company, institution, property or case number named"],"dates":[{"date":"DD.MM.YYYY or as written","event":"what happened then"}],"idDocument":null}]}
-"idDocument": ONLY when the file IS an identity document carrying its holder's photo (carte de identitate / buletin, CIP, passport, driving licence, residence permit): {"holder":"the holder's full name as written","type":"CI | CIP | passport | driving licence | residence permit | other"}; otherwise null.
+"idDocument": ONLY when the file IS an identity document carrying its holder's photo (carte electronică de identitate, carte de identitate, CIP, buletin de identitate booklet, an interwar identity paper, passport, driving licence, residence permit): {"holder":"the holder's full name as written","type":"CEI | CI | CIP | BI | passport | driving licence | residence permit | other","mrz":<its machine-readable zone parsed by the MRZ rules below, or null>}; otherwise null.
+${MRZ_RULES_TEXT}
 Rules: facts must be stated by the file itself — never guess. Keep names, numbers, CNP/CUI, addresses and amounts exactly as written. Up to 12 facts per file. Write the summary in the language of the file.`;
 
 async function understandBatch(batch, { projectId, projectName }) {
@@ -170,16 +181,204 @@ async function understandBatch(batch, { projectId, projectName }) {
       facts: cleanList(f.facts).slice(0, 16).map((x) => ({ label: str(x?.label, 120), value: str(x?.value, 600) })).filter((x) => x.label && x.value),
       entities: cleanList(f.entities).map((x) => str(x, 160)).filter(Boolean).slice(0, 30),
       dates: cleanList(f.dates).map((x) => ({ date: str(x?.date, 40), event: str(x?.event, 300) })).filter((x) => x.date && x.event).slice(0, 16),
-      idDocument: f.idDocument && str(f.idDocument.holder) ? { holder: str(f.idDocument.holder, 200), type: str(f.idDocument.type, 40) } : null,
+      idDocument: f.idDocument && str(f.idDocument.holder) ? { holder: str(f.idDocument.holder, 200), type: str(f.idDocument.type, 40), ...(f.idDocument.mrz && typeof f.idDocument.mrz === 'object' ? { mrz: f.idDocument.mrz } : {}) } : null,
     });
   }
   return out;
 }
 
+// The MAP step, as project-ai's `passport` action does it (fileGraph.ts): the
+// file's PASSPORT — summary, subject, document type, facts, parties with their
+// role and identifiers, dates, abstract THEMES, the holder of an identity
+// document — in strict JSON. Kept as the file's `understanding` (the old shape,
+// plus `documentType`, `parties`, `themes`), so everything that reads it keeps
+// working. A file the model left out is answered by the older prompt above.
+function understandingFromPassport(p) {
+  const parties = cleanList(p.parties).map((x) => ({ name: str(x?.name, 200), kind: str(x?.kind, 20) || 'person', role: str(x?.role, 120), identifiers: cleanList(x?.identifiers).map((i) => str(i, 80)).filter(Boolean) })).filter((x) => x.name);
+  return {
+    text: str(p.summary, 1600),
+    subject: str(p.subject, 200),
+    documentType: str(p.document_type, 120),
+    facts: cleanList(p.facts).slice(0, 40).map((x) => ({ label: str(x?.label, 120), value: str(x?.value, 600) })).filter((x) => x.label && x.value),
+    entities: [...new Set(parties.map((x) => x.name))].slice(0, 30),
+    parties: parties.slice(0, 30),
+    dates: cleanList(p.dates).map((x) => ({ date: str(x?.date, 40), event: str(x?.event, 300) })).filter((x) => x.date && x.event).slice(0, 30),
+    themes: cleanList(p.themes).map((t) => str(t, 80)).filter(Boolean).slice(0, 8),
+    idDocument: p.id_document?.holder ? { holder: str(p.id_document.holder, 200), type: str(p.id_document.type, 40) } : null,
+  };
+}
+async function passportBatch(batch, ctx) {
+  const res = await passportFiles({
+    files: batch.map((b, n) => ({ id: String(n + 1), name: b.file.name, method: b.method, text: b.text })),
+    usageProject: ctx.projectId,
+  });
+  if (res.error) throw new Error(String(res.error?.message || res.error));
+  const out = new Map();
+  for (const p of res.passports) {
+    const i = Number(p.id) - 1;
+    if (batch[i] && p.summary) out.set(i, understandingFromPassport(p));
+  }
+  // Left out: the older prompt, for just those.
+  const left = batch.map((b, i) => i).filter((i) => !out.has(i));
+  if (left.length) {
+    try {
+      const got = await understandBatch(left.map((i) => batch[i]), ctx);
+      left.forEach((i, k) => { if (got.has(k)) out.set(i, got.get(k)); });
+    } catch { /* reported as not understood */ }
+  }
+  return out;
+}
+
+// ── The REDUCE step: typed links between files, project-wide ───────────
+// project-ai's `crossref` (fileGraph.ts) reads PASSPORTS — never the files —
+// and answers a unified timeline, unified facts and TYPED links between files
+// (amends, supersedes, contradicts, same_party, same_subject, dependency,
+// financial_link, evidence_for, references, chronological), each with an
+// explanation, the evidence and a confidence.
+//
+// One call over hundreds of files would outrun the server function (the answer
+// grows with the links: 5 files took ~24 s), so the files are split into GROUPS
+// of related files (sharing a name or an identifier — `graphGroups`) of <=40,
+// run two at a time; a group too big for one call is cut into pieces that all
+// carry its best-connected files, so the pieces still meet. A group's answer is
+// kept in the web under a signature of its files and their stamps and reused
+// while none of them changes — an unchanged project costs no call at all.
+const GRAPH_GROUP = 40;
+const GRAPH_HUBS = 6;
+export const LINK_TYPES = {
+  amends: 'Amends',
+  supersedes: 'Supersedes',
+  contradicts: 'Contradicts',
+  same_party: 'Same party',
+  same_subject: 'Same subject',
+  dependency: 'Depends on',
+  financial_link: 'Financial link',
+  evidence_for: 'Evidence for',
+  references: 'References',
+  chronological: 'Next step',
+};
+
+const keysOf = (e) => {
+  const u = e.understanding;
+  const keys = new Set();
+  for (const n of u.entities || []) { const k = foldName(n); if (k.length >= 3) keys.add(`n:${k}`); }
+  for (const p of u.parties || []) for (const id of p.identifiers || []) { const d = String(id).replace(/\W+/g, '').toLowerCase(); if (d.length >= 5) keys.add(`i:${d}`); }
+  if (u.idDocument?.holder) { const k = foldName(u.idDocument.holder); if (k.length >= 3) keys.add(`n:${k}`); }
+  return keys;
+};
+
+// Entries -> groups (arrays of entries) of <= GRAPH_GROUP.
+export function graphGroups(entries) {
+  const parent = entries.map((_, i) => i);
+  const find = (i) => { while (parent[i] !== i) { parent[i] = parent[parent[i]]; i = parent[i]; } return i; };
+  const owner = new Map();
+  const keys = entries.map(keysOf);
+  keys.forEach((ks, i) => { for (const k of ks) { if (owner.has(k)) parent[find(i)] = find(owner.get(k)); else owner.set(k, i); } });
+  const comps = new Map();
+  entries.forEach((e, i) => { const r = find(i); comps.set(r, [...(comps.get(r) || []), i]); });
+  const groups = [];
+  const small = [];
+  for (const idx of [...comps.values()].sort((a, b) => b.length - a.length)) {
+    if (idx.length <= GRAPH_GROUP) { small.push(idx); continue; }
+    // Too big for one call: pieces, each carrying the component's hubs (the
+    // files sharing the most keys with the others).
+    const count = new Map();
+    for (const i of idx) for (const k of keys[i]) count.set(k, (count.get(k) || 0) + 1);
+    const degree = (i) => [...keys[i]].reduce((n, k) => n + (count.get(k) || 1) - 1, 0);
+    const hubs = [...idx].sort((a, b) => degree(b) - degree(a)).slice(0, GRAPH_HUBS);
+    const rest = idx.filter((i) => !hubs.includes(i));
+    const room = GRAPH_GROUP - hubs.length;
+    for (let at = 0; at < rest.length; at += room) groups.push([...hubs, ...rest.slice(at, at + room)]);
+  }
+  // Small components packed together (first fit): the model may still find
+  // links between files that share no name (a theme, a sum).
+  const bins = [];
+  for (const idx of small) {
+    const bin = bins.find((b) => b.length + idx.length <= GRAPH_GROUP);
+    if (bin) bin.push(...idx); else bins.push([...idx]);
+  }
+  return [...groups, ...bins].filter((g) => g.length >= 2).map((g) => g.map((i) => entries[i]));
+}
+
+const djb2 = (text) => { let h = 5381; for (let i = 0; i < text.length; i += 1) h = ((h << 5) + h + text.charCodeAt(i)) | 0; return (h >>> 0).toString(36); };
+const groupSig = (group) => djb2(group.map((e) => `${e.rel}|${e.stamp?.size ?? ''}|${e.stamp?.mtime ?? ''}`).sort().join('\n'));
+
+function passportOf(e, id) {
+  const u = e.understanding;
+  return {
+    id, name: e.file.name,
+    summary: u.text, subject: u.subject, document_type: u.documentType || '',
+    facts: cleanList(u.facts).slice(0, 30),
+    parties: cleanList(u.parties).length ? u.parties : cleanList(u.entities).map((name) => ({ name, kind: 'person' })),
+    dates: cleanList(u.dates).slice(0, 20),
+    themes: cleanList(u.themes),
+    id_document: u.idDocument ? { holder: u.idDocument.holder, type: u.idDocument.type } : null,
+  };
+}
+
+// -> { graph: { links, timeline, facts }, groups (for the web), calls, errors }
+async function crossReference(entries, prevGroups, ctx, { say, stop }) {
+  const groups = graphGroups(entries);
+  const kept = {};
+  const todo = [];
+  for (const g of groups) {
+    const sig = groupSig(g);
+    if (prevGroups?.[sig]) kept[sig] = prevGroups[sig]; else todo.push({ sig, g });
+  }
+  let done = 0; let calls = 0;
+  const errors = [];
+  const run = async ({ sig, g }) => {
+    if (stop()) return;
+    const ids = g.map((e, n) => `F${n + 1}`);
+    const relOf = new Map(g.map((e, n) => [ids[n], e.rel]));
+    const res = await crossrefPassports({ passports: g.map((e, n) => passportOf(e, ids[n])), usageProject: ctx.projectId });
+    calls += 1;
+    done += 1;
+    say({ stage: 'links', index: done, total: todo.length, overall: 0.78 + 0.17 * (done / Math.max(1, todo.length)), step: `Cross-referenced ${done} of ${todo.length} group${todo.length === 1 ? '' : 's'}`, fileFrac: done / Math.max(1, todo.length) });
+    if (res.error) { errors.push(String(res.error?.message || res.error)); return; }
+    const rels = (list) => cleanList(list).map((id) => relOf.get(id)).filter(Boolean);
+    kept[sig] = {
+      links: cleanList(res.graph.links).map((l) => ({
+        from: relOf.get(l.from_file_id), to: relOf.get(l.to_file_id), type: l.connection_type,
+        why: str(l.explanation, 1200), evidence: cleanList(l.evidence).map((x) => str(x, 200)), confidence: Number(l.confidence) || 0,
+      })).filter((l) => l.from && l.to && LINK_TYPES[l.type]),
+      timeline: cleanList(res.graph.timeline).map((t) => ({ date: str(t?.date, 40), event: str(t?.event, 400), sources: rels(t?.file_ids) })).filter((t) => t.sources.length),
+      facts: cleanList(res.graph.facts).map((f) => ({ subject: str(f?.subject, 200), label: str(f?.label, 120), value: str(f?.value, 600), sources: rels(f?.file_ids) })).filter((f) => f.sources.length),
+    };
+  };
+  if (todo.length) say({ stage: 'links', index: 0, total: todo.length, overall: 0.78, step: 'Cross-referencing the files', fileFrac: 0 });
+  // Two at a time: each call is tens of seconds of the model writing.
+  const queue = [...todo];
+  await Promise.all([0, 1].map(async () => { while (queue.length && !stop()) await run(queue.shift()); }));
+  // Merged across groups — a pair two groups both linked is one link.
+  const seen = new Set();
+  const links = [];
+  for (const part of Object.values(kept)) {
+    for (const l of part.links) {
+      const sym = ['contradicts', 'same_party', 'same_subject'].includes(l.type);
+      const key = `${sym ? [l.from, l.to].sort().join('|') : `${l.from}>${l.to}`}|${l.type}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      links.push(l);
+    }
+  }
+  links.sort((a, b) => b.confidence - a.confidence);
+  const dedupe = (list, keyOf) => { const s = new Set(); return list.filter((x) => { const k = keyOf(x); if (s.has(k)) return false; s.add(k); return true; }); };
+  const parts = Object.values(kept);
+  const timeline = dedupe(parts.flatMap((p) => p.timeline), (t) => `${t.date}|${t.event.toLowerCase()}`).sort((a, b) => a.date.localeCompare(b.date));
+  const facts = dedupe(parts.flatMap((p) => p.facts), (f) => `${f.subject.toLowerCase()}|${f.label.toLowerCase()}|${f.value.toLowerCase()}`);
+  return { graph: { links, timeline, facts }, groups: kept, calls, errors };
+}
+
+// For checks outside the app (scratch harness), nothing else.
+export const scanInternals = { passportBatch, crossReference, graphGroups, connectChunked, chunkEntries };
+
 // ── The web of information ──────────────────────────────────────────────
-// What the scan knows is kept in the project folder itself, in a hidden index
-// beside the files (`.docvex-web.json` — a dotfile, so the Files tab never lists
-// it; it travels with the folder like the `.docvex.json` sidecar):
+// What the scan knows is kept with the project, in its settings store `web`
+// (`.docvex/settings/web.json`, lib/projectIndexClient — it travels with the
+// folder and with account sync). It used to be a hidden `.docvex-web.json`
+// beside the files plus a localStorage copy; both are read ONCE when the store
+// has nothing, moved into it, and removed:
 //   files:       { [rel]: { size, mtime, method, understanding } } — every file
 //                scanned and what the AI understood of it
 //   collections: [{ file, title }] — the `.dvc` files the scan wrote
@@ -197,7 +396,29 @@ async function understandBatch(batch, { projectId, projectName }) {
 const WEB_FILE = '.docvex-web.json';
 const WEB_LS = 'docvex:data-web:v1:';
 
-async function readWeb(projectDir) {
+const shapeWeb = (web) => (web && typeof web === 'object' && web.files
+  ? { version: 1, files: web.files || {}, collections: cleanList(web.collections), graph: web.graph && typeof web.graph === 'object' ? web.graph : null }
+  : null);
+
+async function readWeb(projectDir, projectId) {
+  if (projectId && settingsAvailable()) {
+    rememberProjectDir(projectId, projectDir);
+    const stored = await loadSetting(projectId, SETTINGS_STORES.web);
+    if (stored !== undefined) {
+      if (stored) return shapeWeb(stored);
+      // Nothing in the store yet: the old homes, once.
+      const legacy = await readLegacyWeb(projectDir);
+      if (legacy && await putSetting(projectId, SETTINGS_STORES.web, { ...legacy, updatedAt: Date.now() })) {
+        try { localStorage.removeItem(WEB_LS + projectDir); } catch { /* harmless leftover */ }
+        try { await localFolderApi.deleteFiles({ dir: projectDir, paths: [resolveInProject(projectDir, WEB_FILE)] }); } catch { /* harmless leftover */ }
+      }
+      return legacy;
+    }
+  }
+  return readLegacyWeb(projectDir);
+}
+
+async function readLegacyWeb(projectDir) {
   let web = null;
   try {
     // Asked for only when it exists — before the first scan there is none, and
@@ -205,16 +426,18 @@ async function readWeb(projectDir) {
     const path = resolveInProject(projectDir, WEB_FILE);
     const st = await localFolderApi.stat(path);
     if (st && !st.error) web = JSON.parse(await (await readLocalBlob(path)).text());
-  } catch { /* none yet, or the web build — try the machine's copy */ }
+  } catch { /* none yet — try the machine's copy */ }
   if (!web) {
     try { web = JSON.parse(localStorage.getItem(WEB_LS + projectDir) || 'null'); } catch { web = null; }
   }
-  if (!web || typeof web !== 'object' || !web.files) return null;
-  return { version: 1, files: web.files || {}, collections: cleanList(web.collections) };
+  return shapeWeb(web);
 }
 
-async function writeWeb(projectDir, web) {
-  const text = JSON.stringify({ ...web, updatedAt: Date.now() });
+async function writeWeb(projectDir, web, projectId) {
+  const value = { ...web, updatedAt: Date.now() };
+  if (projectId && settingsAvailable() && await putSetting(projectId, SETTINGS_STORES.web, value)) return;
+  // No store (or it refused): the old homes, so the next run is still cheap.
+  const text = JSON.stringify(value);
   try { localStorage.setItem(WEB_LS + projectDir, text); } catch { /* full — the file is what counts */ }
   try {
     await localFolderApi.writeFiles({ dir: projectDir, files: [{ filename: WEB_FILE, blob: new Blob([text], { type: 'application/json' }) }] });
@@ -271,7 +494,7 @@ const COLLECTION_SHAPE = `{"title":"short name of the subject","subject":"person
 // what a contract's clauses are filled from). The AI fills it from the files,
 // with only these keys; a value already in the record is never overwritten.
 const RECORD_KEYS = `person: ${fieldsFor('person').map((f) => `${f.key} (${f.label})`).join(', ')}; org: ${fieldsFor('org').map((f) => `${f.key} (${f.label})`).join(', ')}`;
-const RECORD_RULE = `For a collection about ONE person or ONE company add "record": {"kind":"person" or "org","fields":{"<key>":"value"}} using ONLY these keys, each value exactly as a file states it (dates as DD.MM.YYYY), leaving out what no file states: ${RECORD_KEYS}.`;
+const RECORD_RULE = `For a collection about ONE person or ONE company add "record": {"kind":"person" or "org","fields":{"<key>":"value"}} using ONLY these keys, each value exactly as a file states it (dates as DD.MM.YYYY), leaving out what no file states: ${RECORD_KEYS}. ${AUTHORITY_RULE}`;
 
 const CONNECT_PROMPT = `Below is what was understood from each file of a legal case folder. Connect them: group the files into DATA COLLECTIONS — one per real-world subject (a person, a company, a property, a vehicle, a contract, an incident, a court case…) that two or more files are about, or that one file covers in depth. A file may belong to several collections. Do not invent anything: every fact must come from the listed files.
 Answer ONLY with JSON: {"collections":[${COLLECTION_SHAPE}]}
@@ -282,7 +505,7 @@ const fileCard = (e, n) => {
   const u = e.understanding;
   const facts = cleanList(u.facts).slice(0, 10).map((f) => `${f.label}: ${f.value}`).join('; ');
   const dates = cleanList(u.dates).slice(0, 8).map((d) => `${d.date} ${d.event}`).join('; ');
-  return `[${n + 1}] ${e.rel} (${METHOD_LABELS[e.method] || e.method})\nAbout: ${u.subject}\nSummary: ${u.text}${facts ? `\nFacts: ${facts}` : ''}${u.entities.length ? `\nNamed: ${u.entities.join(', ')}` : ''}${dates ? `\nDates: ${dates}` : ''}`;
+  return `[${n + 1}] ${e.rel} (${METHOD_LABELS[e.method] || e.method}${u.documentType ? `, ${u.documentType}` : ''})\nAbout: ${u.subject}\nSummary: ${u.text}${cleanList(u.themes).length ? `\nThemes: ${u.themes.join(', ')}` : ''}${facts ? `\nFacts: ${facts}` : ''}${u.entities.length ? `\nNamed: ${u.entities.join(', ')}` : ''}${dates ? `\nDates: ${dates}` : ''}`;
 };
 
 // One AI collection → the file's shape; `at(i)` maps a file number to its entry.
@@ -318,7 +541,12 @@ async function askJson(prompt, { projectId, projectName }) {
     messages: [{ role: 'user', content: prompt }],
     tools: false, model: MODEL, projectName, usageProject: projectId, usageAction: 'files-scan',
   });
-  if (res?.error) throw new Error(String(res.error));
+  if (res?.error) {
+    const why = String(res.error?.message || res.error);
+    // 546 = the Edge Function ran out of memory / time on the request: say it
+    // in words (the chunked connect below retries it smaller).
+    throw new Error(/non-2xx|546|WORKER_LIMIT/i.test(why) ? 'The AI service ran out of resources on a request this size.' : why);
+  }
   const parsed = parseJson(res.text);
   if (!parsed) throw new Error('The AI answered in a form that couldn’t be read.');
   return parsed;
@@ -328,6 +556,67 @@ async function connectFiles(entries, ctx) {
   const parsed = await askJson(`${CONNECT_PROMPT}\n\n${entries.map(fileCard).join('\n\n')}`, ctx);
   const at = (i) => entries[Number(i) - 1] || null;
   return cleanList(parsed.collections).map((c) => shapeCollection(c, at)).filter((c) => c.title && c.sources.length);
+}
+
+// CONNECTING IN CHUNKS. One request carrying every file's understanding grew
+// past what the Edge Function can hold (a 546 — out of memory / time) on a
+// project of any size. So the files go a CHUNK at a time (≤ CONNECT_CHUNK
+// files, ≤ CONNECT_CHARS characters of cards): the first chunk makes the
+// collections, every later one is FITTED into them (integrateFiles), as a later
+// scan fits new files. A chunk that fails is tried once more, then split in
+// half and each half tried — down to single files — so one oversized or
+// troublesome file costs itself, not the scan.
+const CONNECT_CHUNK = 16;
+const CONNECT_CHARS = 24000;
+function chunkEntries(list) {
+  const out = [];
+  let cur = []; let size = 0;
+  for (const e of list) {
+    const len = fileCard(e, cur.length + 1).length;
+    if (cur.length && (cur.length >= CONNECT_CHUNK || size + len > CONNECT_CHARS)) { out.push(cur); cur = []; size = 0; }
+    cur.push(e); size += len;
+  }
+  if (cur.length) out.push(cur);
+  return out;
+}
+// `step(done, total)` reports progress; `stop()` ends it early (→ null).
+async function connectChunked(entries, cols, ctx, { stop, step } = {}) {
+  const chunks = chunkEntries(entries);
+  let created = [];
+  const touched = new Set();
+  const failed = [];
+  let done = 0;
+  const one = async (chunk) => {
+    const all = [...cols, ...created];
+    if (!all.length) { created = await connectFiles(chunk, ctx); return; }
+    const r = await integrateFiles(chunk, all, ctx);
+    r.touched.forEach((c) => touched.add(c));
+    created.push(...r.created);
+  };
+  const attempt = async (chunk) => {
+    for (let tries = 0; tries < 2; tries += 1) {
+      if (stop?.()) return;
+      try { await one(chunk); return; } catch (err) {
+        // eslint-disable-next-line no-console
+        console.warn(`[scan] connecting ${chunk.length} file(s) failed (try ${tries + 1}):`, err?.message || err);
+        if (tries === 0) await new Promise((r) => { setTimeout(r, 1500); });
+        else if (chunk.length > 1) {
+          const mid = Math.ceil(chunk.length / 2);
+          await attempt(chunk.slice(0, mid));
+          await attempt(chunk.slice(mid));
+          return;
+        } else { failed.push({ entry: chunk[0], error: err?.message || 'ai_failed' }); return; }
+      }
+    }
+  };
+  for (const chunk of chunks) {
+    if (stop?.()) return null;
+    await attempt(chunk);
+    done += chunk.length;
+    step?.(done, entries.length);
+  }
+  if (stop?.()) return null;
+  return { created, touched, failed };
 }
 
 // ── Step 3b: a LATER run — fit the new files into the web ───────────────
@@ -342,10 +631,13 @@ Write in the language of the collections.`;
 async function integrateFiles(newEntries, cols, ctx) {
   const newNames = new Set(newEntries.flatMap((e) => e.understanding.entities.map(foldName)));
   const cards = cols.map((c, n) => {
-    const names = c.entities.map((e) => e.name);
-    const touches = c.entities.some((e) => newNames.has(foldName(e.name)));
+    // A collection made moments ago (an earlier chunk of this scan) has no
+    // names worked out yet — its summary is the card then.
+    const ents = c.entities || [];
+    const names = ents.map((e) => e.name);
+    const touches = !c.entities || ents.some((e) => newNames.has(foldName(e.name)));
     return touches
-      ? `C${n + 1} "${c.title}" (${c.subject}) — ${c.summary.slice(0, 220)}${names.length ? ` | Named: ${names.slice(0, 12).join(', ')}` : ''}`
+      ? `C${n + 1} "${c.title}" (${c.subject}) — ${String(c.summary || '').slice(0, 220)}${names.length ? ` | Named: ${names.slice(0, 12).join(', ')}` : ''}`
       : `C${n + 1} "${c.title}" (${c.subject})`;
   });
   const parsed = await askJson(`${INTEGRATE_PROMPT}\n\nEXISTING COLLECTIONS\n${cards.join('\n')}\n\nNEW FILES\n${newEntries.map(fileCard).join('\n\n')}`, ctx);
@@ -375,19 +667,38 @@ async function integrateFiles(newEntries, cols, ctx) {
 // empty fields are filled — a value the user typed, or an earlier reading, is
 // never replaced — and only the record's own keys are taken. A person or
 // company collection without a record gets one.
-function fillRecord(c, rec) {
+// `from` = { authority, rel } — the document a reading comes from. A field
+// is filled when empty; one filled from a LESS official document is
+// REPLACED by a more official one (an identity card's CNP over a contract's);
+// `recordSources` on the collection remembers where each field came from.
+// Readings with no known source (the AI's merged answer) count as 2.
+function fillRecord(c, rec, from = {}) {
   if (!rec || typeof rec !== 'object') return;
   const kind = c.record?.kind || (rec.kind === 'org' || c.subject === 'company' ? 'org' : 'person');
   if (!c.record && !['person', 'company'].includes(c.subject) && !['person', 'org'].includes(rec.kind)) return;
   const allowed = new Set(fieldsFor(kind).map((f) => f.key));
   const base = c.record ? { ...c.record } : { ...emptyIdentity(kind), name: c.title };
   let filled = false;
+  const authority = Number(from.authority) || 2;
+  const sources = { ...(c.recordSources || {}) };
+  const had = (k) => Number(sources[k]?.authority) || (String(base[k] ?? '').trim() ? 3 : 0);
   for (const [k, v] of Object.entries(rec.fields || {})) {
     if (!allowed.has(k) || typeof v !== 'string' || !v.trim()) continue;
-    if (String(base[k] ?? '').trim()) continue;
+    // The same address written another way makes the one kept fuller — the
+    // more official spelling winning where the two really disagree.
+    if (k === 'address' && String(base.address ?? '').trim() && sameAddress(base.address, v)) {
+      const merged = mergeAddresses([{ value: base.address, authority: had(k) }, { value: v, authority }]);
+      if (merged && merged !== base.address) { base.address = merged; filled = true; }
+      if (authority > had(k)) sources[k] = { authority, rel: from.rel || null };
+      continue;
+    }
+    if (String(base[k] ?? '').trim() && authority <= had(k)) continue;
+    if (String(base[k] ?? '').trim() === v.trim()) { if (authority > had(k)) sources[k] = { authority, rel: from.rel || null }; continue; }
     base[k] = v.trim();
+    sources[k] = { authority, rel: from.rel || null };
     filled = true;
   }
+  c.recordSources = sources;
   if (!filled) return;
   const parsed = parseIdentity(JSON.stringify(base));
   if (!parsed) return;
@@ -484,25 +795,140 @@ function applyFaces(cols, created, faces, byRel) {
 const safeName = (title) => String(title || 'Data collection')
   .replace(/[\\/:*?"<>|]+/g, ' ').replace(/\s+/g, ' ').replace(/\.+$/, '').trim().slice(0, 90) || 'Data collection';
 
+// ── What the scan does (the scan button's card, FilesWorkspace) ─────────
+const featureOfKind = (kind) => (kind === 'image' ? 'pictures' : kind === 'video' || kind === 'audio' ? 'recordings' : 'documents');
+
+// NOTHING MAY HOLD THE SCAN: every file's reading and every AI call runs
+// against a time limit and against Stop. A file that runs out of time is
+// skipped (not remembered — the next scan tries it again) and the scan goes
+// on; Stop takes effect at once, not after the file in hand.
+const READ_LIMIT_MS = { image: 120000, doc: 180000, video: 600000, audio: 600000 };
+const AI_LIMIT_MS = 240000;
+function raceScan(promise, ms, stop) {
+  return new Promise((resolve, reject) => {
+    let done = false;
+    const finish = (fn, v) => { if (done) return; done = true; clearTimeout(timer); clearInterval(poll); fn(v); };
+    const timer = setTimeout(() => finish(resolve, { timedOut: true }), ms);
+    const poll = setInterval(() => { if (stop()) finish(resolve, { cancelled: true }); }, 250);
+    Promise.resolve(promise).then((value) => finish(resolve, { value }), (err) => finish(reject, err));
+  });
+}
+const NOT_REMEMBERED = new Set(['ai_failed', 'timed_out']);
+
+// ── The KNOWLEDGE GRAPH (the Files tab's Graph view, components/FileGraph) ──
+// Every file the scan has read as a node, every typed link it found as an
+// edge — read back from the web index (each cross-referenced group keeps its
+// links there), in the shape the graph takes:
+// { files: [{ id, name, type, path }], connections: [{ from_file_id,
+//   to_file_id, connection_type, explanation, evidence, confidence }] }
+// `id` is the file's path inside the project. Collections written by a scan
+// made before the web kept its groups give their links instead.
+const GRAPH_TYPE = { image: 'image', video: 'video', audio: 'audio', collection: 'collection', doc: 'document' };
+export async function loadScanGraph(projectDir, { projectId } = {}) {
+  if (!projectDir) return { files: [], connections: [] };
+  const web = await readWeb(projectDir, projectId);
+  const seen = new Set();
+  const connections = [];
+  const add = (l) => {
+    if (!l?.from || !l?.to || l.from === l.to) return;
+    const sym = ['contradicts', 'same_party', 'same_subject'].includes(l.type);
+    const key = `${sym ? [l.from, l.to].sort().join('|') : `${l.from}>${l.to}`}|${l.type}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    connections.push({
+      from_file_id: l.from, to_file_id: l.to, connection_type: l.type,
+      explanation: l.why || '', evidence: Array.isArray(l.evidence) ? l.evidence : [], confidence: Number(l.confidence) || 0,
+    });
+  };
+  for (const g of Object.values(web?.graph?.groups || {})) (g?.links || []).forEach(add);
+  if (!connections.length) {
+    try {
+      const listing = await localFolderApi.listAll(projectDir);
+      for (const f of (listing?.files || []).filter((x) => x?.path && scanKindOf(x.name) === 'collection')) {
+        try { (parseCollection(await (await readLocalBlob(f.path)).text())?.links || []).forEach(add); } catch { /* unreadable */ }
+      }
+    } catch { /* no listing — no links */ }
+  }
+  const files = new Map();
+  const node = (rel) => {
+    if (!rel || files.has(rel)) return;
+    const name = String(rel).split('/').pop();
+    files.set(rel, { id: rel, name, type: GRAPH_TYPE[scanKindOf(name)] || 'document', path: resolveInProject(projectDir, rel) });
+  };
+  for (const [rel, f] of Object.entries(web?.files || {})) if (!f?.skipped) node(rel);
+  connections.forEach((c) => { node(c.from_file_id); node(c.to_file_id); });
+  connections.sort((a, b) => b.confidence - a.confidence);
+  return { files: [...files.values()], connections };
+}
+
+// The web index as the scan left it — every file read (with what the AI
+// understood of it), the collections, the project-wide graph. For the Files
+// tab's Insights (lib/caseInsights), which reads it and never writes it.
+export async function loadScanIndex(projectDir, { projectId } = {}) {
+  if (!projectDir) return null;
+  if (projectId) await hydrateProject(projectId, { dir: projectDir }).catch(() => {});
+  return readWeb(projectDir, projectId);
+}
+
+// ── Erase the scan's memory ─────────────────────────────────────────────
+// The Data collections (to the Trash), the links and the web index, and what
+// the AI UNDERSTOOD of each file — so the next scan connects everything
+// afresh. What was READ out of the files (a picture's extracted text, a
+// recording's captions, a scan's transcription) is kept: the next scan reads
+// nothing again, it only asks the AI again.
+export async function eraseScanMemory(projectDir, { projectId } = {}) {
+  if (!projectDir) return { error: 'no_folder' };
+  const listing = await localFolderApi.listAll(projectDir);
+  if (listing?.error) return { error: listing.error };
+  const all = (listing.files || []).filter((f) => f?.path);
+  let collections = 0;
+  for (const f of all.filter((x) => scanKindOf(x.name) === 'collection')) {
+    try {
+      const res = await localFolderApi.trashFile({ dir: projectDir, path: f.path });
+      if (!res?.error) collections += 1;
+    } catch { /* left where it is */ }
+  }
+  if (projectId) await hydrateProject(projectId, { dir: projectDir }).catch(() => {});
+  let understood = 0;
+  for (const f of all) {
+    try { if (getAiFacet(f.path, 'understanding')) { clearAiFacet(f.path, 'understanding'); understood += 1; } } catch { /* next one */ }
+  }
+  // The web index, in every home it has had.
+  const empty = { version: 1, files: {}, collections: [], graph: null, updatedAt: Date.now() };
+  if (projectId && settingsAvailable()) await putSetting(projectId, SETTINGS_STORES.web, empty).catch(() => {});
+  try { localStorage.removeItem(WEB_LS + projectDir); } catch { /* harmless */ }
+  try {
+    const st = await localFolderApi.stat(resolveInProject(projectDir, WEB_FILE));
+    if (st && !st.error) await localFolderApi.deleteFiles({ dir: projectDir, paths: [resolveInProject(projectDir, WEB_FILE)] });
+  } catch { /* harmless leftover */ }
+  notifyFilesChanged();
+  return { collections, understood };
+}
+
 // ── The scan ────────────────────────────────────────────────────────────
 // `onProgress({ stage, index, total, name })` — stage: list | read | understand | connect | save.
 // `force` starts the web over (every file read and understood again).
 // → { collections, created, updated, removed, read, added, upToDate, skipped } or { error }
 // `tags` (lib/scanTags) — the files tagged for the scan: only those are read,
 // and a file untagged since the last scan leaves the collections as if removed.
-export async function scanProjectFiles(projectDir, { projectId, projectName, force = false, onProgress, isCancelled, tags = null } = {}) {
+export async function scanProjectFiles(projectDir, { projectId, projectName, force = false, onProgress, isCancelled, tags = null, features: askedFeatures = null } = {}) {
+  const features = { ...DEFAULT_SCAN_FEATURES, ...(askedFeatures || {}) };
   if (!projectDir) return { error: 'no_folder' };
   const say = (p) => { try { onProgress?.(p); } catch { /* ignore */ } };
   const stop = () => !!isCancelled?.();
   const ctx = { projectId, projectName };
-  say({ stage: 'list' });
+  say({ stage: 'list', overall: 0.01, step: 'Listing the files', fileFrac: 0 });
   const listing = await localFolderApi.listAll(projectDir);
   if (listing?.error) return { error: listing.error };
   const files = (listing.files || []).filter((f) => f?.path && scanKindOf(f.name, f.mimeType) !== 'collection'
     && (!tags || isScanTagged(tags, relInProject(projectDir, f.path))));
   if (!files.length) return { error: tags ? 'none_tagged' : 'empty' };
 
-  const web = force ? null : await readWeb(projectDir);
+  // What was saved about each file is read synchronously below, from the
+  // index's copy — which knows the project's files once it has been hydrated.
+  if (projectId) await hydrateProject(projectId, { dir: projectDir }).catch(() => {});
+  else await hydratePaths(files.map((f) => f.path)).catch(() => {});
+  const web = force ? null : await readWeb(projectDir, projectId);
   const known = web?.files || {};
 
   // 1 + 2. What each file is — from the web, from the file's AI data, or read
@@ -517,32 +943,74 @@ export async function scanProjectFiles(projectDir, { projectId, projectName, for
   // the next scan picks up from there.
   const PER_FILE = 9000;
   let batch = []; let batchSize = 0; let understood = 0; let aiDown = null;
+  // PROGRESS for the scan button's gauges (FilesWorkspace ScanGauges): every
+  // event carries `overall` (0…1, the whole scan — reading and understanding
+  // the files is 2–70%, connecting 72%, cross-referencing 78–95%, writing 97%)
+  // and, while files are read, the FILE being worked on: its `step` in words and
+  // `fileFrac` (0…1 through its own steps: opening → extracting / transcribing /
+  // reading → read, waiting to be understood → understood).
+  let at = 0;
+  const overallAt = (n, frac) => 0.02 + 0.68 * Math.min(1, (n + frac) / Math.max(1, files.length));
+  let fileAt = Date.now();   // when the file in hand was started (the gauge counts from it)
+  const held = [];          // files of a kind switched off — left as they are
+  const sayFile = (n, file, step, fileFrac, extra = {}) => say({
+    stage: 'read', index: n, total: files.length, name: file.name, step, fileFrac, fileAt,
+    overall: overallAt(n, fileFrac), done: n + (fileFrac >= 1 ? 1 : 0), skipped: skipped.length, understood, ...extra,
+  });
   let mediaDown = null;       // captions unavailable (no key, offline) — the rest of the media is skipped
   const flush = async () => {
     if (!batch.length) return;
     const list = batch; batch = []; batchSize = 0;
     if (aiDown) { list.forEach((b) => skipped.push({ name: b.file.name, error: 'ai_failed' })); return; }
-    say({ stage: 'understand', index: understood, total: understood + list.length, name: list[0].file.name });
+    say({ stage: 'understand', index: understood, total: understood + list.length, name: list.length > 1 ? `${list.length} files` : list[0].file.name, step: `Understanding ${list.length} file${list.length === 1 ? '' : 's'}`, fileFrac: 0.8, overall: overallAt(at, 0.8), done: at, skipped: skipped.length, understood });
     let got;
-    try { got = await understandBatch(list, ctx); } catch (err) {
+    const t0 = Date.now();
+    try {
+      const r = await raceScan(passportBatch(list, ctx).catch(() => understandBatch(list, ctx)), AI_LIMIT_MS, stop);
+      if (r.cancelled) { list.forEach((b) => skipped.push({ name: b.file.name, error: 'ai_failed' })); return; }
+      if (r.timedOut) throw new Error('The AI took too long to answer.');
+      got = r.value;
+      // eslint-disable-next-line no-console
+      console.info(`[scan] understood ${list.length} file(s) in ${Date.now() - t0} ms`);
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.warn('[scan] understanding failed:', err?.message || err);
       aiDown = err?.message || 'ai_failed';
       list.forEach((b) => skipped.push({ name: b.file.name, error: 'ai_failed' }));
       return;
     }
-    list.forEach((b, i) => {
+    for (const [i, b] of list.entries()) {
       const u = got.get(i);
-      if (!u?.text) { skipped.push({ name: b.file.name, error: 'ai_failed' }); return; }
-      const data = { ...u, method: b.method };
+      if (!u?.text) { skipped.push({ name: b.file.name, error: 'ai_failed' }); continue; }
+      const data = { ...u, method: b.method, ...(b.legal ? { legalHistory: b.legal } : {}) };
+      // An IDENTITY DOCUMENT is also read into the normalised shape
+      // (lib/roIdDocuments — CNP decoded, strip checked, address split): free,
+      // from the text already read, kept with the understanding.
+      if (u.idDocument || ID_WORDS.test(`${u.documentType || ''} ${u.subject || ''} ${b.file.name}`)) {
+        try {
+          const src = b.raw || b.text;
+          let roId = normalizeRoId(u.idDocument?.mrz ? { mrz: u.idDocument.mrz } : null, src);
+          // A strip the local reader could not read (the OCR misread it):
+          // the MRZ parser prompt reads it (lib/mrzAi).
+          if ((!roId.mrz || roId.mrz.ok === false) && hasMrzLines(src)) {
+            const m = await raceScan(readMrzWithAi(src, ctx).catch(() => null), 30000, stop).catch(() => null);
+            if (m?.value) roId = normalizeRoId({ mrz: m.value }, src);
+          }
+          if (roId.cnp || roId.document_number || roId.passport_number || roId.mrz) data.roId = roId;
+        } catch { /* not readable as one */ }
+      }
       // Kept in the file's AI data — the Data tab shows it, the next scan reuses it.
       saveAiFacet({ path: b.file.path, name: b.file.name, projectId }, 'understanding', { data, engine: 'claude', stamp: b.stamp });
       const e = { file: b.file, rel: b.rel, stamp: b.stamp, method: b.method, understanding: normalizeUnderstanding(data) };
       entries.push(e); fresh.push(e);
-    });
+    }
     understood += list.length;
+    say({ stage: 'understand', index: understood, total: understood, name: list.length > 1 ? `${list.length} files` : list[0].file.name, step: 'Understood', fileFrac: 1, overall: overallAt(at, 1), done: at, skipped: skipped.length, understood });
   };
   let readCount = 0;
   for (let n = 0; n < files.length; n += 1) {
     if (stop()) return { error: 'cancelled' };
+    at = n;
     const file = files[n];
     const rel = relInProject(projectDir, file.path);
     listed.add(rel);
@@ -554,31 +1022,52 @@ export async function scanProjectFiles(projectDir, { projectId, projectName, for
       entries.push({ file, rel, stamp, method: prev.method || 'text', understanding: u });
       // Another machine: the file's AI data is filled from the web, for free.
       if (!getAiFacet(file.path, 'understanding')) saveAiFacet({ path: file.path, name: file.name, projectId }, 'understanding', { data: { ...u, method: prev.method || 'text' }, engine: 'claude', stamp });
+      sayFile(n, file, 'Already known — unchanged', 1, { quiet: true });
       continue;
     }
-    if (same && prev.skipped) { skipped.push({ name: file.name, error: prev.skipped, earlier: true }); continue; }
+    if (same && prev.skipped) { skipped.push({ name: file.name, error: prev.skipped, earlier: true }); sayFile(n, file, 'Skipped earlier — unchanged', 1, { quiet: true }); continue; }
     const saved = force ? null : getAiFacet(file.path, 'understanding', stamp);
     if (saved?.data?.text) {
       const e = { file, rel, stamp, method: saved.data.method || 'text', understanding: normalizeUnderstanding(saved.data) };
       entries.push(e); fresh.push(e);
+      sayFile(n, file, 'Already understood', 1, { quiet: true });
       continue;
     }
     const kind = scanKindOf(file.name, file.mimeType);
+    if (!features[featureOfKind(kind)]) { held.push(rel); sayFile(n, file, 'Left out \u2014 switched off', 1, { quiet: true }); continue; }
     if ((kind === 'video' || kind === 'audio') && mediaDown) { skipped.push({ name: file.name, error: mediaDown }); continue; }
-    say({ stage: 'read', index: n, total: files.length, name: file.name });
+    fileAt = Date.now();
+    sayFile(n, file, kind === 'image' ? 'Extracting its text' : kind === 'video' || kind === 'audio' ? 'Transcribing' : 'Reading its text', 0.15);
+    // Let the window breathe between files (paint the progress, answer clicks):
+    // reading one is a chain of work that otherwise never gives the thread back.
+    await new Promise((r) => { setTimeout(r, 0); });
     try {
-      const res = await readFileForScan(file, { projectId, force });
-      if (res.error) { skipped.push({ name: file.name, rel, stamp, error: res.error }); continue; }
+      const race = await raceScan(readFileForScan(file, { projectId, force }), READ_LIMIT_MS[kind] || 180000, stop);
+      // eslint-disable-next-line no-console
+      console.info(`[scan] ${file.name} (${kind}): ${Date.now() - fileAt} ms${race.timedOut ? ' \u2014 timed out' : race.cancelled ? ' \u2014 stopped' : race.value?.error ? ` \u2014 ${race.value.error}` : ''}`);
+      if (race.cancelled) return { error: 'cancelled' };
+      if (race.timedOut) { skipped.push({ name: file.name, rel, stamp, error: 'timed_out' }); sayFile(n, file, 'Skipped \u2014 took too long', 1); continue; }
+      const res = race.value;
+      if (res.error) { skipped.push({ name: file.name, rel, stamp, error: res.error }); sayFile(n, file, 'Skipped — nothing to read', 1); continue; }
       readCount += 1;
-      const text = res.text.length > PER_FILE ? `${res.text.slice(0, PER_FILE)}\n[…]` : res.text;
+      sayFile(n, file, `Read — ${res.text.length.toLocaleString()} characters, waiting to be understood`, 0.6, { chars: res.text.length });
+      // Read in its legal era first (lib/legalHistory, local): a historical
+      // document goes to the AI with a note on the law of its time — its terms,
+      // the decrees it cites, its land measures converted.
+      let legal = null;
+      let note = '';
+      try { const a = analyzeLegalHistory(res.text); legal = compactLegalHistory(a); note = legal ? legalHistoryNote(a, { max: 1400 }) : ''; } catch { /* read as it is */ }
+      const body = res.text.length > PER_FILE ? `${res.text.slice(0, PER_FILE)}\n[…]` : res.text;
+      const text = note ? `[Context juridic istoric, stabilit de DocVex]\n${note}\n[Textul fișierului]\n${body}` : body;
       if (batch.length && (batch.length >= 8 || batchSize + text.length > 40000)) await flush();
-      batch.push({ file, rel, stamp, method: res.method, text }); batchSize += text.length;
+      batch.push({ file, rel, stamp, method: res.method, text, raw: res.text, legal }); batchSize += text.length;
     } catch (err) {
       const why = err?.message || 'unreadable';
       // Transcription not set up (or unreachable): every other recording
       // would fail the same way — don't load them all to find out.
       if ((kind === 'video' || kind === 'audio') && /configured|reach the AI|signed in|OpenAI/i.test(why)) mediaDown = why;
       skipped.push({ name: file.name, rel, stamp, error: why });
+      sayFile(n, file, 'Skipped — couldn\u2019t be read', 1);
     }
   }
   await flush();
@@ -604,21 +1093,34 @@ export async function scanProjectFiles(projectDir, { projectId, projectName, for
   let created = [];
   let touched = new Set();
   // What each collection said before, to write only the ones that change.
-  const signature = (c) => JSON.stringify({ t: c.title, s: c.summary, so: c.sources, f: c.facts, ti: c.timeline, co: c.connections, e: c.entities, r: c.related, fm: c.faceMatches || [], fr: c.faceReference || [], rc: c.record || null });
+  const signature = (c) => JSON.stringify({ t: c.title, s: c.summary, so: c.sources, f: c.facts, ti: c.timeline, co: c.connections, l: c.links || [], e: c.entities, r: c.related, fm: c.faceMatches || [], fr: c.faceReference || [], rc: c.record || null });
   const before = new Map(cols.map((c) => [c.filename, signature(c)]));
   if (!upToDate) {
     if (stop()) return { error: 'cancelled' };
     if (firstRun) {
-      say({ stage: 'connect', total: entries.length });
-      try { created = await connectFiles(entries, ctx); } catch (err) { return { error: err?.message || 'ai_failed', skipped }; }
+      say({ stage: 'connect', total: entries.length, overall: 0.72, step: 'Grouping the files into collections', fileFrac: 0 });
+      const res = await connectChunked(entries, [], ctx, {
+        stop,
+        step: (d, t) => say({ stage: 'connect', total: t, overall: 0.72 + 0.05 * (d / Math.max(1, t)), step: `Grouped ${d} of ${t} files into collections`, fileFrac: d / Math.max(1, t) }),
+      });
+      if (!res) return { error: 'cancelled' };
+      res.failed.forEach((f) => skipped.push({ name: f.entry.file.name, error: 'ai_failed' }));
+      if (!res.created.length) return { error: res.failed[0]?.error || 'The AI couldn\u2019t connect the files. Try again.', skipped };
+      created = res.created;
       cols = [];
       created.forEach((c) => fillRecord(c, c.recordIn));
     } else {
       cols = cols.map((c) => withoutFiles(c, changed));
       const incoming = fresh.filter((e) => byRel.has(e.rel));
       if (incoming.length) {
-        say({ stage: 'connect', total: incoming.length, incremental: true });
-        try { ({ touched, created } = await integrateFiles(incoming, cols, ctx)); } catch (err) { return { error: err?.message || 'ai_failed', skipped }; }
+        say({ stage: 'connect', total: incoming.length, incremental: true, overall: 0.72, step: 'Fitting the new files into the collections', fileFrac: 0 });
+        const res = await connectChunked(incoming, cols, ctx, {
+          stop,
+          step: (d, t) => say({ stage: 'connect', total: t, incremental: true, overall: 0.72 + 0.05 * (d / Math.max(1, t)), step: `Fitted ${d} of ${t} new files into the collections`, fileFrac: d / Math.max(1, t) }),
+        });
+        if (!res) return { error: 'cancelled' };
+        res.failed.forEach((f) => skipped.push({ name: f.entry.file.name, error: 'ai_failed' }));
+        ({ touched, created } = res);
         created.forEach((c) => fillRecord(c, c.recordIn));
       }
     }
@@ -627,10 +1129,25 @@ export async function scanProjectFiles(projectDir, { projectId, projectName, for
   // 3c. Faces — the identity documents' photos against the pictures. Local:
   // no tokens, no face leaves the computer (lib/faceMatch). Redone every run
   // from the saved face descriptions, so a new picture is matched at once.
-  say({ stage: 'faces' });
-  const faces = await faceStage(entries, { projectId, onProgress: (p) => say({ stage: 'faces', ...p }), isCancelled: stop });
+  // NOT RUN BY THE SCAN any more (at the user's request): the scan treats a
+  // picture as its extracted text only and never looks at it as a picture —
+  // comparing faces meant decoding and analysing every picture in the project.
+  // What earlier scans found stays in the collections (applyFaces isn't called,
+  // so nothing is cleared). `faceStage` / `applyFaces` are kept for a separate
+  // action.
+  let faces = { references: [], matches: [], errors: [] };
   if (stop()) return { error: 'cancelled' };
-  applyFaces(cols, created, faces, byRel);
+  // …unless FACIAL RECOGNITION is switched on in the scan's card.
+  if (features.faces) {
+    say({ stage: 'faces', overall: 0.74, step: 'Comparing faces with the identity documents', fileFrac: 0 });
+    faces = await faceStage(entries, {
+      projectId,
+      isCancelled: stop,
+      onProgress: (p) => say({ stage: 'faces', ...p, overall: 0.74 + 0.03 * ((p.index || 0) / Math.max(1, p.total || 1)), step: p.total ? `Comparing faces \u2014 ${Math.min((p.index || 0) + 1, p.total)} of ${p.total}` : 'Comparing faces', fileFrac: (p.index || 0) / Math.max(1, p.total || 1) }),
+    });
+    if (stop()) return { error: 'cancelled' };
+    applyFaces(cols, created, faces, byRel);
+  }
 
   // 4. The web: names per collection, links between collections — all local.
   const understandingOf = (rel) => byRel.get(rel)?.understanding;
@@ -646,6 +1163,18 @@ export async function scanProjectFiles(projectDir, { projectId, projectName, for
     used.add(c.filename.toLowerCase());
   }
   const all = [...keptCols, ...created];
+  // A person's collection holding their identity document takes the
+  // document's checked reading into its record (empty fields only).
+  for (const c of all) {
+    if (c.subject === 'company' || c.record?.kind === 'org') continue;
+    for (const s of c.sources) {
+      const roId = byRel.get(s.rel)?.understanding?.roId;
+      if (roId && (roId.cnp || roId.last_name)) {
+        const e = byRel.get(s.rel);
+        fillRecord(c, { kind: 'person', fields: roIdToRecordFields(roId) }, { authority: documentAuthority({ name: e?.file?.name || s.name, u: e?.understanding }).score, rel: s.rel });
+      }
+    }
+  }
   for (const c of all) {
     // Refresh what each source was understood as (a changed file reads anew).
     c.sources = c.sources.map((s) => (byRel.get(s.rel) ? { ...s, understood: byRel.get(s.rel).understanding.text } : s));
@@ -670,8 +1199,28 @@ export async function scanProjectFiles(projectDir, { projectId, projectName, for
   }
   relateCollections(all);
 
+  // 4b. Typed links between files, project-wide (the REDUCE step) — each
+  // collection keeps the links touching its files, the other end possibly in
+  // another collection.
+  if (stop()) return { error: 'cancelled' };
+  // Switched off: the links earlier scans made stay as they are.
+  const keptGraph = { groups: web?.graph?.groups || {}, graph: { timeline: web?.graph?.timeline || [], facts: web?.graph?.facts || [], links: [] }, calls: 0, errors: [] };
+  let cross = keptGraph;
+  if (features.links) {
+    const r = await raceScan(crossReference(entries, web?.graph?.groups, ctx, { say, stop }), AI_LIMIT_MS * 3, stop);
+    if (r.cancelled) return { error: 'cancelled' };
+    cross = r.timedOut ? { ...keptGraph, errors: ['the AI took too long'] } : r.value;
+  }
+  if (stop()) return { error: 'cancelled' };
+  if (features.links && cross !== keptGraph) {
+    for (const c of all) {
+      const mine = new Set(c.sources.map((x) => x.rel));
+      c.links = cross.graph.links.filter((l) => mine.has(l.from) || mine.has(l.to)).slice(0, 80);
+    }
+  }
+
   // 5. Write what changed.
-  say({ stage: 'save', total: all.length });
+  say({ stage: 'save', total: all.length, overall: 0.97, step: `Writing ${all.length} collection${all.length === 1 ? '' : 's'}`, fileFrac: 0.5 });
   const now = Date.now();
   const toWrite = [];
   for (const c of all) {
@@ -700,11 +1249,16 @@ export async function scanProjectFiles(projectDir, { projectId, projectName, for
   for (const e of entries) nextFiles[e.rel] = { size: e.stamp.size, mtime: e.stamp.mtime, method: e.method, understanding: { ...e.understanding } };
   // A file nothing could be read from is remembered too, so it isn't retried
   // (and paid for) on every run — until it changes.
-  for (const s of skipped) if (s.rel && s.stamp && s.error !== 'ai_failed') nextFiles[s.rel] = { size: s.stamp.size, mtime: s.stamp.mtime, skipped: String(s.error) };
-  const nextWeb = { version: 1, files: nextFiles, collections: all.map((c) => ({ file: c.filename, title: c.title })) };
+  for (const s of skipped) if (s.rel && s.stamp && !NOT_REMEMBERED.has(s.error)) nextFiles[s.rel] = { size: s.stamp.size, mtime: s.stamp.mtime, skipped: String(s.error) };
+  // Files of a kind switched off keep what the index knew of them.
+  for (const rel of held) if (known[rel] && !nextFiles[rel]) nextFiles[rel] = known[rel];
+  // The project-wide graph: the groups' answers (reused while their files
+  // don't change) + the merged timeline and facts.
+  const nextGraph = cross === keptGraph ? (web?.graph || null) : { groups: cross.groups, timeline: cross.graph.timeline, facts: cross.graph.facts, links: cross.graph.links.length };
+  const nextWeb = { version: 1, files: nextFiles, collections: all.map((c) => ({ file: c.filename, title: c.title })), graph: nextGraph };
   // Nothing new: the index is left as it is (no write, no watcher wake-up).
-  if (!web || JSON.stringify({ f: web.files, c: web.collections }) !== JSON.stringify({ f: nextWeb.files, c: nextWeb.collections })) {
-    await writeWeb(projectDir, nextWeb);
+  if (!web || JSON.stringify({ f: web.files, c: web.collections, g: web.graph || null }) !== JSON.stringify({ f: nextWeb.files, c: nextWeb.collections, g: nextWeb.graph })) {
+    await writeWeb(projectDir, nextWeb, projectId);
   }
   if (toWrite.length || emptied.length) notifyFilesChanged();
 
@@ -718,6 +1272,9 @@ export async function scanProjectFiles(projectDir, { projectId, projectName, for
     upToDate,
     faceMatches: faces.matches.length,
     faceErrors: faces.errors,
+    links: cross === keptGraph ? null : cross.graph.links.length,
+    linkCalls: cross.calls,
+    linkErrors: cross.errors,
     skipped: skipped.filter((s) => !s.earlier),
   };
 }
@@ -730,6 +1287,14 @@ function normalizeUnderstanding(d) {
     entities: cleanList(d?.entities),
     dates: cleanList(d?.dates),
     idDocument: d?.idDocument?.holder ? { holder: str(d.idDocument.holder, 200), type: str(d.idDocument.type, 40) } : null,
+    documentType: str(d?.documentType, 120),
+    parties: cleanList(d?.parties),
+    themes: cleanList(d?.themes),
+    // An identity document's normalised reading (lib/roIdDocuments), and a
+    // historical document's legal era, risks and converted surfaces
+    // (lib/legalHistory).
+    ...(d?.roId && typeof d.roId === 'object' ? { roId: d.roId } : {}),
+    ...(d?.legalHistory && typeof d.legalHistory === 'object' ? { legalHistory: d.legalHistory } : {}),
   };
 }
 
@@ -751,6 +1316,13 @@ export function parseCollection(text) {
     facts: cleanList(doc.facts).map((f) => ({ label: str(f?.label, 200), value: str(f?.value, 1200), sources: cleanList(f?.sources).map((x) => str(x, 1000)) })).filter((f) => f.label),
     timeline: cleanList(doc.timeline).map((t) => ({ date: str(t?.date, 60), event: str(t?.event, 600), sources: cleanList(t?.sources).map((x) => str(x, 1000)) })).filter((t) => t.event),
     connections: cleanList(doc.connections).map((k) => ({ from: str(k?.from, 1000), to: str(k?.to, 1000), why: str(k?.why, 600), face: k?.face ? true : undefined })).filter((k) => k.from && k.to),
+    // Typed links (the scan's cross-reference): this collection's files to any
+    // file of the project.
+    links: cleanList(doc.links).map((l) => ({
+      from: str(l?.from, 1000), to: str(l?.to, 1000), type: str(l?.type, 40), why: str(l?.why, 1200),
+      evidence: cleanList(l?.evidence).map((x) => str(x, 200)).filter(Boolean),
+      confidence: Math.max(0, Math.min(1, Number(l?.confidence) || 0)),
+    })).filter((l) => l.from && l.to && LINK_TYPES[l.type]),
     // The web: the names this collection holds (and which files name them) and
     // the collections it is linked to.
     entities: cleanList(doc.entities).map((e) => ({ name: str(e?.name, 200), sources: cleanList(e?.sources).map((x) => str(x, 1000)) })).filter((e) => e.name),
@@ -765,6 +1337,8 @@ export function parseCollection(text) {
     updatedAt: Number(doc.updatedAt) || 0,
     // The party's record (lib/identities) — kept exactly as written.
     record: doc.record && typeof doc.record === 'object' ? doc.record : undefined,
+    // Which document each record field was taken from, and how official it is.
+    recordSources: doc.recordSources && typeof doc.recordSources === 'object' ? doc.recordSources : undefined,
     origin: str(doc.origin, 20) || undefined,
     self: str(doc.self, 1000) || undefined,
   };

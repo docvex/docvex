@@ -1,4 +1,4 @@
-﻿/* Document viewer window: a Chrome-style tab strip + the active file's
+/* Document viewer window: a Chrome-style tab strip + the active file's
    preview, full width. Sits below the custom title bar. dv-prefixed; reads
    only theme tokens. */
 
@@ -231,7 +231,7 @@
 /* A paragraph is picked: the Close button has the top of this corner, so the
    find bar drops a pill's height plus a gap below it. Written off the same
    variable the button is sized by, so the two cannot drift into each other. */
-.dv-section-body:has(.dv-docx.has-pick) .dv-find {
+.dv-section-body:has(.dv-docx.has-pick):has(.dv-docx-liftclose.is-on) .dv-find {
   top: calc(var(--ds-dv-pill-top, 6.4px) + var(--dv-liftclose) + 8px);
 }
 /* Open only when it is being USED — focused, or holding a query. Hover does
@@ -342,7 +342,7 @@
   border-radius: 4px;
   background: color-mix(in srgb, var(--text-primary) 8%, transparent);
   color: var(--text-secondary);
-  transition: background 120ms ease, color 120ms ease, opacity 120ms ease;
+  transition: background 120ms ease, opacity 120ms ease;
 }
 .dv-find-btn:hover:not(:disabled) {
   background: color-mix(in srgb, var(--text-primary) 16%, transparent);
@@ -1037,7 +1037,7 @@ body.dv-ocr-resizing .dv-split-resize::after { background: var(--accent); }
    page is centred and moved by a transform, so it can be dragged at any zoom
    (see PdfPreview). `center`, not `safe center`: a page bigger than the stage
    should hang off BOTH sides, as a zoomed picture does. */
-.file-preview-pdf-scroll.is-single { cursor: grab; overflow: hidden; }
+.file-preview-pdf-scroll.is-single { overflow: hidden; }
 .file-preview-pdf-scroll.is-single .file-preview-pdf-pages {
   width: 100%; min-width: 0; height: 100%;
   align-items: center; justify-content: center;
@@ -1266,7 +1266,7 @@ body.dv-ocr-resizing .dv-split-resize::after { background: var(--accent); }
   padding: 0.56rem 0.8rem; background: transparent; border: none;
   border-bottom: 2.4px solid transparent; margin-bottom: -1px;
   font-family: var(--font-body); font-size: 0.704rem; font-weight: 500;
-  color: var(--text-muted); cursor: pointer; transition: color 150ms, border-color 150ms;
+  color: var(--text-muted); cursor: pointer; transition: border-color 150ms;
 }
 .dv-text-toggle-btn svg { flex: none; width: 12.8px; height: 12.8px; }
 .dv-text-toggle-btn:hover:not(.is-active) { color: var(--text-secondary); }
@@ -1377,7 +1377,7 @@ body.dv-ocr-resizing .dv-split-resize::after { background: var(--accent); }
   border-radius: 4px;
   background: color-mix(in srgb, var(--text-primary) 8%, transparent);
   color: var(--text-secondary);
-  transition: background 120ms ease, color 120ms ease;
+  transition: background 120ms ease;
 }
 .fx-search-clear:hover {
   background: color-mix(in srgb, var(--text-primary) 16%, transparent);
@@ -1692,7 +1692,7 @@ body.dv-ocr-resizing .dv-split-resize::after { background: var(--accent); }
   width: 24px; height: 24px; padding: 0;
   border: none; background: none; cursor: pointer;
   color: rgba(255, 255, 255, 0.4);
-  transition: color 140ms ease;
+  transition: none;
 }
 .dv-wa-burger:hover { color: rgba(255, 255, 255, 0.75); }
 .dv-wa-burger.is-active { color: #fff; }
@@ -1730,7 +1730,7 @@ body.dv-ocr-resizing .dv-split-resize::after { background: var(--accent); }
   border: 1px solid var(--border); border-radius: 7.2px;
   background: var(--bg-input); color: var(--text-secondary);
   font: inherit; font-size: 10px; cursor: pointer;
-  transition: border-color 140ms ease, background 140ms ease, color 140ms ease;
+  transition: border-color 140ms ease, background 140ms ease;
 }
 .dv-wa-daterange:hover { border-color: var(--border-strong); color: var(--text-primary); }
 .dv-wa-daterange.is-active {
@@ -2636,29 +2636,20 @@ img.dv-wa-media { cursor: pointer; }
   border-radius: 3.2px; cursor: pointer;
   transition: background 110ms ease, box-shadow 110ms ease, opacity 160ms ease;
 }
-/* Brand cognac rather than `--accent`: the page sheet is always white in both
-   themes, and Ink's accent (sand) would be invisible on it. `!important` so a
-   paragraph the document itself shades still shows the hover/pick state. */
-/* The highlight's "padding" is box-shadow spread rather than real padding: the
-   page was measured and sliced into sheets at its natural height, so growing a
-   block on hover would reflow the page under the cursor. Spread paints outside
-   the box without touching layout, and rounds to radius + spread. */
-.dv-docx-para:hover {
-  background: color-mix(in srgb, var(--color-cognac) 12%, transparent) !important;
-  box-shadow: 0 0 0 4.8px color-mix(in srgb, var(--color-cognac) 12%, transparent);
-}
-/* Picked: a tight tint around the text, then a gap of bare page, then the
-   rounded border sitting outside it. The border is an `outline` rather than
-   another box-shadow layer precisely so the gap can show through — stacked
-   box-shadows paint solid bands back-to-front, which would fill the gap in.
-   `outline-offset` keeps the corners rounded (radius + offset). */
-.dv-docx-para.is-selected,
-.dv-docx-para.is-selected:hover {
-  background: color-mix(in srgb, var(--color-cognac) 16%, transparent) !important;
-  box-shadow: 0 0 0 4.8px color-mix(in srgb, var(--color-cognac) 16%, transparent);
-  outline: 1.2px solid color-mix(in srgb, var(--color-cognac) 45%, transparent);
-  outline-offset: 11.2px;
-}
+/* HOVER: the paragraph under the pointer stays EXACTLY as it is and the rest
+   of the document dims a little (DocParaPill marks it — `.dv-docx.has-para-hot`
+   on the host, `.is-para-hot` on the paragraph — so moving between paragraphs
+   restyles two elements, not the page). It replaced a cognac tint and ring on
+   the hovered paragraph. Not while a paragraph is picked or a cross-reference
+   jump is showing: each of those has its own recede. A block holding the
+   hovered paragraph (a table around a cell's paragraph) stays bright with it.
+   Opacity only — nothing moves, nothing re-wraps. */
+/* (The dim of the REST of the document on hover was removed at the user's
+   request — the hovered paragraph's sleeve is the whole hover look now.) */
+/* PICKED: nothing is painted on the picked paragraph (it used to take a
+   cognac tint, a ring and a detached outline) — it stays exactly as written
+   and the rest of the document dims FURTHER than on hover (0.3 against the
+   hover's 0.72; the has-pick rule below). */
 
 /* An editable paragraph: it IS an input now, so it takes a text caret and a
    focus ring that reads as a field without moving anything (the ring is the
@@ -2668,8 +2659,8 @@ img.dv-wa-media { cursor: pointer; }
    as a real 8-character tab stop and open a gap between the bullet and its text
    the moment the paragraph is picked. */
 .dv-docx-para[contenteditable] { white-space: normal; }
-.dv-docx-para[contenteditable]:focus { outline-color: var(--color-cognac); }
-.dv-docx-para[contenteditable]:focus-visible { outline-color: var(--color-cognac); }
+.dv-docx-para[contenteditable]:focus,
+.dv-docx-para[contenteditable]:focus-visible { outline: none; }
 /* Edited but not yet saved — a warm underline marks what differs from the AI's
    text, and survives losing the pick so the edit can't be forgotten. */
 .dv-docx-para.is-edited {
@@ -2681,11 +2672,30 @@ img.dv-wa-media { cursor: pointer; }
 .dv-docx.has-pick .dv-docx-para.is-edited { opacity: 1; }
 
 /* While anything is picked, the rest of the document recedes so the picked
-   passage reads as the subject. Everything in the page's flow dims — tables and
-   images included, not just the tagged paragraphs — and the picked blocks are
-   pulled back to full strength on top of it. */
-.dv-docx.has-pick .dv-docx-page > article > * { opacity: 0.38; transition: opacity 160ms ease; }
-.dv-docx.has-pick .dv-docx-para.is-selected { opacity: 1; }
+   passage reads as the subject — and that is ALL picking does (no zoom, veil
+   or card: PICK_POP_OUT in DocViewer.jsx). Everything in the page's flow dims —
+   tables and images included, not just the tagged paragraphs — and the picked
+   blocks are pulled back to full strength on top of it. */
+.dv-docx.has-pick .dv-docx-page > article > * { opacity: 0.14; transition: opacity 160ms ease; }
+/* While a paragraph is picked nothing else is a target (a click outside it
+   only dismisses — DocParaPill / the pick handler), so nothing else shows the
+   hand: every other paragraph and every mark outside the pick take the plain
+   arrow. The marks INSIDE the picked paragraph keep theirs. */
+.dv-docx.dv-docx.has-pick .dv-docx-page,
+.dv-docx.dv-docx.has-pick .dv-docx-page *,
+.dv-docx.dv-docx.has-pick .dv-docx-page *::after { cursor: default; }
+.dv-docx.dv-docx.has-pick .dv-docx-para.is-selected :is(.dv-ref[data-href], .dv-xref, .dv-cuiref) { cursor: pointer; }
+/* THE SLEEVE: a black bar down the LEFT of the picked paragraph and of the one
+   under the pointer. Two box-shadows, so it takes no room and nothing moves:
+   an outer shadow is never painted under its own box, so the ink one (7px out)
+   shows as a strip left of the paragraph, and the page-white one on top of it
+   (4px out) opens the gap between the bar and the text. */
+.dv-docx .dv-docx-para.is-selected,
+.dv-docx.has-para-hot:not(.has-pick) .is-para-hot {
+  box-shadow: -5px 0 0 0 #fff, -8px 0 0 0 var(--color-ink);
+}
+.dv-docx.has-pick .dv-docx-para.is-selected,
+.dv-docx.has-pick .dv-docx-page > article > :has(.dv-docx-para.is-selected) { opacity: 1; }
 
 /* ── Pick spotlight ─────────────────────────────────────────────────────
    Picking a paragraph zooms the whole document in on it (layoutLift in
@@ -3014,13 +3024,11 @@ body.dv-ocr-resizing .dv-doc-words { transition: none; }
   filter: drop-shadow(0 3.2px 12.8px rgba(0, 0, 0, 0.55));
   cursor: pointer;
   opacity: 0; visibility: hidden; transform: scale(0.6);
-  transition: opacity 120ms ease, transform 120ms ease, visibility 0s 120ms,
-              background 120ms ease, color 120ms ease;
+  transition: opacity 120ms ease, transform 120ms ease, visibility 0s 120ms, background 120ms ease;
 }
 .dv-docx-liftclose.is-on {
   opacity: 1; visibility: visible; transform: scale(1);
-  transition: opacity 200ms ease 340ms, transform 260ms cubic-bezier(0.16, 1, 0.3, 1) 340ms, visibility 0s 340ms,
-              background 120ms ease, color 120ms ease;
+  transition: opacity 200ms ease 340ms, transform 260ms cubic-bezier(0.16, 1, 0.3, 1) 340ms, visibility 0s 340ms, background 120ms ease;
 }
 /* Over the picked paragraph (layoutLift places it; `left`
    is its CENTRE): this paragraph's versions as a row of dots — oldest on the
@@ -3086,7 +3094,7 @@ body.dv-ocr-resizing .dv-doc-words { transition: none; }
   border: 1px solid var(--border-strong); border-radius: 50%;
   background: var(--bg-elevated); color: var(--text-secondary);
   cursor: pointer;
-  transition: background 120ms ease, color 120ms ease, border-color 120ms ease, opacity 120ms ease;
+  transition: background 120ms ease, border-color 120ms ease, opacity 120ms ease;
 }
 .dv-docx-liftnav-btn:hover:not(:disabled) { background: var(--accent); border-color: var(--accent); color: var(--text-on-accent); }
 .dv-docx-liftnav-btn:disabled { opacity: 0.4; cursor: not-allowed; }
@@ -3151,17 +3159,15 @@ body.dv-ocr-resizing .dv-doc-words { transition: none; }
   padding: 6px 8px;
   border: 1px solid transparent;
   border-radius: 8px;
-  /* The same teal the cross-reference button uses — a citation is a citation,
-     whether it is marked in the text or listed under it. */
-  background: rgba(var(--xref, 13, 148, 136), 0.1);
+  /* The colour of the PLATFORM the row opens, as its mark in the text wears
+     it: an act legislatie.just.ro's violet, a CAEN code insse.ro's amber
+     (lib/legalBrowser PLATFORMS). */
+  --paralaw: var(--cat-update);
+  background: color-mix(in srgb, var(--paralaw) 10%, transparent);
   transition: background 120ms ease, border-color 120ms ease;
 }
-.dv-paralaw-row:hover { background: rgba(var(--xref, 13, 148, 136), 0.18); border-color: rgba(var(--xref, 13, 148, 136), 0.4); }
-/* A CAEN code is not an act — it keeps the amber its mark carries. */
-.dv-paralaw-row.is-caen { background: rgba(217, 119, 6, 0.12); }
-.dv-paralaw-row.is-caen:hover { background: rgba(217, 119, 6, 0.2); border-color: rgba(217, 119, 6, 0.42); }
-:root[data-theme='ink'] .dv-paralaw-row.is-caen { background: rgba(251, 191, 36, 0.14); }
-:root[data-theme='ink'] .dv-paralaw-row.is-caen:hover { background: rgba(251, 191, 36, 0.24); border-color: rgba(251, 191, 36, 0.45); }
+.dv-paralaw-row:hover { background: color-mix(in srgb, var(--paralaw) 18%, transparent); border-color: color-mix(in srgb, var(--paralaw) 40%, transparent); }
+.dv-paralaw-row.is-caen { --paralaw: var(--warning); }
 .dv-paralaw-main { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
 .dv-paralaw-name {
   font-size: 11.2px; font-weight: 650; color: var(--text-primary); line-height: 1.3;
@@ -3201,7 +3207,7 @@ body.dv-ocr-resizing .dv-doc-words { transition: none; }
   color: var(--text-primary);
   font: inherit; font-size: 9.6px; font-weight: 650;
   cursor: pointer;
-  transition: background 120ms ease, border-color 120ms ease, color 120ms ease;
+  transition: background 120ms ease, border-color 120ms ease;
 }
 .dv-paralaw-open:hover { background: var(--accent); border-color: var(--accent); color: var(--text-on-accent); }
 /* Two ways to the act, and they are not equals. "Read here" opens it in the
@@ -3554,62 +3560,17 @@ body.dv-ocr-resizing .dv-doc-words { transition: none; }
 .dv-media-stage.is-editing { opacity: 0; pointer-events: none; transition: opacity 260ms ease; }
 :root[data-reduce-motion='true'] .dv-media-stage.is-editing { transition: none; }
 .dv-media-el { max-width: 100%; max-height: 100%; object-fit: contain; transform-origin: 50% 50%; }
+/* The picture itself is never selected (no blue wash over the whole photo when a
+   drag through its text runs past it) — only the text laid over it is. */
+.dv-media-stage, .dv-media-stage .dv-media-el { user-select: none; -webkit-user-select: none; -webkit-user-drag: none; }
 body.dv-media-panning, body.dv-media-panning * { cursor: grabbing !important; }
 
 /* ── Extracted text tab (image side panel) ──────────────────────────────
-   A crop of every piece on the left, the text read from it on the right. */
+   The text read from the picture, piece by piece — plain, selectable text. */
 .dv-textlist-rows { list-style: none; margin: 0; padding: 11.2px; display: flex; flex-direction: column; gap: 8px; }
-.dv-textlist-rows > li { display: block; }
-.dv-textlist-row {
-  appearance: none; width: 100%; margin: 0; font: inherit; text-align: left; cursor: copy;
-  display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 3fr); gap: 10px; align-items: center;
-  padding: 8px; border-radius: 10px;
-  border: 1px solid var(--border); background: var(--bg-card);
-  transition: border-color 120ms ease, background 120ms ease;
-}
-.dv-textlist-row:hover, .dv-textlist-row:focus-visible { border-color: var(--accent); background: var(--accent-tint); outline: none; }
-/* The click: fast — the background fills in and the border thickens INWARD (an
-   inset ring, so the row's size never moves) and lets go. */
-.dv-textlist-row.is-pressed { border-color: var(--accent); animation: dv-textlist-press 240ms cubic-bezier(0.2, 0.9, 0.3, 1); }
-@keyframes dv-textlist-press {
-  0%   { background: var(--accent-tint); box-shadow: inset 0 0 0 0 var(--accent); }
-  35%  { background: color-mix(in srgb, var(--accent) 38%, var(--bg-card)); box-shadow: inset 0 0 0 4px var(--accent); }
-  100% { background: var(--accent-tint); box-shadow: inset 0 0 0 0 var(--accent); }
-}
-:root[data-reduce-motion='true'] .dv-textlist-row.is-pressed { animation: none; background: color-mix(in srgb, var(--accent) 38%, var(--bg-card)); }
-/* The hovered row's piece, brought FORWARD in the picture: a veil dims (no
-   blur) everything behind — far larger than the layer, so the whole
-   stage dims at any pan / zoom — and the piece's own crop stands over its
-   place, enlarged. */
-.dv-textveil {
-  position: absolute; inset: -6000px; pointer-events: none;
-  background: color-mix(in srgb, var(--color-ink) 28%, transparent);
-  animation: dv-textlayer-in 380ms ease-out;
-}
-.dv-textpop {
-  position: absolute; pointer-events: none; overflow: hidden; border-radius: 8px;
-  background: var(--bg-card);
-  box-shadow: 0 0 0 1px color-mix(in srgb, white 50%, transparent), 0 8px 24px rgba(0, 0, 0, 0.4);
-  animation: dv-textpop-in 420ms cubic-bezier(0.22, 0.8, 0.3, 1);
-}
-.dv-textpop img { display: block; width: 100%; height: 100%; object-fit: cover; }
-@keyframes dv-textpop-in { from { opacity: 0; transform: scale(0.97); } to { opacity: 1; transform: none; } }
-:root[data-reduce-motion='true'] .dv-textveil,
-:root[data-reduce-motion='true'] .dv-textpop { animation: none; }
-/* With Extract text off there is no live text over the picture, so each piece
-   gets a transparent box of its own — purely so the pointer can find it (hover
-   brings the piece forward, as the list's rows do). It must not look
-   interactive: pressing one still pans the picture. */
-.dv-textspots { position: absolute; inset: 0; pointer-events: none; }
-.dv-textspot {
-  position: absolute; left: 0; top: 0; transform-origin: 50% 50%;
-  pointer-events: auto; background: transparent;
-}
-.dv-textlist-crop { display: flex; align-items: center; justify-content: flex-start; min-height: 24px; }
-.dv-textlist-crop img { display: block; max-width: 100%; max-height: 64px; border-radius: 5px; }
 .dv-textlist-text {
-  color: var(--text-primary); font-size: 12.5px; line-height: 1.45;
-  white-space: pre-wrap; overflow-wrap: anywhere;
+  display: block; color: var(--text-primary); font-size: 12.5px; line-height: 1.45;
+  white-space: pre-wrap; overflow-wrap: anywhere; user-select: text; cursor: text;
 }
 
 /* ── Zoom controls ───────────────────────────────────────────────────────
@@ -3762,7 +3723,7 @@ body.dv-media-panning, body.dv-media-panning * { cursor: grabbing !important; }
   width: 27.2px; height: 27.2px; flex-shrink: 0;
   border: none; background: transparent; cursor: pointer; border-radius: 7.2px;
   color: rgba(255, 255, 255, 0.82);
-  transition: color 120ms ease, background 120ms ease;
+  transition: background 120ms ease;
 }
 .dv-player-btn:hover { color: #fff; background: rgba(255, 255, 255, 0.12); }
 .dv-player-btn svg { width: 16px; height: 16px; flex-shrink: 0; }
@@ -3899,7 +3860,7 @@ body.dv-media-panning, body.dv-media-panning * { cursor: grabbing !important; }
   color: rgba(255, 255, 255, 0.82);
   font: inherit; font-size: 10px; font-weight: 600;
   cursor: pointer;
-  transition: color 120ms ease, background 120ms ease;
+  transition: background 120ms ease;
 }
 .dv-center-btn:hover { color: #fff; background: rgba(28, 32, 36, 0.95); }
 .dv-center-btn svg { flex-shrink: 0; }
@@ -4033,7 +3994,7 @@ body.dv-ocr-resizing .dv-ocr-resize::after { background: var(--accent); }
   height: 28px; padding: 0 10px; border-radius: 8px;
   border: 1px solid var(--border); background: transparent;
   color: var(--text-secondary); font: inherit; font-size: 12px; font-weight: 600; cursor: pointer;
-  transition: background 120ms ease, color 120ms ease, border-color 120ms ease;
+  transition: background 120ms ease, border-color 120ms ease;
 }
 .dv-ai-refresh:hover:not(:disabled) { background: var(--accent-tint); color: var(--text-primary); border-color: var(--border-strong); }
 .dv-ai-refresh:disabled { opacity: 0.6; cursor: default; }
@@ -4851,7 +4812,7 @@ body.dv-advisor-sb-dragging .dv-advisor-sb-thumb {
   display: inline-flex; align-items: center; justify-content: center; gap: 5px;
   padding: 5.6px 8px; border: 0; background: transparent;
   color: var(--text-secondary); font: inherit; font-size: 9.6px; font-weight: 600;
-  cursor: pointer; transition: background 120ms ease, color 120ms ease;
+  cursor: pointer; transition: background 120ms ease;
 }
 .dv-doc-version-action + .dv-doc-version-action { border-left: 1px solid var(--border); }
 .dv-doc-version-action:hover:not(:disabled) { background: var(--accent-soft); color: var(--accent); }
@@ -5235,21 +5196,26 @@ body.dv-advisor-sb-dragging .dv-advisor-sb-thumb {
   z-index: 0; pointer-events: none;
   background: color-mix(in srgb, var(--bg-input) 88%, transparent);
 }
-/* Cursor-following spotlight glow (tracks --spot-x/--spot-y set on mousemove in
-   the JSX) — same as the team-chat composer's ::after. */
-.dv-advisor-composer::after {
-  content: ''; position: absolute; inset: 0; border-radius: inherit;
-  z-index: 0; pointer-events: none;
+/* Cursor-following spotlight glow — same as the team-chat composer's. It is
+   lib/pointerSpots' injected glow (`.spot-glow`, styles/spotLights.css): a
+   pre-drawn dot moved by a transform, painted over the fill but behind the
+   input content. (It was this ::after with its gradient re-centred on
+   --spot-x/y, which repainted the layer on every pointer move.) */
+.dv-advisor-composer > .spot-glow {
+  position: absolute; inset: 0; z-index: 0;
+  --spot-r: 144px;
+  opacity: 0; transition: opacity 260ms ease;
+}
+.dv-advisor-composer > .spot-glow > .spot-dot {
   background: radial-gradient(
-    144px circle at var(--spot-x, 50%) var(--spot-y, 50%),
+    144px circle at 50% 50%,
     color-mix(in srgb, var(--accent) 5%, transparent) 0%,
     color-mix(in srgb, var(--accent) 2%, transparent) 40%,
     transparent 72%
   );
-  opacity: 0; transition: opacity 260ms ease;
 }
-.dv-advisor-composer:hover::after,
-.dv-advisor-composer:focus-within::after { opacity: 0.6; }
+.dv-advisor-composer:hover > .spot-glow,
+.dv-advisor-composer:focus-within > .spot-glow { opacity: 0.6; }
 .dv-advisor-composer > * { position: relative; z-index: 1; }
 .dv-advisor-composer:focus-within {
   border-color: color-mix(in srgb, var(--accent) 60%, var(--border));
@@ -5340,7 +5306,7 @@ body.dv-advisor-sb-dragging .dv-advisor-sb-thumb {
   flex: none; appearance: none; border: 0; background: transparent; cursor: pointer;
   display: inline-flex; align-items: center; justify-content: center;
   width: 20px; height: 20px; padding: 0; border-radius: 5px;
-  color: var(--text-muted); transition: background 120ms, color 120ms;
+  color: var(--text-muted); transition: background 120ms;
 }
 .dv-advisor-selchip-x:hover { background: var(--danger-soft); color: var(--danger-text); }
 
@@ -5370,7 +5336,7 @@ body.dv-advisor-sb-dragging .dv-advisor-sb-thumb {
   border: 1px solid color-mix(in srgb, var(--accent) 65%, transparent);
   border-radius: 50%;
   background: var(--accent-tint); color: var(--accent); cursor: pointer;
-  transition: background 120ms, color 120ms, border-color 120ms, opacity 120ms;
+  transition: background 120ms, border-color 120ms, opacity 120ms;
 }
 .dv-advisor-composer-send svg { margin: 0; }
 /* The tile's hover: the ring goes to full accent over a stronger wash. (The
@@ -5479,7 +5445,7 @@ body.dv-advisor-sb-dragging .dv-advisor-sb-thumb {
   padding: 6.4px 17.6px;
 }
 .dv-advisor-footerslot .dv-advisor-composer::before,
-.dv-advisor-footerslot .dv-advisor-composer::after { display: none; }
+.dv-advisor-footerslot .dv-advisor-composer > .spot-glow { display: none; }
 .dv-advisor-footerslot .dv-advisor-composer:focus-within {
   border: none;
   box-shadow: none;
@@ -5567,7 +5533,7 @@ body.dv-advisor-sb-dragging .dv-advisor-sb-thumb {
   border: none; border-radius: 5.6px; background: transparent;
   color: var(--text-muted); cursor: pointer;
   opacity: 0; pointer-events: none;
-  transition: opacity 120ms, color 120ms, background 120ms;
+  transition: opacity 120ms, background 120ms;
   z-index: 3;
 }
 .dv-audio-caption-row:hover .dv-caption-editbtn,
@@ -5766,7 +5732,7 @@ body.dv-advisor-sb-dragging .dv-advisor-sb-thumb {
   transition: background 150ms, color 150ms, border-color 150ms;
 }
 /* Whole card is the click target. Hover = the main sidebar's pointer-tracked
-   radial accent gradient (--item-spot-x/y fed via trackItemSpot); selected =
+   radial accent gradient (--item-spot-x/y, registerHoverSpot in SnipEntryCard); selected =
    the sidebar's active-tab look (accent tint + accent ring + accent text). */
 /* Click target is the thumbnail button; the card itself only styles. */
 .dv-snip-entry.is-locatable:hover:not(.is-active) {
@@ -5888,8 +5854,9 @@ button.dv-snip-entry-thumb { cursor: pointer; }
   margin: 0 -3.2px;
   background: transparent;
   box-shadow: none;
-  transition: background 140ms ease, box-shadow 140ms ease,
-              border-color 140ms ease, color 140ms ease;
+  /* 280ms: the empty fields fade in and out with the highlights (the eye). */
+  transition: background 280ms ease, box-shadow 280ms ease,
+              border-color 280ms ease, color 280ms ease;
 }
 .dv-docx .dv-field:not(.is-filled) {
   /* Set apart from the drafted text without shouting: lighter, and sitting on a
@@ -5942,7 +5909,7 @@ button.dv-snip-entry-thumb { cursor: pointer; }
   border-radius: 3px 3px 0 0;
   -webkit-box-decoration-break: clone;
   box-decoration-break: clone;
-  transition: background 120ms ease;
+  transition: background 280ms ease, border-color 280ms ease, color 280ms ease;
 }
 .dv-docx .dv-docx-para:hover .dv-field.is-chip:not(.is-filled):not(.is-preview)::before {
   background: color-mix(in srgb, var(--color-sand) 55%, #fff);
@@ -6020,6 +5987,24 @@ button.dv-snip-entry-thumb { cursor: pointer; }
 }
 .dv-docx .dv-field.is-flash { animation: dv-field-flash 1.1s ease; }
 
+/* HIGHLIGHTS OFF (the eye quick action → `.dv-docx.is-plain`): the empty
+   fields read as the document wrote them — no ground, no rule, no tint; an
+   empty slot shows its run of underscores as plain text. `!important` because
+   the hover and pick rules above are more specific and this state outranks
+   them all. A party preview and the blank being worked on keep their looks:
+   they are what the reader is doing, not a highlight. */
+.dv-docx.is-plain .dv-field:not(.is-preview):not(.is-active) {
+  background: transparent !important;
+  box-shadow: none !important;
+  border-bottom: 0 !important;
+  color: inherit !important;
+}
+.dv-docx.is-plain .dv-field.is-chip:not(.is-filled):not(.is-preview):not(.is-active)::before {
+  background: transparent !important;
+  border-bottom: 0 !important;
+  color: currentColor !important;
+}
+
 /* The blanks panel — the advisor's mirror image on the right edge, same
    frosted material and inset so the two read as one pair of surfaces. */
 .dv-fields-card {
@@ -6063,7 +6048,7 @@ button.dv-snip-entry-thumb { cursor: pointer; }
   flex: none; display: inline-flex; align-items: center; justify-content: center;
   width: 24px; height: 24px; border-radius: 6.4px;
   border: 1px solid var(--border); background: transparent; color: var(--text-secondary);
-  cursor: pointer; transition: background 120ms ease, color 120ms ease;
+  cursor: pointer; transition: background 120ms ease;
 }
 .dv-fields-close:hover { background: var(--bg-elevated); color: var(--text-primary); }
 
@@ -6331,7 +6316,7 @@ button.dv-snip-entry-thumb { cursor: pointer; }
   background: var(--bg-input);
   font: inherit; font-size: 10.4px; font-weight: 600;
   color: var(--text-secondary); cursor: pointer; white-space: nowrap;
-  transition: background 120ms ease, border-color 120ms ease, color 120ms ease;
+  transition: background 120ms ease, border-color 120ms ease;
 }
 .dvi-modal-import:hover:not(:disabled) {
   border-color: var(--accent); background: var(--accent-soft); color: var(--text-primary);
@@ -6389,7 +6374,7 @@ button.dv-snip-entry-thumb { cursor: pointer; }
   border-radius: 4px;
   background: color-mix(in srgb, var(--text-primary) 8%, transparent);
   color: var(--text-secondary);
-  transition: background 120ms ease, color 120ms ease;
+  transition: background 120ms ease;
 }
 .dvi-modal-search-clear:hover {
   background: color-mix(in srgb, var(--text-primary) 16%, transparent);
@@ -6490,6 +6475,8 @@ button.dv-snip-entry-thumb { cursor: pointer; }
   border-color: transparent;
   transform: none;
 }
+/* The hover border is pre-drawn on ::after (FilesWorkspace.css). */
+.dvi-modal-grid .fx-tile.is-unreadable::after { border-color: transparent; }
 /* While one tile is being read every other is genuinely disabled; a lighter
    fade keeps that distinct from "cannot be used at all". */
 .dvi-modal-grid .fx-tile:disabled:not(.is-unreadable) { opacity: 0.6; cursor: default; }
@@ -6756,11 +6743,12 @@ button.dv-snip-entry-thumb { cursor: pointer; }
 }
 
 /* ── Law references in the document ───────────────────────────────────────
-   Every citation lib/lawRefs finds is wrapped in the app's AI gradient — the
-   blue → violet → purple the sidebar's AI tag runs (#3b82f6 / #8b5cf6 /
-   #a855f7), sliding across the mark on the same 5.5s shimmer the Files page's
-   AI border uses, so anything the app worked out for itself reads the same
-   wherever it appears.
+   Every citation lib/lawRefs finds is marked in the colour of the PLATFORM
+   it opens — an act legislatie.just.ro's violet (--cat-update), a CAEN code
+   insse.ro's amber (--warning), a CUI anaf.ro's green (--success), a court
+   file portal.just.ro's blue (--info) — the same tones the Legislation tab's
+   tabs, results and scopes wear (lib/legalBrowser PLATFORMS). An act's mark
+   keeps its 5.5s shimmer, as a sweep of its one hue.
 
    Drawn ENTIRELY in background layers: the gradient as a soft wash behind the
    words and again, at full strength, as a rule under them. Nothing here
@@ -6775,31 +6763,26 @@ button.dv-snip-entry-thumb { cursor: pointer; }
 
    A citation Word split across runs is several spans; only the outer ends are
    rounded (`is-head` / `is-tail`) so the pieces read as one mark. */
+/* THE HIGHLIGHTS FADE IN AND OUT (the eye quick action). Every mark's colour
+   below is scaled by `--dv-ref-a` (0 → 1), a registered NUMBER so it can be
+   transitioned: the pane makes the marks under `.is-refs-hidden` on the host
+   (every mark at 0) and takes it off to fade them in — or puts it on, waits
+   REF_FADE_MS and only then unwraps them. Non-inheriting and set on the marks
+   themselves, so a fade restyles the marks and nothing else. */
+@property --dv-ref-a { syntax: '<number>'; inherits: false; initial-value: 1; }
+.dv-docx .dv-ref { --dv-ref-a: 1; transition: --dv-ref-a 280ms ease; }
+.dv-docx.is-refs-hidden .dv-ref { --dv-ref-a: 0; }
+:root[data-reduce-motion='true'] .dv-docx .dv-ref { transition: none; }
+@media (prefers-reduced-motion: reduce) { .dv-docx .dv-ref { transition: none; } }
 .dv-docx .dv-lawref {
-  /* Brand-neutral hex, like the sidebar's AI tag: these are the AI blue and
-     purple, not the document theme's palette, and they must read the same in
-     Cream and Ink. */
-  --lawref-1: 59, 130, 246;
-  --lawref-2: 139, 92, 246;
-  --lawref-3: 168, 85, 247;
-  --lawref-wash: 0.2;
+  /* legislatie.just.ro's colour (PLATFORMS.legislation.tone in lib/legalBrowser):
+     every mark wears the colour of the platform it opens. The shimmer is
+     a sweep of that one hue, stronger and fainter. */
+  --lawref: var(--cat-update);
+  --lawref-wash: 20%;
   background-image:
-    linear-gradient(
-      115deg,
-      rgba(var(--lawref-1), var(--lawref-wash)) 0%,
-      rgba(var(--lawref-2), var(--lawref-wash)) 32%,
-      rgba(var(--lawref-3), var(--lawref-wash)) 58%,
-      rgba(var(--lawref-2), var(--lawref-wash)) 80%,
-      rgba(var(--lawref-1), var(--lawref-wash)) 100%
-    ),
-    linear-gradient(
-      115deg,
-      rgb(var(--lawref-1)) 0%,
-      rgb(var(--lawref-2)) 32%,
-      rgb(var(--lawref-3)) 58%,
-      rgb(var(--lawref-2)) 80%,
-      rgb(var(--lawref-1)) 100%
-    );
+    linear-gradient(115deg, color-mix(in srgb, var(--lawref) calc(var(--lawref-wash) * 0.6 * var(--dv-ref-a)), transparent) 0%, color-mix(in srgb, var(--lawref) calc(var(--lawref-wash) * var(--dv-ref-a)), transparent) 32%, color-mix(in srgb, var(--lawref) calc(var(--lawref-wash) * 1.4 * var(--dv-ref-a)), transparent) 58%, color-mix(in srgb, var(--lawref) calc(var(--lawref-wash) * var(--dv-ref-a)), transparent) 80%, color-mix(in srgb, var(--lawref) calc(var(--lawref-wash) * 0.6 * var(--dv-ref-a)), transparent) 100%),
+    linear-gradient(115deg, color-mix(in srgb, var(--lawref) calc(55% * var(--dv-ref-a)), transparent) 0%, color-mix(in srgb, var(--lawref) calc(100% * var(--dv-ref-a)), transparent) 58%, color-mix(in srgb, var(--lawref) calc(55% * var(--dv-ref-a)), transparent) 100%);
   background-size: 300% 100%, 300% 1.6px;
   background-position: 0 0, 0 100%;
   /* TILED, not a single pass. The gradient is three times the mark's width and
@@ -6813,9 +6796,18 @@ button.dv-snip-entry-thumb { cursor: pointer; }
   animation: dv-lawref-shimmer 5.5s linear infinite;
 }
 /* On Ink the page is dark, so the same alpha barely shows — lift it. */
-:root[data-theme='ink'] .dv-docx .dv-lawref { --lawref-wash: 0.3; }
+:root[data-theme='ink'] .dv-docx .dv-lawref { --lawref-wash: 30%; }
 .dv-docx .dv-ref.is-head { border-top-left-radius: 3px; border-bottom-left-radius: 3px; }
 .dv-docx .dv-ref.is-tail { border-top-right-radius: 3px; border-bottom-right-radius: 3px; }
+/* ROOM AROUND EVERY MARK (not the empty fields — those are .dv-field) that
+   costs the document NOTHING: vertical padding on an inline box never moves a
+   line, and the sideways padding is cancelled by an equal negative margin, so
+   the mark's width in the line is exactly its text's and no line re-wraps. The
+   sides go only on the reference's OUTER ends (is-head = its first piece,
+   is-tail = its last), so a reference Word split into runs stays one mark. */
+.dv-docx .dv-ref { padding-top: 2.4px; padding-bottom: 2.4px; }
+.dv-docx .dv-ref.is-head { padding-left: 3.2px; margin-left: -3.2px; }
+.dv-docx .dv-ref.is-tail { padding-right: 3.2px; margin-right: -3.2px; }
 /* Both layers travel together, so the wash and the rule under it stay in step. */
 @keyframes dv-lawref-shimmer { to { background-position: -300% 0, -300% 100%; } }
 /* ── A CAEN code ──────────────────────────────────────────────────────────
@@ -6831,20 +6823,20 @@ button.dv-snip-entry-thumb { cursor: pointer; }
    for the same reason the act's mark is — the document has already been
    measured and sliced into pages. */
 .dv-docx .dv-caenref {
-  --caenref: 217, 119, 6;
-  --caenref-wash: 0.18;
-  background-image: linear-gradient(rgb(var(--caenref)), rgb(var(--caenref)));
+  --caenref: var(--warning); /* insse.ro's colour */
+  --caenref-wash: 18%;
+  background-image: linear-gradient(color-mix(in srgb, var(--caenref) calc(100% * var(--dv-ref-a)), transparent), color-mix(in srgb, var(--caenref) calc(100% * var(--dv-ref-a)), transparent));
   background-size: 100% 1.6px;
   background-position: 0 100%;
   background-repeat: no-repeat;
-  background-color: rgba(var(--caenref), var(--caenref-wash));
+  background-color: color-mix(in srgb, var(--caenref) calc(var(--caenref-wash) * var(--dv-ref-a)), transparent);
 }
-:root[data-theme='ink'] .dv-docx .dv-caenref { --caenref: 251, 191, 36; --caenref-wash: 0.24; }
+:root[data-theme='ink'] .dv-docx .dv-caenref { --caenref-wash: 24%; }
 
 /* ── An INTERNAL cross-reference ────────────────────────────────────
    "…indicată la pct. 6.1. lit. d)" points at a clause of THIS document, so it
    is not a highlight at all: it is a CONTROL, and it is drawn as a button — a
-   teal face, a ring all the way round it, rounded ends and the hand cursor.
+   faded black face, a ring all the way round it, rounded ends and the hand cursor.
    Clicking it takes the reader to that clause. Marked whatever the Laws action
    says: a way of getting around the document must not depend on a highlighting
    preference.
@@ -6859,101 +6851,46 @@ button.dv-snip-entry-thumb { cursor: pointer; }
    runs: top and bottom always, the left edge only on the first piece and the
    right edge only on the last, so a reference split across three spans is one
    button with one outline instead of three little boxes in a row. */
-/* The cross-reference colour, on the DOCUMENT rather than on the mark: the
-   button and the clause it takes the reader to are two halves of one gesture,
-   so they are lit from one value. Fixed, brand-neutral teal — the same reason
-   the act's mark carries its own blues: a document theme must not be able to
-   turn one of the three marks into another. */
-.dv-docx { --xref: 13, 148, 136; }
-:root[data-theme='ink'] .dv-docx { --xref: 45, 212, 191; }
+/* The cross-reference colour: BLACK, faded — a quiet button on the page (the
+   page sheet is white in both themes). It points inside this document, not at
+   a platform, so it wears none of the platforms' colours the other marks do. */
+/* THE LAW MARK'S LOOK, IN GREY (at the user's request): the same sweeping
+   wash, the rule under it and the 5.5s shimmer as an act (.dv-lawref), in a
+   neutral grey — it points inside this document, not at a platform, so it
+   wears none of the platforms' colours. It deepens on hover (`.is-hot`, the
+   whole reference however many runs Word cut it into — CSS can only reach
+   the piece under the pointer) and further while held (`.is-press`). */
 .dv-docx .dv-xref {
-  --xref-wash: 0.18;
-  --xref-ring: rgba(var(--xref), 0.55);
-  --xref-ring-l: transparent;
-  --xref-ring-r: transparent;
-  --xref-inner: 0 0 0 0 transparent;
-  background-color: rgba(var(--xref), var(--xref-wash));
-  border-radius: 5.6px;
-  box-shadow:
-    inset 0 1px 0 0 var(--xref-ring),
-    inset 0 -1px 0 0 var(--xref-ring),
-    inset 1px 0 0 0 var(--xref-ring-l),
-    inset -1px 0 0 0 var(--xref-ring-r),
-    var(--xref-inner);
+  --lawref: #6B7280;
+  --lawref-wash: 16%;
+  background-image:
+    linear-gradient(115deg, color-mix(in srgb, var(--lawref) calc(var(--lawref-wash) * 0.6 * var(--dv-ref-a)), transparent) 0%, color-mix(in srgb, var(--lawref) calc(var(--lawref-wash) * var(--dv-ref-a)), transparent) 32%, color-mix(in srgb, var(--lawref) calc(var(--lawref-wash) * 1.4 * var(--dv-ref-a)), transparent) 58%, color-mix(in srgb, var(--lawref) calc(var(--lawref-wash) * var(--dv-ref-a)), transparent) 80%, color-mix(in srgb, var(--lawref) calc(var(--lawref-wash) * 0.6 * var(--dv-ref-a)), transparent) 100%),
+    linear-gradient(115deg, color-mix(in srgb, var(--lawref) calc(55% * var(--dv-ref-a)), transparent) 0%, color-mix(in srgb, var(--lawref) calc(100% * var(--dv-ref-a)), transparent) 58%, color-mix(in srgb, var(--lawref) calc(55% * var(--dv-ref-a)), transparent) 100%);
+  background-size: 300% 100%, 300% 1.6px;
+  background-position: 0 0, 0 100%;
+  background-repeat: repeat, repeat-x;
+  animation: dv-lawref-shimmer 5.5s linear infinite;
   cursor: pointer;
-  animation: none;
-  transition: background-color 120ms ease-out, box-shadow 120ms ease-out;
-}
-.dv-docx .dv-xref.is-head { --xref-ring-l: var(--xref-ring); }
-.dv-docx .dv-xref.is-tail { --xref-ring-r: var(--xref-ring); }
-:root[data-theme='ink'] .dv-docx .dv-xref { --xref-wash: 0.22; }
-/* Hover and press, so it answers the pointer as a button does: the face lifts
-   and the ring firms up on hover; a held press sinks the face and puts the
-   shadow INSIDE, at the top, which is what "going in" looks like.
 
-   `.is-hot` / `.is-press` come from the pane, not from `:hover` / `:active`:
-   CSS can only reach the piece the pointer is actually over, which lit half a
-   reference and left the rest dark. The bare `:hover` stays as the fallback
-   for a reference Word did not split. */
+}
 .dv-docx .dv-xref:hover,
-.dv-docx .dv-xref.is-hot {
-  --xref-wash: 0.32;
-  --xref-ring: rgba(var(--xref), 0.85);
-}
-.dv-docx .dv-xref.is-press {
-  --xref-wash: 0.5;
-  --xref-ring: rgba(var(--xref), 0.95);
-  --xref-inner: inset 0 2px 3px -1px rgba(var(--xref), 0.6);
-}
+.dv-docx .dv-xref.is-hot { --lawref-wash: 26%; }
+.dv-docx .dv-xref.is-press { --lawref-wash: 36%; }
 /* Where the jump LANDS. The clause is not marked — it is ordinary text of the
    document — but it does have to be FOUND, and a page of legal prose gives the
-   eye nothing to land on, so it PULSES: the tint breathes until the reader
-   goes near it. Hovering it stops the pulse dead and leaves the tint steady,
-   which is the answer to "yes, this is the one"; the pane then clears it as
-   the pointer leaves (see the jump handler). A background only — a paragraph
-   that moved or resized on arrival would undo the orientation it is there to
-   give. */
-.dv-docx .is-xref-target {
-  /* The two ends of the pulse, as variables, so the clause and the item it was
-     asked for can breathe at different strengths off ONE set of keyframes.
-     (A custom property is not itself animatable, but it is substituted before
-     the animation runs, so each keyframe holds a real colour and the two
-     interpolate normally.) */
-  --lit-lo: rgba(var(--xref), 0.12);
-  --lit-hi: rgba(var(--xref), 0.46);
-  --lit-ring-lo: rgba(var(--xref), 0.1);
-  --lit-ring-hi: rgba(var(--xref), 0.32);
-  border-radius: 4px;
-  background-color: var(--lit-hi);
-  box-shadow: 0 0 0 4px var(--lit-ring-hi);
-  animation: dv-xref-pulse 1.4s ease-in-out infinite;
-}
-/* The block the reference actually NAMED — the item under "lit. d)", or the
-   clause itself when it named no item. Both are lit, because either alone is
-   half the reference; this one burns brighter so which is which is never a
-   guess. */
-.dv-docx .is-xref-exact {
-  --lit-lo: rgba(var(--xref), 0.2);
-  --lit-hi: rgba(var(--xref), 0.66);
-  --lit-ring-lo: rgba(var(--xref), 0.16);
-  --lit-ring-hi: rgba(var(--xref), 0.46);
-}
-/* Hovering stops it dead and leaves the bright end standing: "yes, this one". */
-.dv-docx .is-xref-target:hover { animation: none; }
-@keyframes dv-xref-pulse {
-  0%, 100% { background-color: var(--lit-lo); box-shadow: 0 0 0 1px var(--lit-ring-lo); }
-  50% { background-color: var(--lit-hi); box-shadow: 0 0 0 7px var(--lit-ring-hi); }
-}
-:root[data-reduce-motion='true'] .dv-docx .is-xref-target { animation: none; }
-@media (prefers-reduced-motion: reduce) {
-  .dv-docx .is-xref-target { animation: none; }
-}
+   eye nothing to land on. So nothing is painted on it: EVERYTHING ELSE fades
+   back (the recede a picked paragraph uses) and the clause, with the item the
+   reference named, is left standing at full strength. The pane puts the page
+   back when the reader has been over it and moved away, or after
+   `XREF_LIT_MS` (see the jump handler). Opacity only — nothing moves. */
+.dv-docx:is(.has-xref-focus, .is-xref-leaving) .dv-docx-page > article > * { transition: opacity 260ms ease; }
+.dv-docx.has-xref-focus .dv-docx-page > article > :not(.is-xref-target):not(:has(.is-xref-target)) { opacity: 0.38; }
 
 /* A picked paragraph keeps its marks: a citation is worth seeing most when the
    paragraph making it is the one being worked on. */
-:root[data-reduce-motion='true'] .dv-docx .dv-lawref { animation: none; }
+:root[data-reduce-motion='true'] .dv-docx :is(.dv-lawref, .dv-xref) { animation: none; }
 @media (prefers-reduced-motion: reduce) {
-  .dv-docx .dv-lawref { animation: none; }
+  .dv-docx :is(.dv-lawref, .dv-xref) { animation: none; }
 }
 
 /* ── When a turn happened ──────────────────────────────────────────────────
@@ -7046,45 +6983,55 @@ button.dv-snip-entry-thumb { cursor: pointer; }
 .dv-live-save { border: 1px solid var(--accent); background: var(--accent); color: var(--text-on-accent); }
 .dv-live-save:disabled { opacity: 0.6; cursor: default; }
 
-/* A company's FISCAL CODE (CUI / CIF): the info colour, a solid rule and the
+/* A company's FISCAL CODE (CUI / CIF): anaf.ro's green, a solid rule and the
    hand — a click opens the company in the ANAF tab. Background layers only,
    like the other marks, so marking never re-wraps a line. */
 .dv-docx .dv-cuiref {
-  --cuiref: var(--info);
+  --cuiref: var(--success); /* anaf.ro's colour */
   cursor: pointer;
-  background-image: linear-gradient(var(--cuiref), var(--cuiref));
+  background-image: linear-gradient(color-mix(in srgb, var(--cuiref) calc(100% * var(--dv-ref-a)), transparent), color-mix(in srgb, var(--cuiref) calc(100% * var(--dv-ref-a)), transparent));
   background-size: 100% 1.6px;
   background-position: 0 100%;
   background-repeat: no-repeat;
-  background-color: color-mix(in srgb, var(--cuiref) 16%, transparent);
+  background-color: color-mix(in srgb, var(--cuiref) calc(16% * var(--dv-ref-a)), transparent);
 }
-.dv-docx .dv-cuiref:hover { background-color: color-mix(in srgb, var(--cuiref) 28%, transparent); }
+.dv-docx .dv-cuiref:hover { background-color: color-mix(in srgb, var(--cuiref) calc(28% * var(--dv-ref-a)), transparent); }
+/* Acts, codes and CAEN codes open on a click too (the jump handler). */
+.dv-docx .dv-ref[data-href] { cursor: pointer; }
+.dv-docx .dv-caenref[data-href]:hover { --caenref-wash: 30%; }
+.dv-docx .dv-lawref[data-href]:hover { --lawref-wash: 34%; }
 
 /* The same marks on a PICTURE's extracted text (TextRegionsLayer): each word
    cell a citation touches. The text there is transparent, so the wash and the
    rule are what show — over the photograph. */
-.dv-textword.dv-lawref {
-  --lawref-1: 59, 130, 246; --lawref-2: 139, 92, 246; --lawref-3: 168, 85, 247; --lawref-wash: 0.3;
+.dv-textword.dv-lawref, .file-preview-pdf-text .dv-lawref {
+  --lawref: var(--cat-update); --lawref-wash: 30%;
   background-image:
-    linear-gradient(115deg, rgba(var(--lawref-1), var(--lawref-wash)) 0%, rgba(var(--lawref-2), var(--lawref-wash)) 32%, rgba(var(--lawref-3), var(--lawref-wash)) 58%, rgba(var(--lawref-2), var(--lawref-wash)) 80%, rgba(var(--lawref-1), var(--lawref-wash)) 100%),
-    linear-gradient(115deg, rgb(var(--lawref-1)) 0%, rgb(var(--lawref-2)) 32%, rgb(var(--lawref-3)) 58%, rgb(var(--lawref-2)) 80%, rgb(var(--lawref-1)) 100%);
+    linear-gradient(115deg, color-mix(in srgb, var(--lawref) calc(var(--lawref-wash) * 0.6), transparent) 0%, color-mix(in srgb, var(--lawref) var(--lawref-wash), transparent) 32%, color-mix(in srgb, var(--lawref) calc(var(--lawref-wash) * 1.4), transparent) 58%, color-mix(in srgb, var(--lawref) var(--lawref-wash), transparent) 80%, color-mix(in srgb, var(--lawref) calc(var(--lawref-wash) * 0.6), transparent) 100%),
+    linear-gradient(115deg, color-mix(in srgb, var(--lawref) 55%, transparent) 0%, var(--lawref) 58%, color-mix(in srgb, var(--lawref) 55%, transparent) 100%);
   background-size: 300% 100%, 300% 2px;
   background-position: 0 0, 0 100%;
   background-repeat: repeat, repeat-x;
   animation: dv-lawref-shimmer 5.5s linear infinite;
 }
-.dv-textword.dv-caenref {
-  background-image: linear-gradient(rgb(251, 191, 36), rgb(251, 191, 36));
+.dv-textword.dv-caenref, .file-preview-pdf-text .dv-caenref {
+  background-image: linear-gradient(var(--warning), var(--warning));
   background-size: 100% 2px; background-position: 0 100%; background-repeat: no-repeat;
-  background-color: rgba(251, 191, 36, 0.28);
+  background-color: color-mix(in srgb, var(--warning) 28%, transparent);
 }
-.dv-textword.dv-cuiref {
-  background-image: linear-gradient(var(--info), var(--info));
+.dv-textword.dv-cuiref, .file-preview-pdf-text .dv-cuiref {
+  background-image: linear-gradient(var(--success), var(--success));
   background-size: 100% 2px; background-position: 0 100%; background-repeat: no-repeat;
-  background-color: color-mix(in srgb, var(--info) 26%, transparent);
+  background-color: color-mix(in srgb, var(--success) 26%, transparent);
 }
-:root[data-reduce-motion='true'] .dv-textword.dv-lawref { animation: none; }
-@media (prefers-reduced-motion: reduce) { .dv-textword.dv-lawref { animation: none; } }
+:root[data-reduce-motion='true'] :is(.dv-textword, .file-preview-pdf-text .dv-ref).dv-lawref { animation: none; }
+@media (prefers-reduced-motion: reduce) { :is(.dv-textword, .file-preview-pdf-text .dv-ref).dv-lawref { animation: none; } }
+/* A mark on a picture or a PDF is PRESSED like the Word preview's: the hand, and
+   a click expands its card (RefCardPill). */
+.dv-textword.dv-ref, .file-preview-pdf-text .dv-ref { cursor: pointer; }
+/* The PDF's wrapper (DocPane) takes no box of its own — the preview's layout is
+   as it was. */
+.dv-pdf-refs { display: contents; }
 
 /* The Barcode quick action's answer: a card floating at the foot of the
    picture's stage, over it — each code's format, its text (selectable) and
@@ -7116,8 +7063,153 @@ button.dv-snip-entry-thumb { cursor: pointer; }
 }
 .dv-code-btn:hover { border-color: var(--accent); color: var(--accent); background: var(--accent-tint); }
 
-/* The Laws marks with Extract text off: paint only, the text itself unseen,
-   no pointer (a press on the picture still pans it). */
-.dv-textmarks { position: absolute; inset: 0; pointer-events: none; }
-.dv-textmarks .dv-textline { pointer-events: none; }
-.dv-textmarks .dv-textword { color: transparent; }
+
+/* The highlight's hover pill and card: components/RefPill.css (shared with the
+   Design system's Tooltips section). */
+
+
+/* ── The Highlights eye (EyeGlyph) ─────────────────────────────────────────
+   One drawing that BLINKS between its states: shutting, the open eye squashes
+   to its lid line while the closed lid and lashes drop in; opening, the lid
+   lifts away and the eye springs open, its pupil last. Transforms and opacity
+   only (no colour fade on an icon — see CLAUDE.md). */
+.dv-eye .dv-eye-open,
+.dv-eye .dv-eye-shut,
+.dv-eye .dv-eye-pupil {
+  transform-box: view-box;
+  transform-origin: 12px 12px;
+  transition: transform 300ms cubic-bezier(0.34, 1.4, 0.64, 1), opacity 200ms ease;
+}
+.dv-eye .dv-eye-pupil { transition-delay: 90ms; }
+.dv-eye.is-open .dv-eye-shut { transform: translateY(-2.5px) scaleY(0.2); opacity: 0; }
+.dv-eye:not(.is-open) .dv-eye-open { transform: translateY(1.5px) scaleY(0.12); opacity: 0; }
+.dv-eye:not(.is-open) .dv-eye-pupil { transform: scale(0.2); opacity: 0; transition-delay: 0ms; }
+.dv-eye:not(.is-open) .dv-eye-shut { transition-delay: 60ms; }
+:root[data-reduce-motion='true'] .dv-eye * { transition: none !important; }
+@media (prefers-reduced-motion: reduce) { .dv-eye * { transition: none !important; } }
+
+/* ── The picked paragraph's panel, DOCKED (PICK_DOCK) ───────────────────────
+   Under the paragraph where it lies, on a ground of its own: with no blur
+   behind it any more it stands over the (dimmed) page, so it gets the page's
+   white, a hairline and the card shadow. Placed per scroll by layoutLift, so
+   it never eases. */
+.dv-docx-liftpanel.is-docked {
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  /* The tooltip ground, as every pill and card over content is. */
+  background: var(--bg-sidebar);
+  box-shadow: var(--shadow-elev);
+  overflow-y: auto;
+  color: var(--text-primary);
+}
+/* A PICKED paragraph holds the page still: the pane does not scroll until the
+   pick is dismissed (the gutter is kept, so nothing shifts sideways). */
+.dv-docview-body:has(> .dv-docx.has-pick) { overflow: hidden; scrollbar-gutter: stable; }
+/* Its preview copy (where the blanks are inputs) reads as the paragraph
+   itself — the page's white over the hidden original, no card or drop shadow —
+   with the picked paragraph's sleeve, since the original under it is hidden. */
+.dv-docx.dv-docx .dv-docx-livecard {
+  box-shadow: -5px 0 0 0 #fff, -8px 0 0 0 var(--color-ink);
+}
+.dv-docx.dv-docx.has-pick .dv-docx-page .dv-docx-livecard :is(input, textarea) { cursor: text; }
+
+/* ── The KIND BAR above the picked paragraph (PICK_DOCK) ────────────────────
+   What each party the paragraph names IS — All / Persoană fizică / PFA / II /
+   Persoană juridică — standing just above the paragraph whose wording it
+   dictates (a hover previews the rewrite in the paragraph, a click applies
+   it). The Constructor portals the switches in; placed by layoutLift's docked
+   branch, clamped inside the pane. The tooltip ground, like the panel. */
+.dv-docx-kindbar {
+  position: absolute; z-index: 7; left: 0; top: 0;
+  box-sizing: border-box;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg-sidebar);
+  box-shadow: var(--shadow-elev);
+  color: var(--text-primary);
+  opacity: 0; visibility: hidden; pointer-events: none;
+}
+.dv-docx-kindbar.is-on { opacity: 1; visibility: visible; pointer-events: auto; }
+.dv-docx-kindbar:empty { display: none; }
+
+/* ── EMPTY FIELDS, NOT PICKED: the picked paragraph's slot (.dcx-inline — a
+   ground, a solid rule under it, the top corners rounded) DESATURATED to
+   faded black, so a blank reads as the same field before and after the pick,
+   just quieter. Colour only — the widths are the document's. Picked, the
+   paragraph shows the inputs in their own colours (DocConstructor.css). */
+.dv-docx .dv-field.is-chip:not(.is-filled):not(.is-preview)::before {
+  background: color-mix(in srgb, var(--color-ink) 6%, #fff);
+  border-bottom: 1.5px solid color-mix(in srgb, var(--color-ink) 32%, transparent);
+}
+.dv-docx .dv-docx-para:hover .dv-field.is-chip:not(.is-filled):not(.is-preview)::before {
+  background: color-mix(in srgb, var(--color-ink) 10%, #fff);
+}
+.dv-docx .dv-field.is-drawn:not(.is-filled) {
+  background: color-mix(in srgb, var(--color-ink) 6%, transparent);
+  border-radius: 3px 3px 0 0;
+}
+.dv-docx .dv-docx-para:hover .dv-field.is-drawn:not(.is-filled) {
+  background: color-mix(in srgb, var(--color-ink) 10%, transparent);
+}
+.dv-docx .dv-field:not(.is-filled):not(.is-chip):not(.is-drawn):not(.is-preview):not(.is-active) {
+  color: color-mix(in srgb, var(--color-ink) 55%, transparent);
+  background: color-mix(in srgb, var(--color-ink) 6%, transparent);
+  border-bottom: 1.5px solid color-mix(in srgb, var(--color-ink) 32%, transparent);
+  border-radius: 3px 3px 0 0;
+}
+/* …and the PLACEHOLDER in it, as the picked paragraph's input shows it:
+   what the blank wants (`data-hint`, the field's label in the document's
+   language), faded and italic, laid over the slot and cut to its width with
+   "…" — an overlay, so the slot keeps exactly the width it had. Not while
+   Highlights is off (the blank then reads as the document wrote it). */
+.dv-docx .dv-field.is-chip:not(.is-filled):not(.is-preview) { position: relative; }
+.dv-docx .dv-field.is-chip[data-hint]:not(.is-filled):not(.is-preview)::after {
+  content: attr(data-hint);
+  position: absolute; left: 0; right: 0; bottom: 0;
+  box-sizing: border-box; padding: 0 3px;
+  font-size: var(--dvf-size, 14.6px); line-height: 1.2;
+  font-style: italic; font-weight: 400; letter-spacing: 0;
+  color: color-mix(in srgb, var(--color-ink) 42%, transparent);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  pointer-events: none;
+  transition: opacity 280ms ease;
+}
+.dv-docx.is-plain .dv-field.is-chip::after { opacity: 0; }
+
+/* ── AN EMPTY FIELD, NOT PICKED = THE PICKED PARAGRAPH'S INPUT ──────────────
+   Drawn by the SAME RULES as `.dcx-inline` (DocConstructor.css — keep in
+   step): the slot shows what the blank wants as its PLACEHOLDER, in full,
+   italic and faded; the input's 3px inset and 1px margin; 1.2em tall; the
+   top corners rounded; a solid rule under it; at least as wide as the blank
+   the document drew (`--dvf-chars` ch less 8px), wider when the placeholder
+   needs it. Only the COLOURS are its own: the faded black of an unpicked
+   field (the input's sand and cognac come with the pick). With Highlights
+   off it reads as the document wrote it (its underscores, plain). */
+.dv-docx .dv-field.is-chip:not(.is-filled):not(.is-preview)::before {
+  display: inline-block;
+  box-sizing: content-box;
+  /* THE INPUT'S WIDTH, to the letter (DocConstructor renderInput): the
+     larger of the blank the document drew (its length in ch, less the
+     input's 8px) and the placeholder (its length + 2ch, at least 4ch). */
+  width: max(calc(var(--dvf-chars, 10) * 1ch - 8px), calc(var(--dvf-hint, 4) * 1ch));
+  overflow: hidden; text-overflow: ellipsis;
+  height: 1.2em;
+  line-height: 1.2em;
+  padding: 0 3px;
+  margin: 0 1px;
+  vertical-align: baseline;
+  white-space: nowrap;
+  font-style: italic;
+  color: color-mix(in srgb, var(--color-ink) 42%, transparent);
+  border-radius: 3px 3px 0 0;
+}
+.dv-docx .dv-field.is-chip[data-hint]:not(.is-filled):not(.is-preview)::before { content: attr(data-hint); }
+.dv-docx .dv-field.is-chip:not([data-hint]):not(.is-filled):not(.is-preview)::before { content: ''; }
+/* The placeholder is now the slot's own text — the overlay goes. */
+.dv-docx .dv-field.is-chip[data-hint]:not(.is-filled):not(.is-preview)::after { content: none; }
+.dv-docx.is-plain .dv-field.is-chip:not(.is-filled):not(.is-preview):not(.is-active)::before {
+  content: attr(data-label) !important;
+  font-style: normal; padding: 0; margin: 0; min-width: 0; height: auto; line-height: inherit;
+}

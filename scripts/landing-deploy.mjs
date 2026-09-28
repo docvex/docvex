@@ -8,9 +8,9 @@
 // docs/ also hosts things this script must never touch:
 //   • CNAME, .nojekyll, 404.html, invite.html, favicon.ico
 //
-// The in-browser DEMO of the app (docs/demo, built by scripts/web-deploy.mjs)
-// was removed from the website — this script now actively clears it so a stale
-// copy can't keep being served.
+// The in-browser DEMO of the app (docs/demo) and the app's web build (docs/app)
+// were removed — this script actively clears both, so a stale copy can't keep
+// being served.
 //
 // Strategy: wipe the non-protected top-level entries and repopulate the root
 // from landing/home/. (The old React site that lived at docs/old/ was removed —
@@ -33,14 +33,15 @@ const PROTECTED = new Set([
   'CNAME',          // GitHub Pages custom domain
   '.nojekyll',      // lets underscore files be served
   'invite.html',    // standalone invite-accept page
-  '404.html',       // root SPA fallback (routes /app/* to the SPA, else → /)
+  '404.html',       // not-found page (redirects to /)
   'favicon.ico',    // shared favicon (invite.html references it)
 ]);
 
 // Never copy these from the source into docs/. The protected files would be
-// clobbered; `demo` / `demo-files` are leftovers of the removed in-browser demo
-// and must not be republished even if a local build recreates them.
-const SKIP_FROM_SRC = new Set(['404.html', 'CNAME', '.nojekyll', '.DS_Store', 'demo', 'demo-files']);
+// clobbered; `demo` / `demo-files` / `app` are leftovers of the removed
+// in-browser demo and web build, and must not be republished even if a stale
+// local copy recreates them.
+const SKIP_FROM_SRC = new Set(['404.html', 'CNAME', '.nojekyll', '.DS_Store', 'demo', 'demo-files', 'app']);
 
 async function exists(path) {
   try { await stat(path); return true; } catch { return false; }

@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 // Cursor coords + innerWidth are viewport px; the transform we set is layout
 // px — under the app's CSS-zoom downscale the two differ (see lib/appZoom).
 import { toLayoutPx } from '../lib/appZoom';
+import { subscribePointer } from '../lib/pointer';
 import './Tooltip.css';
 
 // Cursor-following pill tooltip — same behaviour and visual treatment as
@@ -55,6 +56,11 @@ const FADE_OUT_MS = 120;
 //     <span className="avatar" {...triggerProps}>{initials}</span>
 //     {tooltip}
 //   </>);
+// Where the pill goes for a point (layout px): offset from the cursor, kept
+// inside the viewport on both axes.
+const clampX = (x, w) => Math.max(EDGE_MARGIN, Math.min(x + CURSOR_OFFSET, toLayoutPx(window.innerWidth) - EDGE_MARGIN - w));
+const clampY = (y, h) => Math.max(EDGE_MARGIN, Math.min(y + CURSOR_OFFSET, toLayoutPx(window.innerHeight) - EDGE_MARGIN - h));
+
 export function useTooltip(content, className = '') {
   const [pos, setPos] = useState(null);
   const pillRef = useRef(null);
@@ -96,30 +102,52 @@ export function useTooltip(content, className = '') {
     return () => window.removeEventListener('scroll', onScroll, { capture: true });
   }, [shown]);
 
-  useLayoutEffect(() => {
+  // FOLLOWING THE CURSOR runs on the SHARED pointer (lib/pointer), once a
+  // frame: React state only shows and hides the pill. It used to set state on
+  // every move (a re-render, then a forced layout to measure the pill), and
+  // its safety net asked the browser what lay under the pointer
+  // (`elementFromPoint`, another forced layout) on every raw move as well.
+  // Now: the pill's size is measured when it appears or its content changes
+  // (`sizeRef`); each frame the write pass checks the pointer's own target
+  // against the trigger (the same DOM-containment rule, so display:contents
+  // wrappers still work) and moves the pill by a transform.
+  const sizeRef = useRef(null);
+  const followRef = useRef(false); // shown by the mouse (vs keyboard focus)
+  const shownRef = useRef(false);
+  shownRef.current = shown;
+  useEffect(() => {
     if (!shown) return undefined;
-    const onWinMove = (e) => {
-      const node = triggerRef.current;
-      const under = document.elementFromPoint(e.clientX, e.clientY);
-      if (!node || !under || !node.contains(under)) {
-        hoveringRef.current = false;
-        setPos(null);
-      }
-    };
-    window.addEventListener('pointermove', onWinMove, { passive: true });
-    return () => window.removeEventListener('pointermove', onWinMove);
+    return subscribePointer({
+      write: (p) => {
+        if (!p.moved) return;
+        const node = triggerRef.current;
+        if (!node || !p.target || !node.contains(p.target)) {
+          hoveringRef.current = false;
+          setPos(null);
+          return;
+        }
+        if (!followRef.current || fadeRef.current) return;
+        const pill = pillRef.current;
+        const size = sizeRef.current;
+        if (!pill || !size) return;
+        pill.style.transform = `translate(${clampX(p.lx, size.w)}px, ${clampY(p.ly, size.h)}px)`;
+      },
+    });
   }, [shown]);
+  useLayoutEffect(() => {
+    const pill = pillRef.current;
+    if (pill && shownRef.current) sizeRef.current = { w: pill.offsetWidth, h: pill.offsetHeight };
+  }, [content]);
 
   useLayoutEffect(() => {
-    if (!pos) return;
+    if (!pos) { sizeRef.current = null; return; }
     const pill = pillRef.current;
     if (!pill) return;
     const w = pill.offsetWidth;
     const h = pill.offsetHeight;
-    const vw = toLayoutPx(window.innerWidth);
-    const vh = toLayoutPx(window.innerHeight);
-    const x = Math.max(EDGE_MARGIN, Math.min(pos.x + CURSOR_OFFSET, vw - EDGE_MARGIN - w));
-    const y = Math.max(EDGE_MARGIN, Math.min(pos.y + CURSOR_OFFSET, vh - EDGE_MARGIN - h));
+    sizeRef.current = { w, h };
+    const x = clampX(pos.x, w);
+    const y = clampY(pos.y, h);
     const isFirstSet = !pill.style.transform;
     if (isFirstSet) {
       // Two lines or more: HALF the radius. A stadium pill (999px) is right
@@ -148,6 +176,9 @@ export function useTooltip(content, className = '') {
     onMouseMove: (e) => {
       if (fadeRef.current) return;   // mid-fade: let it finish leaving
       hoveringRef.current = true; triggerRef.current = e.currentTarget;
+      // Shown already: the shared pointer moves it (see above) — no state.
+      if (shownRef.current && followRef.current) return;
+      followRef.current = true;
       setPos({ x: toLayoutPx(e.clientX), y: toLayoutPx(e.clientY) });
     },
     onMouseLeave: () => { hoveringRef.current = false; setPos(null); },
@@ -160,6 +191,7 @@ export function useTooltip(content, className = '') {
       const target = e.target?.getBoundingClientRect?.bind(e.target) ? e.target : e.currentTarget?.firstElementChild;
       if (!target?.matches || !target.matches(':focus-visible')) return;
       triggerRef.current = e.currentTarget;
+      followRef.current = false;
       const rect = target?.getBoundingClientRect?.();
       if (rect) setPos({ x: toLayoutPx(rect.right), y: toLayoutPx(rect.bottom) });
     },

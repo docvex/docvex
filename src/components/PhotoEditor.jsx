@@ -388,11 +388,9 @@ export default function PhotoEditor({ url, name, fromRect = null, onCancel, onSa
   // Drag the picture about, at ANY zoom — except on the crop's own outline and
   // handles, which have their own drags.
   const onStagePointerDown = (e) => {
-    // Left or MIDDLE (the wheel press); the middle one pans even from the
-    // crop's outline and handles.
-    const middle = e.button === 1;
-    if (!middle && e.button !== 0) return;
-    if (!middle && e.target.closest('.phe-shape, .phe-knob, .phe-point, .phe-zoom')) return;
+    // Only the MIDDLE button (the wheel press) pans — from anywhere, the
+    // crop's outline and handles included. The left button never moves it.
+    if (e.button !== 1) return;
     e.preventDefault();
     const x0 = e.clientX; const y0 = e.clientY;
     const from = panRef.current;

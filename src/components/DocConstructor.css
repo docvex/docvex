@@ -438,3 +438,92 @@
 }
 
 :root[data-reduce-motion='true'] .dcx-party-body { animation: none; }
+
+/* ── The docked autofill (the picked paragraph's panel) ─────────────────────
+   No ground of its own around the people (the blue `--bg-elevated` read as a
+   tinted box on Ink): they stand straight on the panel. Each person: their
+   name, the KIND switch (components/RuleOptions — Persoană fizică / PFA /
+   juridică), then the data collections that can fill them, each shown as its
+   FILE (the Files tab's type icon, the file name, what it holds). */
+.dcx-people {
+  margin: 0; padding: 0;
+  border: 0; border-radius: 0;
+  background: transparent;
+  gap: 12px;
+}
+.dcx-kind { margin: 2px 0 2px; }
+.dcx-person-file {
+  flex: none; width: 24px; height: 24px;
+  display: inline-flex; align-items: center; justify-content: center;
+}
+.dcx-person-file svg { width: 22px; height: 22px; }
+/* One person's colour only where the clause names several; otherwise the
+   rows use the accent. */
+.dcx-person:not([style*="--dcx-party"]) { --dcx-party: var(--accent); }
+
+/* ── Parties and who signs for them ────────────────────────────────────────
+   The people list is a COLUMN of parties (`.dcx-people`, one row per party
+   the clause names); inside a row the party and its representative stand
+   SIDE BY SIDE (`.dcx-party-group.is-pair`) — the representative belongs to
+   the party, so they read as one thing. A narrow panel wraps the pair. */
+.dcx-party-group {
+  display: flex; flex-wrap: wrap; gap: 12px;
+  min-width: 0;
+}
+.dcx-party-group > .dcx-person { flex: 1 1 220px; min-width: 0; }
+/* The representative is the second of the pair: a hairline before it. */
+.dcx-party-group.is-pair > .dcx-person + .dcx-person {
+  border-top: 0; padding-top: 0;
+  border-left: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+  padding-left: 12px;
+}
+/* One PARTY from the next: the row divider. */
+.dcx-party-group + .dcx-party-group {
+  border-top: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+  padding-top: 12px;
+}
+/* The pieces a row lays out are no longer siblings in the column. */
+.dcx-people > .dcx-party-group > .dcx-person + .dcx-person { margin-top: 0; }
+
+/* The kind bar's content (portalled into .dv-docx-kindbar): one row per
+   party — its colour and name when the clause names several, then the switch. */
+.dcx-kindbar { display: flex; flex-direction: column; gap: 6px; font-family: var(--font-body); }
+.dcx-kindbar-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; min-width: 0; }
+.dcx-kindbar-name {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-size: 11.5px; font-weight: 700; white-space: nowrap;
+}
+.dcx-kindbar .dcx-kind { margin: 0; }
+
+/* APPLY — the Design system's primary button (.dsg-btn.is-primary): the
+   accent fill, the control's height and corners; at the panel's foot, right. */
+.dcx-apply-row {
+  display: flex; justify-content: flex-end;
+  margin-top: 10px; padding-top: 10px;
+  border-top: 1px solid var(--ds-hairline, var(--border));
+}
+.dcx-apply {
+  appearance: none;
+  height: 28px; padding: 0 16px;
+  border: 1px solid var(--accent); border-radius: var(--ds-control-radius, 6.4px);
+  background: var(--accent); color: var(--text-on-accent);
+  font: inherit; font-size: 12px; font-weight: 650; cursor: pointer;
+  transition: background 120ms ease;
+}
+.dcx-apply:hover:not(:disabled) { background: var(--accent-hover); }
+.dcx-apply:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.dcx-apply:disabled { opacity: 0.45; cursor: default; }
+.dcx-apply-row { gap: 8px; }
+/* UNDO — the Design system's quiet button: a hairline, no fill, the text
+   colour; how many steps it can take back beside the word. */
+.dcx-undo {
+  appearance: none;
+  height: 28px; padding: 0 14px;
+  border: 1px solid var(--ds-hairline, var(--border)); border-radius: var(--ds-control-radius, 6.4px);
+  background: transparent; color: var(--text-primary);
+  font: inherit; font-size: 12px; font-weight: 600; cursor: pointer;
+  transition: background 120ms ease, border-color 120ms ease;
+}
+.dcx-undo:hover:not(:disabled) { background: color-mix(in srgb, var(--text-primary) 6%, transparent); border-color: var(--border-strong); }
+.dcx-undo:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.dcx-undo:disabled { opacity: 0.45; cursor: default; }

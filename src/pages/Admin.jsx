@@ -5,7 +5,7 @@ import {
   listAppServices, upsertAppService, deleteAppService,
 } from '../lib/admin';
 import { openExternal } from '../lib/platform';
-import { miniHeaderSpot } from '../lib/miniHeaderSpot';
+import { useMiniGlowSpot } from '../lib/pointerSpots';
 import MiniHeaderFade from '../components/MiniHeaderFade';
 import Tooltip from '../components/Tooltip';
 import './Admin.css';
@@ -262,14 +262,14 @@ function ServiceCard({ svc, onEdit, displayCurrency }) {
   const cur = displayCurrency === 'native' ? svc.currency : displayCurrency;
   const amt = displayCurrency === 'native' ? svc.amount : convert(svc.amount, svc.currency, displayCurrency);
   return (
-    <div className="dc-svc" style={{ '--svc-accent': svc.accent }}>
+    <div className={`dc-svc${svc._pending ? ' is-pending' : ''}`} style={{ '--svc-accent': svc.accent }}>
       <div className="dc-svc-top">
         <div className="dc-svc-icon">{svc.glyph}</div>
         <div className="dc-svc-id">
           <div className="dc-svc-name">{svc.provider}</div>
         </div>
         <Tooltip content="Edit service">
-          <button type="button" className="dc-svc-edit" onClick={() => onEdit(svc)} aria-label="Edit service">
+          <button type="button" className="dc-svc-edit" onClick={() => onEdit(svc)} disabled={svc._pending} aria-label="Edit service">
             {EditIcon}
           </button>
         </Tooltip>
@@ -878,6 +878,37 @@ function TotalCost({ services, currency }) {
 }
 
 // ── Page ────────────────────────────────────────────────────────────────────
+// Compact-header-on-scroll, mirroring the Versions page exactly. The page
+// scrolls inside the single-window pane's `.sv-single-scroll` (falling back to
+// `.main-content`); we listen there and fade a fixed, blurred bar in once the
+// masthead has scrolled away. Hysteresis (show past 32px, hide under 8px)
+// prevents flicker at the threshold. Its own component so a flip re-renders
+// only the bar and its fade.
+function AdminCompactBar({ children }) {
+  useMiniGlowSpot(); // the .mini-glow bar's spotlight (lib/pointerSpots)
+  const barRef = useRef(null);
+  const [scrolled, setScrolled] = useState(false);
+  useEffect(() => {
+    const scroller = barRef.current?.closest('.sv-single-scroll, .main-content');
+    if (!scroller) return undefined;
+    const onScroll = () => {
+      const top = scroller.scrollTop;
+      setScrolled((s) => (s ? top > 8 : top > 32));
+    };
+    onScroll();
+    scroller.addEventListener('scroll', onScroll, { passive: true });
+    return () => scroller.removeEventListener('scroll', onScroll);
+  }, []);
+  return (
+    <>
+      <MiniHeaderFade visible={scrolled} />
+      <div ref={barRef} className={`dc-compact mini-glow${scrolled ? ' is-visible' : ''}`} aria-hidden={!scrolled}>
+        {children}
+      </div>
+    </>
+  );
+}
+
 export default function Admin() {
   // Service inventory — real, loaded from app_services (was the hardcoded
   // SERVICES constant). `editorService`: undefined = closed, null = add-new,
@@ -912,24 +943,9 @@ export default function Admin() {
 
   const today = useMemo(() => new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' }), []);
 
-  // Compact-header-on-scroll, mirroring the Versions page exactly. The page
-  // scrolls inside the single-window pane's `.sv-single-scroll` (falling back
-  // to `.main-content`); we listen there and fade a fixed, blurred bar in once
-  // the masthead has scrolled away. Hysteresis (show past 32px, hide under 8px)
-  // prevents flicker at the threshold.
+  // The compact header's scroll tracking lives in AdminCompactBar (below), so
+  // a show/hide flip re-renders only the bar, not the whole console.
   const pageRef = useRef(null);
-  const [scrolled, setScrolled] = useState(false);
-  useEffect(() => {
-    const scroller = pageRef.current?.closest('.sv-single-scroll, .main-content');
-    if (!scroller) return undefined;
-    const onScroll = () => {
-      const top = scroller.scrollTop;
-      setScrolled((s) => (s ? top > 8 : top > 32));
-    };
-    onScroll();
-    scroller.addEventListener('scroll', onScroll, { passive: true });
-    return () => scroller.removeEventListener('scroll', onScroll);
-  }, []);
   const scrollToTop = () => {
     pageRef.current?.closest('.sv-single-scroll, .main-content')?.scrollTo({ top: 0, behavior: 'smooth' });
   };
@@ -1019,19 +1035,50 @@ export default function Admin() {
   };
 
   // ── Service inventory handlers ──
+  // Both are optimistic: the card changes (or appears / disappears) and the
+  // editor closes the moment the form is submitted, the card drawn faded
+  // (`_pending`) until the server answers. A save that fails puts the card
+  // back exactly as it was (or takes a new one away); a delete that fails
+  // puts the card back. This is a bookkeeping record, not the subscription
+  // itself, so showing it early can't mislead anyone about a real service.
   const onSaveService = async (form) => {
-    const { error } = await upsertAppService(form);
-    if (error) { showToast(`Could not save service — ${error.message || 'error'}`); return; }
-    await reloadServices();
+    const isEdit = !!form.id;
+    const before = isEdit ? services.find((s) => s.id === form.id) : null;
+    const tempId = isEdit ? form.id : `tmp-${Date.now()}`;
+    const shown = { ...rowToService({ ...(before || {}), ...form, id: tempId }), _pending: true };
+    setServices((prev) => (isEdit ? prev.map((s) => (s.id === form.id ? shown : s)) : [...prev, shown]));
     setEditorService(undefined);
-    showToast(form.id ? 'Service updated.' : 'Service added.');
+    const { error } = await upsertAppService(form);
+    if (error) {
+      setServices((prev) => (isEdit
+        ? prev.map((s) => (s.id === form.id ? before : s))
+        : prev.filter((s) => s.id !== tempId)));
+      showToast(`Could not save ${form.provider || 'the service'} — ${error.message || 'error'}. Nothing was changed.`);
+      return;
+    }
+    // The server's copy (with the real id for a new service) replaces the
+    // stand-in. If the reload itself fails, just clear the pending mark.
+    const { error: reloadErr } = await reloadServices();
+    if (reloadErr) setServices((prev) => prev.map((s) => (s.id === tempId ? { ...s, _pending: false } : s)));
+    showToast(isEdit ? 'Service updated.' : 'Service added.');
   };
   const onDeleteService = async (svc) => {
     if (!window.confirm(`Remove ${svc.provider} from the tracked inventory? This only deletes the record here, not the actual subscription.`)) return;
-    const { error } = await deleteAppService(svc.id);
-    if (error) { showToast('Could not delete service.'); return; }
+    const index = services.findIndex((s) => s.id === svc.id);
     setServices((prev) => prev.filter((s) => s.id !== svc.id));
     setEditorService(undefined);
+    const { error } = await deleteAppService(svc.id);
+    if (error) {
+      // Put it back where it stood.
+      setServices((prev) => {
+        if (prev.some((s) => s.id === svc.id)) return prev;
+        const next = prev.slice();
+        next.splice(Math.max(0, Math.min(index, next.length)), 0, svc);
+        return next;
+      });
+      showToast(`Could not remove ${svc.provider} — it is back in the list.`);
+      return;
+    }
     showToast('Service removed.');
   };
 
@@ -1040,8 +1087,7 @@ export default function Admin() {
       {/* Compact header — fades/slides in once the masthead has scrolled away,
           mirroring the Versions page exactly: title · eyebrow · a clickable
           status pill (with a dot) that jumps back to the top. */}
-      <MiniHeaderFade visible={scrolled} />
-      <div className={`dc-compact mini-glow${scrolled ? ' is-visible' : ''}`} aria-hidden={!scrolled} onMouseMove={miniHeaderSpot}>
+      <AdminCompactBar>
         <span className="dc-compact-title">Services &amp; billing</span>
         <span className="dc-compact-sep" aria-hidden="true">·</span>
         <span className="dc-compact-eyebrow">Developer console</span>
@@ -1055,7 +1101,7 @@ export default function Admin() {
             {activeCount} active · {fmtMoney(monthlySpend, BASE, { decimals: 0 })} / mo
           </button>
         </Tooltip>
-      </div>
+      </AdminCompactBar>
 
       <div className="dc-page">
         {/* Masthead — mirrors the Versions page: accent eyebrow + muted kicker,

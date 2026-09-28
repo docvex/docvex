@@ -26,9 +26,10 @@
 // last had synced — kept per device in localStorage (`ledgerKey`), which is what
 // tells a file deleted here apart from a file added there.
 import { supabase } from './supabaseClient';
-import { localFolderApi, readLocalBlob, isElectronBranch } from './localFolder';
+import { localFolderApi, readLocalBlob } from './localFolder';
 import { syncProjectData, removeProjectData } from './projectSyncData';
 import { currentAppVersion, compareVersions, isKnownVersion } from './appVersion';
+import { ipc, hydrateProject } from './projectIndexClient';
 
 export const PROJECT_SYNC_BUCKET = 'project-sync';
 export const MANIFEST_NAME = '.docvex-sync.json';
@@ -158,11 +159,36 @@ const newGen = () => {
 // ── Reading the folder ──────────────────────────────────────────────────────
 const relPathOf = (f) => (f.folderPath ? `${f.folderPath}/${f.name}` : f.name);
 
+// The project's `.docvex/` folder (src/projectIndex/README.md) travels too —
+// `ids.json`, `knowledge/**` and `settings/**` — even though the listing (like
+// the Files tab) never shows a dot-folder: it is where everything DocVex knows
+// about the files lives now. It is listed on its own, from inside it (its
+// children are not dot-names), and its paths are prefixed back. The machine
+// index lives in userData and is never part of this.
+export const DOCVEX_DIR = '.docvex';
+const isDocvexRel = (rel) => rel === DOCVEX_DIR || String(rel).startsWith(`${DOCVEX_DIR}/`);
+
+async function listDocvexDir(dir) {
+  const root = `${String(dir).replace(/[\\/]+$/, '')}${String(dir).includes('\\') ? '\\' : '/'}${DOCVEX_DIR}`;
+  let res = null;
+  try {
+    // Straight to main's recursive listing where there is one: this is a plain
+    // folder walk, not a project's listing.
+    const api = typeof window !== 'undefined' ? window.electronAPI : null;
+    res = typeof api?.listRecursive === 'function' ? await api.listRecursive(root) : await localFolderApi.listAll(root);
+  } catch { res = null; }
+  if (!res || res.error) return { files: [], dirs: [] };
+  const files = (res.files || []).map((f) => ({ ...f, folderPath: f.folderPath ? `${DOCVEX_DIR}/${f.folderPath}` : DOCVEX_DIR }));
+  const dirs = [DOCVEX_DIR, ...(Array.isArray(res.dirs) ? res.dirs.map((d) => `${DOCVEX_DIR}/${d}`) : [])];
+  return files.length ? { files, dirs } : { files: [], dirs: [] };
+}
+
 async function readLocalTree(dir) {
   const { files, dirs, error } = await localFolderApi.listAll(dir);
   if (error) return { entries: [], dirs: [], error: new Error(error) };
+  const own = await listDocvexDir(dir);
   const entries = [];
-  for (const f of files || []) {
+  for (const f of [...(files || []), ...own.files]) {
     const relPath = relPathOf(f);
     entries.push({
       relPath,
@@ -172,7 +198,7 @@ async function readLocalTree(dir) {
       key: await keyFor(relPath),
     });
   }
-  return { entries, dirs: Array.isArray(dirs) ? dirs : [], error: null };
+  return { entries, dirs: [...(Array.isArray(dirs) ? dirs : []), ...own.dirs], error: null };
 }
 
 // How many files the project has on THIS device — what "not on this device"
@@ -182,7 +208,9 @@ async function readLocalTree(dir) {
 export async function countLocalFiles(dir) {
   if (!dir) return 0;
   const { files } = await localFolderApi.listAll(dir);
-  return (files || []).length;
+  // The project file (`<name>.docvex`) is written the moment a folder is
+  // linked — it is not "the project's files being here".
+  return (files || []).filter((f) => !/\.docvex$/i.test(f.name || '')).length;
 }
 
 const newer = (a, b) => new Date(a || 0).getTime() - new Date(b || 0).getTime();
@@ -372,8 +400,15 @@ export async function syncProject({ projectId, dir, onProgress = () => {}, enabl
   }
   // Deleted on another device: into this device's Trash, never straight off
   // the disk — the Files tab's bin can still bring it back for 30 days.
+  // `.docvex/` files are the app's own bookkeeping, not documents — one gone
+  // elsewhere (a merged conflict copy, a shard nothing references) is simply
+  // removed, not put in the user's Trash.
   let trashed = 0;
   for (const e of dropLocal) {
+    if (isDocvexRel(e.relPath)) {
+      try { await localFolderApi.deleteFiles({ dir, paths: [e.path] }); } catch { /* the next sync tries again */ }
+      continue;
+    }
     try {
       const res = await localFolderApi.trashFile({ dir, path: e.path });
       if (res?.ok === false) throw new Error(res.error || 'could not move it to the Trash');
@@ -400,7 +435,7 @@ export async function syncProject({ projectId, dir, onProgress = () => {}, enabl
   }
 
   // Stamped with this app's version — never lowered (an unknown version, e.g.
-  // a web build made without one, leaves the stamp as it was).
+  // a dev build with none, leaves the stamp as it was).
   const stamp = isKnownVersion(appVersion)
     && !(manifest.appVersion && compareVersions(manifest.appVersion, appVersion) > 0)
     ? appVersion : (manifest.appVersion || null);
@@ -426,7 +461,15 @@ export async function syncProject({ projectId, dir, onProgress = () => {}, enabl
     folders: Object.fromEntries(Object.keys(remoteFolders).map((d) => [d, 1])),
   });
 
-  // ── everything DocVex keeps ABOUT the files (lib/projectSyncData) ──
+  // What arrived in `.docvex/` (another device's knowledge, settings, ids) is
+  // main's to read: ask it to reconcile, then re-read the project's copy in
+  // this window so the new knowledge shows without a restart.
+  if (pulled && pull.some((r) => isDocvexRel(r.path))) {
+    try { await ipc.projectReconcile({ projectId }); } catch { /* main picks it up on its next open */ }
+    try { await hydrateProject(projectId, { force: true, dir }); } catch { /* read lazily instead */ }
+  }
+
+  // ── everything else DocVex keeps ABOUT the files (lib/projectSyncData) ──
   // After the files, so the data can be tied to the versions now on disk. A
   // failure here doesn't undo the file sync — it is reported beside it.
   onProgress({ phase: 'data', done: 0, total: 1 });
@@ -553,8 +596,3 @@ export async function pullProject({ projectId, dir, onProgress }) {
   forgetLedger(projectId);
   return syncProject({ projectId, dir, onProgress });
 }
-
-// Web has no folder tree (the File System Access backend tracks one flat
-// directory), so a pull there lands every file in that one folder. Worth saying
-// out loud rather than quietly flattening someone's structure.
-export const syncKeepsFolders = isElectronBranch;

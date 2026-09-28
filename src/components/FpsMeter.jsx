@@ -4,7 +4,8 @@ import './FpsMeter.css';
 
 // Frames-per-second indicator pinned to the top-centre of the window — a quick
 // read on render performance. Settings → Behavior → "FPS counter" picks how
-// much it shows (`fpsCounter` pref):
+// much it shows (`fpsCounter` pref, default off — a counter that runs keeps
+// the GPU from ever idling, which an office laptop's battery pays for):
 //   off      — nothing (and no animation loop running)
 //   simple   — "60 FPS", colour-coded: green ≥50, amber ≥30, red below
 //   complex  — FPS, average frame time, 1% low, worst frame, janky frames
@@ -99,7 +100,7 @@ function drawGraph(canvas, buf, count, head) {
 
 export default function FpsMeter({ mode: forced = null, inline = false }) {
   const prefs = useContext(AppPrefsContext)?.prefs;
-  const mode = FPS_MODES.includes(forced) ? forced : (FPS_MODES.includes(prefs?.fpsCounter) ? prefs.fpsCounter : 'simple');
+  const mode = FPS_MODES.includes(forced) ? forced : (FPS_MODES.includes(prefs?.fpsCounter) ? prefs.fpsCounter : 'off');
   const [stats, setStats] = useState(null);
   const canvasRef = useRef(null);
 

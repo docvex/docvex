@@ -14,17 +14,42 @@ import { isElectron, authAppReady, authRequired } from '../lib/platform';
 // Renders nothing. Mounted once, in the app window only (renderer.jsx) — the
 // sign-in window reports its own completion from AuthPage, and the doc viewer /
 // tray / snip windows have no say in this at all.
+// A session saved on this machine (supabase-js keeps it as
+// `sb-<project>-auth-token`) with a refresh token in it.
+function hasStoredSession() {
+  try {
+    for (let i = 0; i < localStorage.length; i += 1) {
+      const k = localStorage.key(i);
+      if (!/^sb-.+-auth-token$/.test(k || '')) continue;
+      const v = JSON.parse(localStorage.getItem(k) || 'null');
+      if (v?.refresh_token && !v?.user?.is_anonymous) return true;
+    }
+  } catch { /* unreadable — wait for auth as before */ }
+  return false;
+}
+
 export default function AuthWindowGate() {
   const { session, loading } = useAuth();
   // Only the transitions matter. Re-sending 'app-ready' on every token refresh
   // would re-focus the window out from under whatever the user is doing.
   const lastSent = useRef(null);
 
+  // LOAD TIME: with a session saved on this machine, show the app window at
+  // once. supabase-js holds INITIAL_SESSION until an expired access token is
+  // refreshed over the network — which is every morning — and the window
+  // used to stay hidden for that whole round trip (seconds on a slow office
+  // line). The shell shows its own loading state meanwhile. If the session
+  // turns out to be revoked, the effect below sends 'auth' and the sign-in
+  // window takes over, as it always did.
+  useEffect(() => {
+    if (!isElectron || lastSent.current) return;
+    if (hasStoredSession()) { lastSent.current = 'app'; authAppReady(); }
+  }, []);
+
   useEffect(() => {
     if (!isElectron || loading) return;
-    // An anonymous session (the web build's demo sign-in) is not a signed-in
-    // user; it never reaches this window, but treat it as signed out anyway so
-    // the two builds can't disagree about what a session means.
+    // An anonymous session is not a signed-in user (no flow creates one any
+    // more); treat it as signed out, as AuthPage does.
     const signedIn = !!session && !session.user?.is_anonymous;
     const next = signedIn ? 'app' : 'auth';
     if (lastSent.current === next) return;

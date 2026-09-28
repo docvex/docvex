@@ -103,7 +103,7 @@ async function invoke(body) {
  * without writing or summarising (it still makes one screening call).
  */
 export async function runLegalFeedSync({ dryRun = false } = {}) {
-  if (!isElectron) return { ok: false, skipped: 'web' };
+  if (!isElectron) return { ok: false, skipped: 'no_bridge' };
   const plan = await invoke({ action: 'plan' });
   if (!plan?.ok) return { ok: false, skipped: plan?.error || 'plan_failed' };
   if (plan.busy) return { ok: true, skipped: 'busy' };

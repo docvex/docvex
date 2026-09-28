@@ -1,6 +1,6 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import Tooltip from './Tooltip';
-import { toLayoutPx } from '../lib/appZoom';
+import { registerHoverSpot } from '../lib/pointer';
 import './Toggle.css';
 
 // An ON / OFF switch with its label — the Playbook's Preview switch, made a
@@ -10,6 +10,9 @@ import './Toggle.css';
 // track while it is on; the track faded while off; the sidebar items'
 // spotlight following the pointer on hover.
 export default function Toggle({ on, onChange, label, tip = null, className = '' }) {
+  // The spotlight: the pointer's place over the switch, as --item-spot-x/y,
+  // written by the app's one pointer (lib/pointer).
+  useEffect(() => registerHoverSpot('.tgl'), []);
   const button = (
     <button
       type="button"
@@ -17,11 +20,6 @@ export default function Toggle({ on, onChange, label, tip = null, className = ''
       aria-checked={!!on}
       className={`tgl${on ? ' is-on' : ''}${className ? ` ${className}` : ''}`}
       onClick={() => onChange?.(!on)}
-      onMouseMove={(e) => {
-        const r = e.currentTarget.getBoundingClientRect();
-        e.currentTarget.style.setProperty('--item-spot-x', `${toLayoutPx(e.clientX - r.left)}px`);
-        e.currentTarget.style.setProperty('--item-spot-y', `${toLayoutPx(e.clientY - r.top)}px`);
-      }}
     >
       <span className="tgl-track"><span className="tgl-knob" /></span>
       <span className="tgl-label">{label}</span>

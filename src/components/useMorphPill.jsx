@@ -6,6 +6,8 @@ import { createPortal } from 'react-dom';
 // needs no conversion: its scale factors are viewport/viewport ratios and the
 // translate it re-applies is parsed back out of the (layout-px) transform.
 import { toLayoutPx } from '../lib/appZoom';
+import { subscribePointer } from '../lib/pointer';
+import { spotLights, placeSpotLights } from '../lib/pointerSpots';
 // Co-located styling — every consumer of useMorphPill gets the
 // dropdown / confirm-panel CSS automatically. Previously these
 // rules lived in ProjectFiles.css, which meant the hook only looked
@@ -64,6 +66,19 @@ const MENU_EXIT_MS = 130;
 // collapse cleanly without per-render branching.
 export function useMorphPill({ hoverContent, menuItems, menuHeader, prompt, className = '', placement = 'right', stickyMenu = false, instant = false }) {
   const [pillPos, setPillPos] = useState(null);
+  const pillPosRef = useRef(null);        // the latest cursor point (see handleMouseMove)
+  const pillSizeRef = useRef(null);       // { w, h } of the pill's current shape
+  // Where the pill goes for a cursor point — kept inside the viewport on both
+  // axes. `placement: 'left'` anchors its RIGHT edge near the cursor.
+  const clampPillX = (x, w) => {
+    const vw = toLayoutPx(window.innerWidth);
+    const desiredX = placement === 'left' ? x - 8 - w : x + 8;
+    return Math.max(8, Math.min(desiredX, vw - 8 - w));
+  };
+  const clampPillY = (y, h) => {
+    const vh = toLayoutPx(window.innerHeight);
+    return Math.max(8, Math.min(y + 8, vh - 8 - h));
+  };
   const [menuMode, setMenuMode] = useState(false);
   // True while the menu is playing its exit animation — still mounted, but on
   // its way out (see closeMenu / MENU_EXIT_MS).
@@ -122,12 +137,24 @@ export function useMorphPill({ hoverContent, menuItems, menuHeader, prompt, clas
     closeTimerRef.current = setTimeout(() => { closeTimerRef.current = null; closeMenu(); }, 280);
   };
 
+  // HOVER COST: React state only SHOWS and HIDES the tooltip. Once it is up,
+  // following the cursor writes its transform directly, at most once a frame,
+  // with the size measured when its shape last changed (`pillSizeRef`). Setting
+  // state on every move re-rendered the pill and then read its size in a layout
+  // effect — a forced style + layout in the middle of every frame, right after
+  // the hover glows had written their custom properties. Same placement and
+  // clamp as the layout effect below; `pillPosRef` keeps the latest point.
   const handleMouseMove = (e) => {
     if (menuMode || promptOpen) return;
-    setPillPos({ x: toLayoutPx(e.clientX), y: toLayoutPx(e.clientY) });
+    const p = { x: toLayoutPx(e.clientX), y: toLayoutPx(e.clientY) };
+    pillPosRef.current = p;
+    const pill = pillRef.current;
+    // Once shown, the shared pointer moves it (the subscription below).
+    if (!pillPos || !pill || !pillSizeRef.current || !pill.style.transform) setPillPos(p);
   };
   const handleMouseLeave = () => {
     if (menuMode || promptOpen) return;
+    pillPosRef.current = null;
     setPillPos(null);
   };
   const handleContextMenu = (e) => {
@@ -325,19 +352,21 @@ export function useMorphPill({ hoverContent, menuItems, menuHeader, prompt, clas
   // transition doesn't visibly slide in from (0,0). Re-runs on menu-
   // mode AND confirm-mode flips too so each shape gets re-clamped.
   useLayoutEffect(() => {
-    if (!pillPos) return;
+    if (!pillPos) { pillSizeRef.current = null; return; }
     const pill = pillRef.current;
     if (!pill) return;
     const w = pill.offsetWidth;
     const h = pill.offsetHeight;
-    const vw = toLayoutPx(window.innerWidth);
-    const vh = toLayoutPx(window.innerHeight);
+    pillSizeRef.current = { w, h };
+    // The point the pill is placed at: the state's, unless the cursor has moved
+    // on since without a render (handleMouseMove) — only while hovering; menus
+    // and prompts are placed where they were opened.
+    const at = (!menuMode && !promptOpen && !confirmingItem && pillPosRef.current) || pillPos;
     // `placement: 'left'` anchors the pill's RIGHT edge near the cursor and
     // grows it leftward (used by the title bar's right-edge buttons so the
     // menu doesn't run off-screen); default grows rightward from the cursor.
-    const desiredX = placement === 'left' ? pillPos.x - 8 - w : pillPos.x + 8;
-    const x = Math.max(8, Math.min(desiredX, vw - 8 - w));
-    const y = Math.max(8, Math.min(pillPos.y + 8, vh - 8 - h));
+    const x = clampPillX(at.x, w);
+    const y = clampPillY(at.y, h);
     const isFirstSet = !pill.style.transform;
     if (isFirstSet) {
       pill.style.transition = 'none';
@@ -355,6 +384,78 @@ export function useMorphPill({ hoverContent, menuItems, menuHeader, prompt, clas
       pill.style.transform = `translate(${x}px, ${y}px)`;
     }
   }, [pillPos, menuMode, confirmingItem, promptOpen, placement, openSubKey]);
+
+  // The hover text can change while the pill is up (a name loading in): keep
+  // the measured size current for handleMouseMove's direct placement.
+  useLayoutEffect(() => {
+    const pill = pillRef.current;
+    if (pill && pillPos) pillSizeRef.current = { w: pill.offsetWidth, h: pill.offsetHeight };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hoverContent]);
+  // TWO LINES OR MORE → half the corner radius (`.is-multiline`, Tooltip.css;
+  // the Design system's Tooltip rule). MEASURED, as the Tooltip component
+  // does, not guessed from a newline in the text: hover content may be markup
+  // (the Doc Viewer's highlight pill) or a long line that wraps. The one-line
+  // height is the line box plus padding and border; a pill a line taller
+  // than that is multi-line.
+  const [tallHover, setTallHover] = useState(false);
+  useLayoutEffect(() => {
+    const pill = pillRef.current;
+    if (!pill || !pillPos || menuMode || confirmingItem || promptOpen) return;
+    const cs = getComputedStyle(pill);
+    const lh = parseFloat(cs.lineHeight) || parseFloat(cs.fontSize) * 1.2;
+    const oneLine = lh + parseFloat(cs.paddingTop) + parseFloat(cs.paddingBottom)
+      + parseFloat(cs.borderTopWidth) + parseFloat(cs.borderBottomWidth);
+    const tall = pill.offsetHeight >= oneLine + lh - 1;
+    setTallHover((was) => (was === tall ? was : tall));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hoverContent, !!pillPos, menuMode, confirmingItem, promptOpen]);
+  // The hover pill follows the SHARED pointer (lib/pointer) once a frame, by a
+  // direct transform write — no state, no measuring (the size is kept above).
+  const hoverFollowing = !!pillPos && !menuMode && !promptOpen && !confirmingItem;
+  useEffect(() => {
+    if (!hoverFollowing) return undefined;
+    return subscribePointer({
+      write: (p) => {
+        if (!p.moved || !p.inWindow) return;
+        const el = pillRef.current;
+        const size = pillSizeRef.current;
+        if (!el || !size || !el.style.transform) return;
+        pillPosRef.current = { x: p.lx, y: p.ly };
+        el.style.transform = `translate(${clampPillX(p.lx, size.w)}px, ${clampPillY(p.ly, size.h)}px)`;
+      },
+    });
+  }, [hoverFollowing]);
+  // The open menu's own light (its glow and border shine — lib/pointerSpots'
+  // injected lights, drawn by useMorphPill.css only in the danger confirm —
+  // and each confirm button's hover light) — on the shared pointer too, while
+  // the pointer is over the pill: reads first, then writes, once a frame.
+  const menuLit = !!pillPos && (menuMode || promptOpen || !!confirmingItem);
+  // The lights go in before the frame is painted, so a danger confirm shows
+  // its light (centred) from its first frame, as its pseudo-elements did.
+  useLayoutEffect(() => {
+    if (menuLit && pillRef.current) spotLights(pillRef.current);
+  }, [menuLit, confirmingItem]);
+  useEffect(() => {
+    if (!menuLit) return undefined;
+    return subscribePointer({
+      read: (p) => {
+        const el = pillRef.current;
+        if (!p.moved || !el || !p.target || !el.contains(p.target)) return null;
+        const btn = p.target.closest('.project-files-morph-confirm-btn');
+        return { r: el.getBoundingClientRect(), btn, br: btn ? btn.getBoundingClientRect() : null };
+      },
+      write: (p, got) => {
+        const el = pillRef.current;
+        if (!got || !el) return;
+        placeSpotLights(el, toLayoutPx(p.x - got.r.left), toLayoutPx(p.y - got.r.top));
+        if (got.btn) {
+          got.btn.style.setProperty('--item-spot-x', `${toLayoutPx(p.x - got.br.left)}px`);
+          got.btn.style.setProperty('--item-spot-y', `${toLayoutPx(p.y - got.br.top)}px`);
+        }
+      },
+    });
+  }, [menuLit]);
 
   // FLIP morph — fires whenever the pill's RENDERED SHAPE changes,
   // not just on menu-mode entry. Three transitions all use the same
@@ -638,8 +739,8 @@ export function useMorphPill({ hoverContent, menuItems, menuHeader, prompt, clas
   // visual rule lives in CSS.
   const isMultilineHover = !menuMode
     && !confirmingItem
-    && typeof hoverContent === 'string'
-    && hoverContent.includes('\n');
+    && !promptOpen
+    && (tallHover || (typeof hoverContent === 'string' && hoverContent.includes('\n')));
   const multilineMod = isMultilineHover ? ' is-multiline' : '';
 
   const node = pillPos ? createPortal(
@@ -659,23 +760,8 @@ export function useMorphPill({ hoverContent, menuItems, menuHeader, prompt, clas
       // cursor exit shouldn't tear the menu down mid-interaction. Such menus
       // close only on outside-click / Escape / a second trigger press.
       onMouseEnter={menuMode && !confirmingItem && !stickyMenu ? cancelScheduledClose : undefined}
-      onMouseMove={(e) => {
-        // Cursor-tracked spotlight + border shine (same language as the sidebar
-        // rail): write the pointer position (pill-relative, layout px) into vars
-        // the ::before / ::after gradients read, plus a per-button spot so each
-        // button brightens toward the cursor like a nav item.
-        const el = pillRef.current;
-        if (el) {
-          const r = el.getBoundingClientRect();
-          el.style.setProperty('--spot-x', `${toLayoutPx(e.clientX - r.left)}px`);
-          el.style.setProperty('--spot-y', `${toLayoutPx(e.clientY - r.top)}px`);
-          const btn = e.target.closest('.project-files-morph-confirm-btn');
-          if (btn) {
-            const br = btn.getBoundingClientRect();
-            btn.style.setProperty('--item-spot-x', `${toLayoutPx(e.clientX - br.left)}px`);
-            btn.style.setProperty('--item-spot-y', `${toLayoutPx(e.clientY - br.top)}px`);
-          }
-        }
+      onMouseMove={() => {
+        // The pill's cursor light runs on the shared pointer (`menuLit` above).
         if (menuMode && !confirmingItem && !stickyMenu) cancelScheduledClose();
       }}
       onMouseLeave={menuMode && !confirmingItem && !stickyMenu ? scheduleClose : undefined}

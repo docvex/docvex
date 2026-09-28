@@ -4,11 +4,25 @@
 // full of gameplay videos and screenshots should not be sent through OCR,
 // captions and the AI just because it sits in the project.
 //
-// Kept per project folder as paths INSIDE the project (forward slashes), in
-// localStorage — one list per project on this machine. Untagging a file takes
-// it out of the Data collections on the next scan, as if it had been removed.
+// Kept per project as paths INSIDE the project (forward slashes). Untagging a
+// file takes it out of the Data collections on the next scan, as if it had
+// been removed.
+//
+// WHERE IT LIVES: the project's settings store `scan-tags`
+// (`.docvex/settings/scan-tags.json`, lib/projectIndexClient), so the tags
+// travel with the case. Callers name the project by its FOLDER, so the store is
+// used once the client knows which project that folder is (hydrateProject /
+// rememberProjectDir); until then, and on a machine without main's side, the
+// old localStorage list answers. That list is also kept up to date as this
+// machine's mirror: it is tiny, and it lets the first paint show the tags
+// before the settings have been read.
+import {
+  SETTINGS_STORES, peekSetting, putSetting, projectIdForDir, projectDirSpellings, subscribeIndex,
+} from './projectIndexClient';
+
 const KEY = 'docvex:scan-tags:v1:';
 const EVENT = 'docvex:scan-tags-changed';
+const STORE = SETTINGS_STORES.scanTags;
 
 export function relInProject(projectDir, path) {
   const root = String(projectDir || '').replace(/[\\/]+$/, '');
@@ -17,16 +31,26 @@ export function relInProject(projectDir, path) {
   return p.split(/[\\/]/).pop();
 }
 
-export function loadScanTags(projectDir) {
-  if (!projectDir) return new Set();
+function loadMirror(projectDir) {
   try {
     const list = JSON.parse(localStorage.getItem(KEY + projectDir) || '[]');
-    return new Set(Array.isArray(list) ? list.map(String) : []);
-  } catch { return new Set(); }
+    return Array.isArray(list) ? list.map(String) : [];
+  } catch { return []; }
+}
+
+export function loadScanTags(projectDir) {
+  if (!projectDir) return new Set();
+  const projectId = projectIdForDir(projectDir);
+  const value = projectId ? peekSetting(projectId, STORE) : undefined;
+  if (Array.isArray(value)) return new Set(value.map(String));
+  return new Set(loadMirror(projectDir));
 }
 
 function save(projectDir, set) {
-  try { localStorage.setItem(KEY + projectDir, JSON.stringify([...set])); } catch { /* full — the tags stay as they were */ }
+  const list = [...set];
+  try { localStorage.setItem(KEY + projectDir, JSON.stringify(list)); } catch { /* full — the store copy still stands */ }
+  const projectId = projectIdForDir(projectDir);
+  if (projectId) void putSetting(projectId, STORE, list);
   try { window.dispatchEvent(new CustomEvent(EVENT, { detail: { projectDir } })); } catch { /* no window */ }
 }
 
@@ -62,10 +86,19 @@ export function isScanTagged(set, rel) {
 
 export function clearScanTags(projectDir) { save(projectDir, new Set()); }
 
+// `fn(projectDir)` on every change — this window, another window's mirror
+// (storage event), or the store (a colleague's tags arriving with the folder,
+// the settings being read for the first time). A store change is reported
+// under every spelling of the project's folder this window has seen, since
+// callers compare the folder they hold.
 export function subscribeScanTags(fn) {
   const onLocal = (e) => fn(e.detail?.projectDir || '');
   const onStorage = (e) => { if (e.key && e.key.startsWith(KEY)) fn(e.key.slice(KEY.length)); };
   window.addEventListener(EVENT, onLocal);
   window.addEventListener('storage', onStorage);
-  return () => { window.removeEventListener(EVENT, onLocal); window.removeEventListener('storage', onStorage); };
+  const off = subscribeIndex((ev) => {
+    if (ev.type !== 'settings' || ev.store !== STORE) return;
+    for (const dir of projectDirSpellings(ev.projectId)) fn(dir);
+  });
+  return () => { window.removeEventListener(EVENT, onLocal); window.removeEventListener('storage', onStorage); off(); };
 }

@@ -1,9 +1,9 @@
-import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react';
 import './LegalWorkspace.css';
-import LegalTabs, { LEGAL_TABS } from './LegalTabs';
+import LegalTabs, { RailToggle, LEGAL_TABS } from './LegalTabs';
 import { useTabSetting, InfoButton } from './LegalOmnibox';
-import { useBrowser, useGo, useBrowserKeys, AddressRow, TabRail, TabStrip, TabMenu, NewTabPage, SerpPage, SerpScopes, HistoryPage, ClearHistoryButton, useSerp } from './LegalBrowser';
-import { curPage, applyPage, consumeExpected, arrive, arrivalLabel, reportItems, registerReloader, endSwitch, selectTab } from '../lib/legalBrowser';
+import { useGo, useBrowserKeys, AddressRow, TabRail, TabStrip, TabMenu, NewTabPage, SerpPage, SerpScopes, HistoryPage, ClearHistoryButton, useSerp } from './LegalBrowser';
+import { curPage, applyPage, consumeExpected, arrive, arrivalLabel, reportItems, registerReloader, endSwitch, selectTab, browserState, subscribeBrowser } from '../lib/legalBrowser';
 import { listArchive } from '../lib/legislation';
 import PageMasthead from './PageMasthead';
 import { useChatFind } from '../lib/useChatFind';
@@ -13,6 +13,9 @@ import { toLayoutPx } from '../lib/appZoom';
 import { openExternal } from '../lib/platform';
 import { useLocation } from 'react-router-dom';
 import { publishWorkspace, registerWorkspace } from '../lib/workspaceItems';
+import { registerHoverSpot } from '../lib/pointer';
+import { useRailSpotlight } from '../lib/pointerSpots';
+import { useLegalViewMode } from '../lib/legalViewMode';
 
 // The Legislation tabs' WORKSPACE — how the legislatie.just.ro tab is laid
 // out, made the one frame every source tab stands in (the Newsletter keeps
@@ -72,24 +75,18 @@ const loadRailW = () => {
 };
 const saveRailW = (w) => { try { localStorage.setItem(RAIL_W_KEY, String(w)); } catch { /* storage refused */ } };
 
-// The sidebar's hover / selected wash brightens where the pointer is: its
-// position over the control, as --item-spot-x/y.
-const spotAt = (e) => {
-  const r = e.currentTarget.getBoundingClientRect();
-  e.currentTarget.style.setProperty('--item-spot-x', `${toLayoutPx(e.clientX - r.left)}px`);
-  e.currentTarget.style.setProperty('--item-spot-y', `${toLayoutPx(e.clientY - r.top)}px`);
-};
-
 /** SEARCH, in the mini header — the far left of its second line, the act
  *  find's size, lit while the search is on show. */
 export function WorkspaceSearchTab({ active, onClick, label = 'Search' }) {
+  // The sidebar's hover / selected wash brightens where the pointer is: its
+  // position over the control, as --item-spot-x/y (lib/pointer).
+  useEffect(() => registerHoverSpot('.lg-searchtab'), []);
   return (
     <button
       type="button"
       className={`lg-searchtab${active ? ' is-active' : ''}`}
       aria-pressed={active}
       onClick={onClick}
-      onMouseMove={spotAt}
     >
       <span className="lg-searchtab-ico">{SearchIcon}</span>
       <span>{label}</span>
@@ -216,42 +213,9 @@ export function WorkspaceRail({
   const spotRef = useItemSpots('.lg-rail-item', items.length > 0);
 
   // The SIDEBAR's spotlight: a soft accent glow and a border shine following
-  // the pointer (`.lg-rail::before` / `::after`, from --spot-x/y), CHASING it
-  // — Sidebar.jsx's loop to the letter: an exponential ease over elapsed
-  // time, so the chase runs at one speed whatever the refresh rate; parked
-  // once settled; snapped to the pointer on the first move after entering.
-  useEffect(() => {
-    const el = spotRef.current;
-    if (!el) return undefined;
-    const EASE = 0.28; const SETTLE = 0.5; const FRAME_60 = 1000 / 60;
-    const target = { x: 0, y: 0 }; const pos = { x: 0, y: 0, started: false };
-    let frame = null; let last = null;
-    const tick = (ts) => {
-      const dt = last == null ? FRAME_60 : Math.min(ts - last, 100);
-      last = ts;
-      const f = 1 - Math.pow(1 - EASE, dt / FRAME_60);
-      const dx = target.x - pos.x; const dy = target.y - pos.y;
-      if (Math.abs(dx) < SETTLE && Math.abs(dy) < SETTLE) { pos.x = target.x; pos.y = target.y; } else { pos.x += dx * f; pos.y += dy * f; }
-      el.style.setProperty('--spot-x', `${pos.x}px`);
-      el.style.setProperty('--spot-y', `${pos.y}px`);
-      if (pos.x === target.x && pos.y === target.y) { frame = null; last = null; return; }
-      frame = requestAnimationFrame(tick);
-    };
-    const move = (e) => {
-      const r = el.getBoundingClientRect();
-      target.x = toLayoutPx(e.clientX - r.left); target.y = toLayoutPx(e.clientY - r.top);
-      if (!pos.started) { pos.x = target.x; pos.y = target.y; pos.started = true; }
-      if (frame == null) frame = requestAnimationFrame(tick);
-    };
-    const leave = () => { pos.started = false; };
-    el.addEventListener('mousemove', move);
-    el.addEventListener('mouseleave', leave);
-    return () => {
-      el.removeEventListener('mousemove', move);
-      el.removeEventListener('mouseleave', leave);
-      if (frame != null) cancelAnimationFrame(frame);
-    };
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  // the pointer (the `.spot-glow` / `.spot-shine` lib/pointerSpots injects), CHASING it
+  // — Sidebar.jsx's loop, run by the app's one pointer (lib/pointerSpots).
+  useRailSpotlight(spotRef);
 
   // The DIVIDER is a drag handle: drag to resize (and the Search button above
   // with it); double-click for the default; ←/→ in 16px steps.
@@ -360,11 +324,37 @@ export function WorkspaceRail({
 // are the tabs'.
 const ARRIVAL_KEYS = ['_', 'open', 'nr', 'cui', 'code', 'parte', 'rid', 'q', 'tip', 'an'];
 
+// The tabs' state as the FRAME reads it. The frame only looks at which tab
+// is active, each tab's pages and place in them, the switch flag and the
+// layout — not at the address field's draft, a tab's loading spinner or its
+// pin, which the rows that draw them read for themselves. Every keystroke in
+// the address field is a store change, and re-rendering the whole frame
+// (masthead, mini header, rail) for it was the cost of typing there; so the
+// snapshot handed back stays the same object until something the frame
+// reads has changed.
+const sameFrame = (a, b) => a.active === b.active && a.switching === b.switching && a.layout === b.layout
+  && a.tabs.length === b.tabs.length
+  && a.tabs.every((t, i) => t.id === b.tabs[i].id && t.idx === b.tabs[i].idx && t.stack === b.tabs[i].stack);
+function useFrameBrowser() {
+  const last = useRef(null);
+  const get = useCallback(() => {
+    const now = browserState();
+    if (!last.current || (last.current !== now && !sameFrame(last.current, now))) last.current = now;
+    return last.current;
+  }, []);
+  return useSyncExternalStore(subscribeBrowser, get);
+}
+
 export default function LegalWorkspace({
   className = '', bar = {},
   items = [], activeId = null, onSelect, onClose,
   rootRef = null, children, onReload = null,
+  // The open item AS ITS SERVICE GAVE IT, for the Source view:
+  // `{ site, service, data, text?, note? }` — null while nothing is open.
+  source = null,
 }) {
+  const viewMode = useLegalViewMode();
+  const showSource = viewMode === 'source' && !!source;
   const ownRef = useRef(null);
   const pageRef = rootRef || ownRef;
   const go = useGo();
@@ -375,7 +365,7 @@ export default function LegalWorkspace({
   reloadRef.current = onReload;
   useEffect(() => registerReloader(pathname, () => reloadRef.current?.()), [pathname]);
   const location = useLocation();
-  const s = useBrowser();
+  const s = useFrameBrowser();
   const tab = s.tabs.find((t) => t.id === s.active) || s.tabs[0];
   const page = curPage(tab);
   // THE MINI HEADER IS DRAWN ONLY WITH SOMETHING BOTH ABOVE AND UNDER ITS
@@ -409,7 +399,11 @@ export default function LegalWorkspace({
       if (lt) { selectTab(lt, go); return; }
       const params = new URLSearchParams(location.search);
       if (ARRIVAL_KEYS.some((k) => params.get(k))) {
-        arrive(location.pathname, url.replace(/[?&]_=\d+/, ''), arrivalLabel(location.pathname, params), go, { newTab: !!location.state?.newTab });
+        // `newtab=1` asks for a NEW tab from outside the app's router (the Doc
+        // Viewer's highlight card, over the main-window channel, which carries
+        // no router state); it is not part of the page's address.
+        const clean = url.replace(/[?&]_=\d+/, '').replace(/([?&])newtab=1(&|$)/, (m, a, b) => (b ? a : '')).replace(/\?$/, '');
+        arrive(location.pathname, clean, arrivalLabel(location.pathname, params), go, { newTab: !!location.state?.newTab || params.get('newtab') === '1' });
       }
       return;
     }
@@ -495,7 +489,18 @@ export default function LegalWorkspace({
   // is expanded (and the sidebar is not collapsed): the page's own rail of
   // the same tabs is not drawn then.
   const sidebarLists = useSidebarListsTabs();
-  const showRail = s.layout !== 'strip' && !soleSearch && !sidebarLists;
+  // The list can be put away from the bar's toggle (kept per device); while
+  // the app sidebar lists the tabs the page's rail steps aside anyway.
+  const [railHidden, setRailHidden] = useState(() => { try { return localStorage.getItem(LEGAL_RAIL_HIDDEN_KEY) === '1'; } catch { return false; } });
+  const canRail = s.layout !== 'strip' && !soleSearch;
+  const showRail = canRail && !sidebarLists && !railHidden;
+  const toggleRail = () => {
+    const next = !showRail;
+    setRailHidden(!next);
+    try { localStorage.setItem(LEGAL_RAIL_HIDDEN_KEY, next ? '0' : '1'); } catch { /* quota */ }
+    // Showing it takes the list back from the app sidebar (one switch).
+    if (next && sidebarLists) window.dispatchEvent(new CustomEvent('docvex:legal-list-set', { detail: { open: false } }));
+  };
   const rail = useRailPresence(showRail);
   useRailFill(pageRef, rail.mounted);
 
@@ -554,9 +559,13 @@ export default function LegalWorkspace({
 
   const figures = useArchiveFigures();
   const strip = s.layout === 'strip';
-  const lineTools = page.type === 'serp' ? <SerpScopes page={page} />
+  const pageTools = page.type === 'serp' ? <SerpScopes page={page} />
     : page.type === 'history' ? <ClearHistoryButton />
       : isItem && (tools || trailing) ? <>{tools}{trailing}</> : null;
+  // The rail toggle first on the line, wherever the page has a rail to show.
+  const lineTools = canRail
+    ? <><RailToggle shown={showRail} onToggle={toggleRail} what="tabs" />{pageTools}</>
+    : pageTools;
 
   // THE "i" (what is kept on this machine) stands directly ABOVE THE
   // DIVIDER under the masthead's text: with an address row, that divider is
@@ -609,7 +618,16 @@ export default function LegalWorkspace({
           {page.type === 'new' ? <NewTabPage />
             : page.type === 'history' ? <HistoryPage />
               : page.type === 'serp' ? <SerpPage key={`${page.q}|${tab.id}`} page={page} tabId={tab.id} />
-                : children}
+                : (
+                  <>
+                    {/* DocVex · Source (the address row's switch): in Source
+                        the open item is shown as the service gave it, and the
+                        page's own view stays MOUNTED but hidden, so switching
+                        back keeps its state (scroll, find, tables). */}
+                    {showSource ? <SourceView source={source} /> : null}
+                    <div style={{ display: showSource ? 'none' : 'contents' }}>{children}</div>
+                  </>
+                )}
         </div>
       </div>
       <TabMenu menu={menu} onClose={closeMenu} go={go} />
@@ -771,6 +789,8 @@ let figuresCache = null;
 // the page's first frame. States: 'in' · 'from' (collapsed, about to grow) ·
 // 'growing' · 'leaving' (collapsing, then unmounted) · 'out'.
 const RAIL_MS = 300;
+const LEGAL_RAIL_HIDDEN_KEY = 'docvex:legislation:rail-hidden';
+
 function useRailPresence(show) {
   const [st, setSt] = useState(show ? 'in' : 'out');
   useEffect(() => {
@@ -800,6 +820,41 @@ function useRailPresence(show) {
     mounted: st !== 'out',
     className: st === 'from' ? 'is-folded' : st === 'growing' ? 'is-animating' : st === 'leaving' ? 'is-folded is-animating' : '',
   };
+}
+
+// THE SOURCE VIEW — the open item exactly as its platform's service gave it
+// (the address row's DocVex · Source switch, Source by default): which
+// service answered, the record as it came (JSON, in the service's own field
+// names) and — for an act — its full text as sent, one line break for one.
+// Nothing restyled, nothing left out. Copy puts all of it on the clipboard.
+function SourceView({ source }) {
+  const json = React.useMemo(() => {
+    try { return JSON.stringify(source.data ?? null, null, 2); } catch { return String(source.data); }
+  }, [source.data]);
+  const [copied, setCopied] = useState(false);
+  const copy = () => {
+    const all = source.text ? `${json}\n\n${source.text}` : json;
+    navigator.clipboard?.writeText(all).then(() => { setCopied(true); setTimeout(() => setCopied(false), 1400); }).catch(() => {});
+  };
+  return (
+    <section className="lgb-source" aria-label="The data as the service gave it">
+      <header className="lgb-source-head">
+        <div className="lgb-source-meta">
+          <span className="lgb-source-site">{source.site}</span>
+          <span className="lgb-source-service">{source.service}</span>
+        </div>
+        <button type="button" className="lgt-tool-btn" onClick={copy}>{copied ? 'Copied' : 'Copy'}</button>
+      </header>
+      {source.note ? <p className="lgb-source-note">{source.note}</p> : null}
+      <pre className="lgb-source-json">{json}</pre>
+      {source.text ? (
+        <>
+          <p className="lgb-source-label">Text · {source.text.length.toLocaleString()} characters</p>
+          <pre className="lgb-source-text">{source.text}</pre>
+        </>
+      ) : null}
+    </section>
+  );
 }
 
 function SwitchSpinner() {

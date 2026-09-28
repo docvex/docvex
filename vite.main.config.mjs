@@ -46,4 +46,6 @@ function copyMainIcon() {
 // https://vitejs.dev/config
 export default defineConfig({
   plugins: [copyMainIcon()],
+  // Minified: the main bundle is parsed before the first window can open.
+  build: { minify: true },
 });

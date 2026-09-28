@@ -135,7 +135,7 @@ export function normalizeRecord(raw) {
   // Where the title proper starts: after the kind, number and date, at the word
   // that opens it. Falls back to the whole line, which is never wrong, only long.
   const opener = /\b(privind|pentru|asupra|referitor\s+la|cu\s+privire\s+la)\b/iu.exec(titlu);
-  return {
+  const out = {
     id: String(raw?.id || ''),
     tipAct,
     numar,
@@ -154,6 +154,11 @@ export function normalizeRecord(raw) {
     hasText: !!raw?.hasText || !!raw?.text,
     chars: raw?.chars || (raw?.text ? raw.text.length : 0),
   };
+  // The record AS THE SERVICE GAVE IT, for the Legislation tab's Source view —
+  // NOT enumerable, so it is never written into the archive (the text would
+  // be kept twice). A record normalised again keeps the first one's.
+  Object.defineProperty(out, 'raw', { value: raw?.raw || raw || null, enumerable: false });
+  return out;
 }
 
 // Where a title STOPS. The portal's `Titlu` is the printed act's whole

@@ -194,6 +194,9 @@
   padding: 12px 0;
   box-sizing: border-box;
 }
+/* Its pointer light (lib/pointerSpots' injected elements) is drawn only where
+   the list is the floating panel, 761px and up. */
+.pbk-prail > .spot-light { display: none; }
 .pbk-prail-head {
   display: flex; align-items: center; justify-content: space-between; gap: 8px;
   height: var(--ds-control-h, 24px); margin-bottom: 8px; padding-left: 9.6px;
@@ -214,7 +217,7 @@
   border: 1px solid var(--ds-hairline, var(--border)); border-radius: var(--ds-control-radius, 4.8px);
   background: color-mix(in srgb, var(--text-primary) var(--ds-control-tint, 4%), transparent);
   color: var(--text-secondary); cursor: pointer;
-  transition: background 120ms ease, border-color 120ms ease, color 120ms ease;
+  transition: background 120ms ease, border-color 120ms ease;
 }
 .pbk-prail-add:hover { background: color-mix(in srgb, var(--text-primary) var(--ds-control-tint-hover, 8%), transparent); border-color: var(--accent); color: var(--accent); }
 .pbk-prail-add:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
@@ -531,40 +534,33 @@ html[data-reduce-motion="true"] .pbk-sample-scrim { animation: none; }
   :root:not([data-theme="cream"]) .pbk-prail-list > .lg-rail-item.is-active:hover {
     background: linear-gradient(var(--accent-tint), var(--accent-tint)) var(--bg-page);
   }
-  .pbk-prail::before,
-  .pbk-prail::after {
-    content: '';
-    position: absolute; inset: 0;
-    border-radius: inherit;
-    pointer-events: none;
+  /* The sidebar's spotlight: a glow and a border shine following the
+     pointer (lib/pointerSpots' injected lights, styles/spotLights.css —
+     pre-drawn dots moved by a transform, eased by useRailSpotlight). */
+  .pbk-prail > .spot-light {
+    display: block; position: absolute; inset: 0; --spot-r: 264px;
     opacity: 0;
     transition: opacity 240ms ease;
   }
-  .pbk-prail::before {
-    z-index: 0;
+  .pbk-prail > .spot-glow { z-index: 0; }
+  .pbk-prail > .spot-shine { z-index: 2; padding: 1.5px; }
+  .pbk-prail > .spot-glow > .spot-dot {
     background: radial-gradient(
-      264px circle at var(--spot-x, 50%) var(--spot-y, 50%),
+      264px circle at 50% 50%,
       color-mix(in srgb, var(--accent) 4.5%, transparent) 0%,
       color-mix(in srgb, var(--accent) 1.5%, transparent) 38%,
       transparent 68%
     );
   }
-  .pbk-prail::after {
-    z-index: 2;
-    padding: 1.5px;
+  .pbk-prail > .spot-shine > .spot-dot {
     background: radial-gradient(
-      264px circle at var(--spot-x, 50%) var(--spot-y, 50%),
+      264px circle at 50% 50%,
       color-mix(in srgb, var(--accent) 42%, transparent) 0%,
       color-mix(in srgb, var(--accent) 12%, transparent) 34%,
       transparent 62%
     );
-    -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
-    -webkit-mask-composite: xor;
-    mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
-    mask-composite: exclude;
   }
-  .pbk-prail:hover::before,
-  .pbk-prail:hover::after { opacity: 0.7; }
+  .pbk-prail:hover > .spot-light { opacity: 0.7; }
 
   /* The act column's rule (.lg-shell-main): 20px on its right, matching the
      gap between the list and it; 8px under the divider, as the list. */
@@ -582,7 +578,7 @@ html[data-reduce-motion="true"] .pbk-sample-scrim { animation: none; }
   }
 }
 @media (prefers-reduced-motion: reduce) {
-  .pbk-prail::before, .pbk-prail::after { display: none; }
+  .pbk-prail > .spot-light { display: none; }
 }
 /* ── The list's foot at the bottom of the screen ────────────────────────
    The app sidebar's rule: the panel ends one window-edge inset above the

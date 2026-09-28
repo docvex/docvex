@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import './SnipPanel.css';
+import { registerHoverSpot } from '../lib/pointer';
 
 // Snipping-Tool-style launcher bar (tray → "Extract text"). Lives in a small
 // TRANSPARENT always-on-top window (/snip-panel): the card at the top paints
@@ -74,6 +75,11 @@ const IconClose = (
 );
 
 export default function SnipPanel() {
+  // Sidebar-style hover: the pointer's place over each button as
+  // --item-spot-x/y, so the radial accent gradient brightens there (same
+  // recipe as .nav-item:hover in Sidebar.css) — written by the app's one
+  // pointer (lib/pointer).
+  useEffect(() => registerHoverSpot('.sp-btn, .sp-menu-item, .sp-scope-btn'), []);
   const [delay, setDelay] = useState(0);
   // Freeze scope: false → only the screen this window is on; true → all.
   const [allScreens, setAllScreens] = useState(false);
@@ -123,16 +129,6 @@ export default function SnipPanel() {
 
   const toggleMenu = (which) => setMenu((m) => (m === which ? null : which));
 
-  // Sidebar-style hover: feed the cursor position into --item-spot-x/y so the
-  // radial accent gradient brightens at the pointer (same recipe as
-  // .nav-item:hover in Sidebar.css). Percentages are ratios of two viewport
-  // values, so no toLayoutPx conversion is needed.
-  const trackSpot = (e) => {
-    const el = e.currentTarget;
-    const r = el.getBoundingClientRect();
-    el.style.setProperty('--item-spot-x', `${((e.clientX - r.left) / r.width) * 100}%`);
-    el.style.setProperty('--item-spot-y', `${((e.clientY - r.top) / r.height) * 100}%`);
-  };
 
   return (
     <div className="sp-root" onMouseDown={() => setMenu(null)}>
@@ -163,7 +159,7 @@ export default function SnipPanel() {
 
         {/* Toolbar — New · Mode ▾ · Delay ▾ · Cancel · Options. */}
         <div className="sp-toolbar">
-          <button type="button" className="sp-btn is-new" onMouseMove={trackSpot} onClick={() => startSnip()}>
+          <button type="button" className="sp-btn is-new" onClick={() => startSnip()}>
             <span className="sp-btn-icon">{IconExtract}</span>
             New
           </button>
@@ -176,7 +172,7 @@ export default function SnipPanel() {
               className={`sp-btn${menu === 'delay' ? ' is-open' : ''}`}
               aria-haspopup="menu"
               aria-expanded={menu === 'delay'}
-              onMouseMove={trackSpot}
+             
               onClick={() => toggleMenu('delay')}
             >
               <span className="sp-btn-icon">{IconDelay}</span>
@@ -194,7 +190,7 @@ export default function SnipPanel() {
                     role="menuitemradio"
                     aria-checked={delay === s}
                     className="sp-menu-item"
-                    onMouseMove={trackSpot}
+                   
                     onClick={() => { setDelay(s); setMenu(null); }}
                   >
                     {s === 0 ? 'No delay' : `${s} second${s > 1 ? 's' : ''}`}
@@ -217,7 +213,7 @@ export default function SnipPanel() {
               type="button"
               className={`sp-scope-btn${!allScreens ? ' is-active' : ''}`}
               aria-pressed={!allScreens}
-              onMouseMove={trackSpot}
+             
               onClick={() => setAllScreens(false)}
             >
               <span className="sp-btn-icon">{IconOneScreen}</span>
@@ -227,7 +223,7 @@ export default function SnipPanel() {
               type="button"
               className={`sp-scope-btn${allScreens ? ' is-active' : ''}`}
               aria-pressed={allScreens}
-              onMouseMove={trackSpot}
+             
               onClick={() => setAllScreens(true)}
             >
               <span className="sp-btn-icon">{IconMultiScreens}</span>

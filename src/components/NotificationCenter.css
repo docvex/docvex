@@ -1,4 +1,4 @@
-﻿/* Variant-only fallback tokens — used only by the error override below and
+/* Variant-only fallback tokens — used only by the error override below and
    any consumer that hasn't migrated to category coloring yet. The PRIMARY
    color story is now category-driven: see .toast-cat-* rules further down
    plus src/styles/tokens.css's --cat-* tokens. */
@@ -32,7 +32,9 @@
 .toast {
   width: 256px;
   max-width: 100%;
-  background: var(--bg-card);
+  /* The one-line tooltip's ground (Tooltip.css), at the user's request —
+     --bg-card read blue on Ink. */
+  background: var(--bg-sidebar);
   border: 1px solid var(--border);
   border-left-width: 2.4px;
   border-radius: 9.6px;
@@ -159,7 +161,7 @@
 }
 
 .toast-action:hover {
-  background: var(--bg-elevated);
+  background: color-mix(in srgb, var(--text-primary) 7%, transparent);
   border-color: var(--border-strong);
   color: var(--text-primary);
 }
@@ -187,12 +189,12 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: color 120ms, background 120ms;
+  transition: background 120ms;
 }
 
 .toast-close:hover {
   color: var(--text-secondary);
-  background: var(--bg-elevated);
+  background: color-mix(in srgb, var(--text-primary) 7%, transparent);
 }
 
 @keyframes toast-slide-in {

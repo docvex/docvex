@@ -61,7 +61,7 @@
   padding: 5.6px 12px; border-radius: 6.4px; cursor: pointer;
   color: var(--danger); background: transparent;
   border: 1px solid color-mix(in srgb, var(--danger) 45%, transparent);
-  transition: background 130ms, color 130ms, border-color 130ms;
+  transition: background 130ms, border-color 130ms;
 }
 .dz-btn:hover { background: var(--danger); color: #fff; border-color: var(--danger); }
 .dz-btn:disabled { opacity: 0.45; cursor: not-allowed; }

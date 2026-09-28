@@ -1,11 +1,11 @@
 ﻿import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { Link, useLocation } from 'react-router-dom';
-// Cursor coords are viewport px; the CSS lengths we set (--spot-x/y, the rail
+// Cursor coords are viewport px; the CSS lengths we set (the rail
 // width) are layout px — under the app's CSS-zoom downscale the two differ
 // (see lib/appZoom).
 import { toLayoutPx } from '../../lib/appZoom';
-import { miniHeaderSpot } from '../../lib/miniHeaderSpot';
+import { useMiniGlowSpot } from '../../lib/pointerSpots';
 import MiniHeaderFade from '../../components/MiniHeaderFade';
 import { useSelectedProject } from '../../context/SelectedProjectContext';
 import { usePaneChromeSlot, usePaneChromePortalEl, usePaneChromeFooterEl } from '../../context/PaneChromeContext';
@@ -270,6 +270,43 @@ function MessageEditBox({ initialBody, onSave, onCancel }) {
 // morph pill (useMorphPill): hover shows a cursor "right-click for options"
 // pill, which morphs into a dropdown of reactions / reply / pin / copy /
 // edit / delete — same interaction + styling as the Files tab.
+// The pinned mini header (the in-page tools/tabs bar), in a component of its
+// own so a pin flip re-renders only the bar and its fade, not the whole chat.
+// Pinned only once the bar is ACTUALLY stuck at the top (its rect reaches the
+// scroller's top + the sticky `top` gap), so the bg doesn't appear early while
+// the masthead is still scrolling away. Measured at most once a frame, and only
+// on scroll, as before; `pinnedRef` keeps the last value so the bar remounting
+// between the team and private tabs starts where it was.
+function ChatToolbar({ getScroller, enabled, deps, pinnedRef, children }) {
+  useMiniGlowSpot(); // the .mini-glow bar's spotlight (lib/pointerSpots)
+  const [pinned, setPinnedState] = useState(pinnedRef.current);
+  const barRef = useRef(null);
+  useEffect(() => {
+    if (!enabled) return undefined;
+    const el = getScroller();
+    if (!el) return undefined;
+    let raf = 0;
+    const measure = () => {
+      raf = 0;
+      const bar = barRef.current;
+      const next = !!bar && (bar.getBoundingClientRect().top - el.getBoundingClientRect().top) <= 8;
+      pinnedRef.current = next;
+      setPinnedState(next);
+    };
+    const onScroll = () => { if (!raf) raf = requestAnimationFrame(measure); };
+    el.addEventListener('scroll', onScroll, { passive: true });
+    return () => { el.removeEventListener('scroll', onScroll); if (raf) cancelAnimationFrame(raf); };
+  // `deps` re-attach the listener when the thread's layout changes underneath.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [enabled, ...deps]);
+  return (
+    <>
+      <MiniHeaderFade visible={pinned} />
+      <div ref={barRef} className={`dvx-toolbar mini-glow${pinned ? ' is-pinned' : ''}`}>{children}</div>
+    </>
+  );
+}
+
 const TeamMessageRow = React.memo(function TeamMessageRow({
   msg, showDay, grouped, viewerId, memberById, fileById, rmap, replies,
   isEditing, renderBody, msgRefs,
@@ -281,7 +318,9 @@ const TeamMessageRow = React.memo(function TeamMessageRow({
   const mentionsMe = !msg.deleted_at && (msg.mentions || []).includes(viewerId);
   const hasReactions = rmap && rmap.size > 0;
   const isPinned = Boolean(msg.pinned_at);
-  const canAct = !msg.deleted_at; // tombstones have no actions / hint
+  // Tombstones have no actions / hint, and neither does a message still on
+  // its way (its tmp- id means nothing to the server yet).
+  const canAct = !msg.deleted_at && !msg._pending;
   const hasBody = Boolean((msg.body || '').trim());
 
   // Morph pill — hover tooltip → right-click dropdown (Files-tab pattern).
@@ -330,7 +369,7 @@ const TeamMessageRow = React.memo(function TeamMessageRow({
       )}
       <div
         ref={(el) => { if (el) msgRefs.current[msg.id] = el; else delete msgRefs.current[msg.id]; }}
-        className={`dvx-msg-row vb-msg${isMine ? ' is-mine' : ''}${mentionsMe ? ' mentions-me' : ''}${hasReactions ? ' has-reactions' : ''}${grouped ? ' is-grouped' : ''}`}
+        className={`dvx-msg-row vb-msg${isMine ? ' is-mine' : ''}${msg._pending || msg._saving ? ' is-pending' : ''}${mentionsMe ? ' mentions-me' : ''}${hasReactions ? ' has-reactions' : ''}${grouped ? ' is-grouped' : ''}`}
       >
         {!isMine && (
           grouped
@@ -415,21 +454,63 @@ const TeamMessageRow = React.memo(function TeamMessageRow({
   );
 });
 
+// ───── Optimistic rows ──────────────────────────────────────────────
+// A message the viewer sends is drawn straight away as a PENDING row: a
+// `tmp-` id and `_pending: true` (faded by .is-pending) until the insert
+// answers. Three things can then happen, in either order:
+//   - the insert answers → settleTemp swaps the stand-in for the real row;
+//   - the Realtime INSERT echo arrives first → mergeIncoming puts the real
+//     row in the stand-in's place (same author, same body, same thread)
+//     rather than beside it, so the message never shows twice;
+//   - the insert fails → settleTemp with no row takes the stand-in away.
+let tempSeq = 0;
+function pendingRow(fields) {
+  tempSeq += 1;
+  return {
+    id: `tmp-${Date.now()}-${tempSeq}`,
+    created_at: new Date().toISOString(),
+    edited_at: null,
+    deleted_at: null,
+    parent_id: null,
+    pinned_at: null,
+    ...fields,
+    _pending: true,
+  };
+}
+function mergeIncoming(prev, row, authorKey = 'author_id') {
+  if (prev.some((m) => m.id === row.id)) return prev;
+  const i = prev.findIndex((m) => (
+    m._pending
+    && m[authorKey] === row[authorKey]
+    && m.body === row.body
+    && (m.parent_id || null) === (row.parent_id || null)
+  ));
+  if (i < 0) return [...prev, row];
+  const next = prev.slice();
+  next[i] = row;
+  return next;
+}
+function settleTemp(prev, tempId, row) {
+  if (!row || prev.some((m) => m.id === row.id)) return prev.filter((m) => m.id !== tempId);
+  return prev.map((m) => (m.id === tempId ? row : m));
+}
+
 // ───── Team composer (local-state child) ────────────────────────────
 // Owns the draft text + mention/attach popovers + send. Keeping this
 // state OUT of ProjectChat means typing a message re-renders only the
 // composer, never the message list above it (the previous source of the
 // per-keystroke lag). Memoized so an incoming message / reaction in the
-// parent doesn't re-render the composer either. On a successful send it
-// hands the new row up via onSent so the parent does its optimistic
+// parent doesn't re-render the composer either. Each send hands a pending
+// row up via onSent (and the real one via onSettled) so the parent does its optimistic
 // insert + scroll-to-bottom.
 const TeamComposer = React.memo(function TeamComposer({
   projectId, viewerId, projectName, members, memberById,
-  notify, broadcastTyping, onSent,
+  notify, broadcastTyping, onSent, onSettled,
 }) {
+  useMiniGlowSpot(); // the .mini-glow bar's spotlight (lib/pointerSpots)
   const [draft, setDraft] = useState('');
   const [draftMentions, setDraftMentions] = useState(() => new Set());
-  const [sending, setSending] = useState(false);
+
   const textareaRef = useRef(null);
 
   // @mention popover state
@@ -499,9 +580,13 @@ const TeamComposer = React.memo(function TeamComposer({
     });
   };
 
-  // Send the draft.
+  // Send the draft — optimistically. The message is handed up at once as a
+  // pending row (a `tmp-` id, drawn faded) so it appears the moment Enter is
+  // pressed; when the insert answers, onSettled swaps the stand-in for the
+  // real row, or takes it away again and gives the text back to the draft.
+  // Sends don't queue behind each other: each one is its own request.
   const handleSend = async () => {
-    if (sending || !projectId || !viewerId) return;
+    if (!projectId || !viewerId) return;
     const body = draft.trim();
     if (!body) return;
     // Filter mentions to only those whose @<name> still appears in the
@@ -517,14 +602,21 @@ const TeamComposer = React.memo(function TeamComposer({
     setDraft('');
     setDraftMentions(new Set());
     setMentionOpen(false);
-    setSending(true);
+    const temp = pendingRow({
+      project_id: projectId,
+      author_id: viewerId,
+      body,
+      mentions: finalMentions,
+      attached_file_ids: [],
+    });
+    onSent?.(temp);
     const { data, error } = await sendChatMessage({
       projectId,
       authorId: viewerId,
       body,
       mentions: finalMentions,
     });
-    setSending(false);
+    onSettled?.(temp.id, error ? null : data);
     if (error) {
       // Restore the failed message — unless a new draft was started meanwhile.
       setDraft((cur) => (cur ? cur : body));
@@ -532,13 +624,11 @@ const TeamComposer = React.memo(function TeamComposer({
       notify?.({
         category: 'system',
         variant: 'error',
-        title: 'Send failed',
-        body: error.message || 'Try again in a moment.',
+        title: 'Message not sent',
+        body: error.message || 'It is back in the message box. Try again in a moment.',
         dedupeKey: `chat-send-error:${Date.now()}`,
       });
-      return;
     }
-    onSent?.(data);
   };
 
   // Files dragged from the Files tab carry a docvex payload. Chat attachments
@@ -596,11 +686,6 @@ const TeamComposer = React.memo(function TeamComposer({
     <div className="vb-composer-wrap" onDragOver={handleFilesDragOver} onDrop={handleFilesDrop}>
       <div
         className="dvx-composer vb-composer mini-glow"
-        onMouseMove={(e) => {
-          const r = e.currentTarget.getBoundingClientRect();
-          e.currentTarget.style.setProperty('--spot-x', `${toLayoutPx(e.clientX - r.left)}px`);
-          e.currentTarget.style.setProperty('--spot-y', `${toLayoutPx(e.clientY - r.top)}px`);
-        }}
       >
         <textarea
           ref={textareaRef}
@@ -618,7 +703,7 @@ const TeamComposer = React.memo(function TeamComposer({
         <div className="dvx-composer-toolbar">
           <Tooltip content="Mention someone"><button type="button" className="dvx-composer-btn" aria-label="Mention" onClick={() => textareaRef.current?.focus()}><Icon.At /></button></Tooltip>
           <div className="dvx-composer-toolbar-spacer" />
-          <Tooltip content="Send"><button type="button" className="dvx-composer-btn dvx-composer-send" onClick={handleSend} disabled={sending || !draft.trim()} aria-label="Send"><Icon.Send /></button></Tooltip>
+          <Tooltip content="Send"><button type="button" className="dvx-composer-btn dvx-composer-send" onClick={handleSend} disabled={!draft.trim()} aria-label="Send"><Icon.Send /></button></Tooltip>
         </div>
       </div>
 
@@ -682,6 +767,11 @@ export default function ProjectChat() {
 
   // ───── Messages ────────────────────────────────────────────────────
   const [messages, setMessages] = useState([]);
+  // Latest list for the optimistic edit / delete handlers, which need the
+  // row as it was (to roll back to) without depending on `messages` — a new
+  // callback per message would defeat the memoized rows.
+  const messagesRef = useRef(messages);
+  messagesRef.current = messages;
   const [loading, setLoading] = useState(false);
 
   // Clear the sidebar's chat-unread badge whenever the user is sitting
@@ -719,7 +809,9 @@ export default function ProjectChat() {
           dedupeKey: `chat-load-error:${projectId}`,
         });
       } else {
-        setMessages(data || []);
+        // A message sent while the thread was still loading keeps its
+        // pending stand-in; the send settles it as usual.
+        setMessages((prev) => [...(data || []), ...prev.filter((m) => m._pending)]);
       }
       setLoading(false);
     });
@@ -732,7 +824,13 @@ export default function ProjectChat() {
   // as it stood when the tab was first opened. The write is debounced inside
   // chatCache so a busy thread doesn't serialise on every event.
   useEffect(() => {
-    if (projectId && messages.length) writeCachedChat(projectId, messages);
+    // Optimistic state never reaches the cache: a pending message may yet
+    // fail, and a reopened thread must not show one the server never had.
+    if (projectId && messages.length) {
+      writeCachedChat(projectId, messages
+        .filter((m) => !m._pending)
+        .map((m) => (m._saving ? { ...m, _saving: undefined } : m)));
+    }
   }, [projectId, messages]);
 
   // Realtime echo. Same merge pattern the BranchContext uses for
@@ -753,13 +851,13 @@ export default function ProjectChat() {
       if (row.parent_id) {
         setProjectReplies((prev) => (
           eventType === 'INSERT'
-            ? (prev.some((r) => r.id === row.id) ? prev : [...prev, row])
+            ? mergeIncoming(prev, row)
             : prev.map((r) => (r.id === row.id ? row : r))
         ));
         return;
       }
       if (eventType === 'INSERT') {
-        setMessages((prev) => (prev.some((m) => m.id === row.id) ? prev : [...prev, row]));
+        setMessages((prev) => mergeIncoming(prev, row));
       } else {
         setMessages((prev) => prev.map((m) => (m.id === row.id ? row : m)));
       }
@@ -848,7 +946,10 @@ export default function ProjectChat() {
     if (!projectId) { setReactions([]); setProjectReplies([]); return undefined; }
     let cancelled = false;
     listReactionsForProject(projectId).then(({ data }) => { if (!cancelled) setReactions(data || []); });
-    listProjectReplies(projectId).then(({ data }) => { if (!cancelled) setProjectReplies(data || []); });
+    // A reply still on its way survives the refetch; its send settles it.
+    listProjectReplies(projectId).then(({ data }) => {
+      if (!cancelled) setProjectReplies((prev) => [...(data || []), ...prev.filter((r) => r._pending)]);
+    });
     return () => { cancelled = true; };
   }, [projectId, extrasTick]);
 
@@ -906,21 +1007,44 @@ export default function ProjectChat() {
     setReactions((prev) => (mine
       ? prev.filter((r) => !(r.message_id === messageId && r.user_id === viewerId && r.emoji === emoji))
       : [...prev, { id: `tmp-${Date.now()}`, message_id: messageId, user_id: viewerId, emoji }]));
-    await toggleReaction({ messageId, projectId, userId: viewerId, emoji, mine });
+    // On failure the refetch below puts the server's truth back (the flip is
+    // undone); the toast says why the reaction jumped back.
+    const { error } = await toggleReaction({ messageId, projectId, userId: viewerId, emoji, mine });
+    if (error) {
+      notify?.({
+        category: 'system',
+        variant: 'error',
+        title: 'Reaction not saved',
+        body: error.message || 'Try again in a moment.',
+        dedupeKey: `chat-reaction-error:${messageId}:${emoji}`,
+      });
+    }
     bumpExtras();
-  }, [projectId, viewerId, reactionsByMessage, bumpExtras]);
+  }, [projectId, viewerId, reactionsByMessage, bumpExtras, notify]);
 
   const handleSendThreadReply = useCallback(async () => {
     if (!projectId || !viewerId || !openThreadId) return;
     const body = threadDraft.trim();
     if (!body) return;
-    const { data, error } = await sendThreadReply({ projectId, authorId: viewerId, parentId: openThreadId, body });
-    if (error) {
-      notify?.({ category: 'system', variant: 'error', title: 'Reply failed', body: error.message || 'Try again in a moment.' });
-      return;
-    }
-    if (data) setProjectReplies((prev) => (prev.some((r) => r.id === data.id) ? prev : [...prev, data]));
+    // Optimistic, like the main composer: the reply shows at once as a
+    // pending row and the box clears; the insert's answer settles it, and a
+    // failure takes it away and puts the text back (unless a new reply was
+    // started meanwhile).
+    const temp = pendingRow({ project_id: projectId, author_id: viewerId, parent_id: openThreadId, body, mentions: [] });
+    setProjectReplies((prev) => [...prev, temp]);
     setThreadDraft('');
+    const { data, error } = await sendThreadReply({ projectId, authorId: viewerId, parentId: openThreadId, body });
+    setProjectReplies((prev) => settleTemp(prev, temp.id, error ? null : data));
+    if (error) {
+      setThreadDraft((cur) => (cur ? cur : body));
+      notify?.({
+        category: 'system',
+        variant: 'error',
+        title: 'Reply not sent',
+        body: error.message || 'It is back in the reply box. Try again in a moment.',
+        dedupeKey: `chat-reply-error:${Date.now()}`,
+      });
+    }
   }, [projectId, viewerId, openThreadId, threadDraft, notify]);
 
   // Per-message DOM refs so the rail's "jump to message" can scroll a
@@ -952,10 +1076,10 @@ export default function ProjectChat() {
   const find = useChatFind({ containerRef: listRef, query: chatSearch, name: 'teamchat', scope: '.vb-msg-text' });
   const stickToBottomRef = useRef(true);
   const [unreadCount, setUnreadCount] = useState(0);
-  // True once the page has scrolled past the big masthead — pins the in-page
-  // tools/tabs bar as the frosted "mini header" (mirrors the Files fx-pathbar).
-  // Hysteresis (pin past 132px, unpin under 96px) avoids flicker at the edge.
-  const [headerScrolled, setHeaderScrolled] = useState(false);
+  // Last known pinned state of the in-page tools/tabs bar (the frosted "mini
+  // header"). The state itself lives in ChatToolbar so a pin flip re-renders
+  // only the bar; this ref carries it across the team/private remount.
+  const headerPinnedRef = useRef(false);
   // Mirror of stickToBottomRef as React state so CSS can react to
   // it. We need both: the ref is read synchronously inside layout
   // effects (where state would be stale), and the state drives the
@@ -976,11 +1100,6 @@ export default function ProjectChat() {
   const handleListScroll = () => {
     const el = getScroller();
     if (!el) return;
-    // Pinned only once the bar is ACTUALLY stuck at the top (its rect reaches the
-    // scroller's top + the sticky `top` gap), so the bg doesn't appear early while
-    // the masthead is still scrolling away.
-    const bar = el.querySelector('.dvx-toolbar');
-    setHeaderScrolled(!!bar && (bar.getBoundingClientRect().top - el.getBoundingClientRect().top) <= 8);
     const distFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
     const atBottom = distFromBottom < 80;
     stickToBottomRef.current = atBottom;
@@ -1058,7 +1177,8 @@ export default function ProjectChat() {
   // The draft text + mention/attach popovers + send all live inside the
   // <TeamComposer> child (local state) so typing re-renders only the
   // composer, not this whole page. The parent only needs the
-  // optimistic-insert handler that runs after a successful send.
+  // optimistic-insert handlers: onSent the moment Enter is pressed, onSettled
+  // when the insert answers.
   const handleMessageSent = useCallback((data) => {
     // The user explicitly sent — always pin to the bottom so their own
     // message scrolls into view regardless of prior scroll position.
@@ -1066,6 +1186,11 @@ export default function ProjectChat() {
     setIsAtBottom(true);
     setUnreadCount(0);
     if (data) setMessages((prev) => (prev.some((m) => m.id === data.id) ? prev : [...prev, data]));
+  }, []);
+  // The composer's insert answered: the pending stand-in becomes the real
+  // row (or goes, when the send failed — the composer puts the text back).
+  const handleMessageSettled = useCallback((tempId, data) => {
+    setMessages((prev) => settleTemp(prev, tempId, data));
   }, []);
 
   // ───── Typing indicator (Realtime Broadcast) ───────────────────────
@@ -1093,7 +1218,6 @@ export default function ProjectChat() {
   const [privateMessages, setPrivateMessages] = useState([]);
   const [privateLoading, setPrivateLoading] = useState(false);
   const [privateDraft, setPrivateDraft] = useState('');
-  const [privateSending, setPrivateSending] = useState(false);
   const privateListRef = useRef(null);
 
   // Load the thread when (projectId, viewerId, partner) changes.
@@ -1134,9 +1258,7 @@ export default function ProjectChat() {
         || (row.sender_id === partner && row.recipient_id === viewerId)
       );
       if (eventType === 'INSERT' && inThread(newRow)) {
-        setPrivateMessages((prev) => (
-          prev.some((m) => m.id === newRow.id) ? prev : [...prev, newRow]
-        ));
+        setPrivateMessages((prev) => mergeIncoming(prev, newRow, 'sender_id'));
       } else if (eventType === 'UPDATE' && inThread(newRow)) {
         setPrivateMessages((prev) => prev.map((m) => (m.id === newRow.id ? newRow : m)));
       } else if (eventType === 'DELETE' && inThread(oldRow)) {
@@ -1156,32 +1278,39 @@ export default function ProjectChat() {
   }, [privateMessages.length, selectedPartnerId]);
 
   const handleSendPrivate = async () => {
-    if (privateSending || !projectId || !viewerId || !selectedPartnerId) return;
+    if (!projectId || !viewerId || !selectedPartnerId) return;
     const body = privateDraft.trim();
     if (!body) return;
-    setPrivateSending(true);
+    // Optimistic: the message shows at once as a pending row and the box
+    // clears. The insert's answer settles it (Realtime's echo is matched to
+    // the stand-in by mergeIncoming); a failure takes it away and puts the
+    // text back, unless a new message was started meanwhile.
+    const partnerAtSend = selectedPartnerId;
+    const temp = pendingRow({
+      project_id: projectId,
+      sender_id: viewerId,
+      recipient_id: partnerAtSend,
+      body,
+    });
+    setPrivateMessages((prev) => [...prev, temp]);
+    setPrivateDraft('');
     const { data, error } = await sendPrivateMessage({
       projectId,
       senderId: viewerId,
-      recipientId: selectedPartnerId,
+      recipientId: partnerAtSend,
       body,
     });
-    setPrivateSending(false);
+    setPrivateMessages((prev) => settleTemp(prev, temp.id, error ? null : data));
     if (error) {
+      setPrivateDraft((cur) => (cur ? cur : body));
       notify?.({
         category: 'system',
         variant: 'error',
-        title: 'Send failed',
-        body: error.message || 'Try again in a moment.',
+        title: 'Message not sent',
+        body: error.message || 'It is back in the message box. Try again in a moment.',
         dedupeKey: `pm-send-error:${Date.now()}`,
       });
-      return;
     }
-    if (data) {
-      // Optimistic insert; Realtime will echo and dedupe by id.
-      setPrivateMessages((prev) => (prev.some((m) => m.id === data.id) ? prev : [...prev, data]));
-    }
-    setPrivateDraft('');
   };
 
   const handlePrivateKeyDown = (e) => {
@@ -1377,29 +1506,50 @@ export default function ProjectChat() {
     const newMentions = (members || [])
       .filter((m) => body.includes(`@${displayName(m.profile)}`))
       .map((m) => m.user_id);
-    const { error } = await editChatMessage(id, { body, mentions: newMentions });
+    // Optimistic: the new text shows (faded, `_saving`) and the edit box
+    // closes at once. The saved row replaces it when the update answers; on
+    // failure the message goes back to exactly what it was.
+    const before = messagesRef.current.find((m) => m.id === id);
+    if (!before) return;
+    setMessages((prev) => prev.map((m) => (m.id === id
+      ? { ...m, body, mentions: newMentions, edited_at: new Date().toISOString(), _saving: true }
+      : m)));
+    setEditingId(null);
+    const { data, error } = await editChatMessage(id, { body, mentions: newMentions });
     if (error) {
+      setMessages((prev) => prev.map((m) => (m.id === id ? before : m)));
       notify?.({
         category: 'system',
         variant: 'error',
-        title: 'Edit failed',
-        body: error.message || 'Try again in a moment.',
+        title: 'Edit not saved',
+        body: error.message || 'The message was put back as it was. Try again in a moment.',
+        dedupeKey: `chat-edit-error:${id}`,
       });
       return;
     }
-    setEditingId(null);
+    // The Realtime echo may already have landed with the same row; either
+    // way the saved row wins and the pending mark goes.
+    setMessages((prev) => prev.map((m) => (m.id === id ? (data || { ...m, _saving: undefined }) : m)));
   }, [members, notify]);
   const handleDelete = useCallback(async (msg) => {
     if (!msg) return;
     // Confirmation is handled by the morph pill's built-in confirm step
     // (the Delete menu item carries a `confirm` payload), so no window.confirm here.
+    // Optimistic: the tombstone shows at once; on failure the message is
+    // restored exactly as it was.
+    const before = messagesRef.current.find((m) => m.id === msg.id) || msg;
+    setMessages((prev) => prev.map((m) => (m.id === msg.id
+      ? { ...m, body: '', mentions: [], attached_file_ids: [], deleted_at: new Date().toISOString() }
+      : m)));
     const { error } = await deleteChatMessage(msg.id);
     if (error) {
+      setMessages((prev) => prev.map((m) => (m.id === msg.id ? before : m)));
       notify?.({
         category: 'system',
         variant: 'error',
-        title: 'Delete failed',
-        body: error.message || 'Try again in a moment.',
+        title: 'Message not deleted',
+        body: error.message || 'It is back in the conversation. Try again in a moment.',
+        dedupeKey: `chat-delete-error:${msg.id}`,
       });
     }
   }, [notify]);
@@ -1594,6 +1744,7 @@ export default function ProjectChat() {
       notify={notify}
       broadcastTyping={broadcastTyping}
       onSent={handleMessageSent}
+      onSettled={handleMessageSettled}
     />
   );
 
@@ -1624,11 +1775,10 @@ export default function ProjectChat() {
       {chatMasthead}
       {/* Single 40px row (same height as the Hub button): tabs on the left, the
           huddle + search tools fill the right. */}
-      <MiniHeaderFade visible={headerScrolled} />
-      <div className={`dvx-toolbar mini-glow${headerScrolled ? ' is-pinned' : ''}`} onMouseMove={miniHeaderSpot}>
+      <ChatToolbar getScroller={getScroller} enabled={tab === 'team'} deps={[loading]} pinnedRef={headerPinnedRef}>
         {chatTabs}
         {chatChromeTools}
-      </div>
+      </ChatToolbar>
     </>
   );
 
@@ -1792,7 +1942,7 @@ export default function ProjectChat() {
                               <span className="dvx-day-divider-label">{formatDayLabel(msg.created_at)}</span>
                             </div>
                           )}
-                          <div className={`dvx-msg-row vb-msg${isMine ? ' is-mine' : ''}`}>
+                          <div className={`dvx-msg-row vb-msg${isMine ? ' is-mine' : ''}${msg._pending || msg._saving ? ' is-pending' : ''}`}>
                             {!isMine && (
                               <div className="vb-msg-avatar"><VbAvatar profile={partner?.profile} authorId={msg.sender_id} size={32} /></div>
                             )}
@@ -1821,12 +1971,11 @@ export default function ProjectChat() {
                         onKeyDown={handlePrivateKeyDown}
                         placeholder={`Message ${partnerName}…`}
                         rows={1}
-                        disabled={privateSending}
                         maxLength={4000}
                       />
                       <div className="dvx-composer-toolbar">
                         <div className="dvx-composer-toolbar-spacer" />
-                        <Tooltip content="Send"><button type="button" className="dvx-composer-btn dvx-composer-send" onClick={handleSendPrivate} disabled={privateSending || !privateDraft.trim()} aria-label="Send"><Icon.Send /></button></Tooltip>
+                        <Tooltip content="Send"><button type="button" className="dvx-composer-btn dvx-composer-send" onClick={handleSendPrivate} disabled={!privateDraft.trim()} aria-label="Send"><Icon.Send /></button></Tooltip>
                       </div>
                     </div>
                   </div>

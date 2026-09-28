@@ -318,6 +318,14 @@ export default function Anaf() {
     <LegalWorkspace
       className="an-page"
       rootRef={pageRef}
+      // The open company AS ANAF GAVE IT (the Source view): its record in
+      // PlatitorTvaRest's own fields.
+      source={shown ? {
+        site: 'anaf.ro',
+        service: 'webservicesp.anaf.ro — PlatitorTvaRest v9',
+        data: shown.raw || shown,
+        note: shown.raw ? '' : 'This copy was kept before ANAF’s own answer was — reload to see it as ANAF gives it.',
+      } : null}
       masthead={masthead}
       items={open.map((o) => ({
         id: o.id,

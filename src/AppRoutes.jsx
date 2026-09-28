@@ -2,7 +2,6 @@ import React, { lazy, Suspense, useState } from 'react';
 import { Routes, Route, Navigate, Outlet } from 'react-router-dom';
 import ProjectVersionGate from './components/ProjectVersionGate';
 import { useAuth } from './context/AuthContext';
-import { isElectron, isLocalhostWeb } from './lib/platform';
 import { LEGAL_STUB_TABS } from './components/LegalTabs';
 
 // The app's route tree. The "/" layout `Shell` and the /projects/:id
@@ -50,9 +49,9 @@ export function preloadRoutes() {
   const next = () => {
     const w = queue.shift();
     if (!w) return;
-    w.run().finally(() => idle(next, { timeout: 1500 }));
+    w.run().finally(() => idle(next)); // true idle only — never forced mid-work
   };
-  idle(next, { timeout: 1500 });
+  idle(next);
 }
 
 const AuthPage = lazy(() => import('./components/AuthPage'));
@@ -85,6 +84,9 @@ const ProjectCreate = page(() => import('./pages/Projects/ProjectCreate'));
 const ProjectOverview = page(() => import('./pages/Projects/ProjectOverview'));
 const ProjectDashboard = page(() => import('./pages/Projects/ProjectDashboard'));
 const ProjectFiles = page(() => import('./pages/Projects/ProjectFiles'));
+// The main window boots on /files: its chunk is fetched at once, alongside
+// sign-in, rather than after the auth → project → version-gate waterfall.
+export function preloadBootRoute() { ProjectFiles.preload(); }
 const ProjectClients = page(() => import('./pages/Projects/ProjectClients'));
 const ProjectTodos = page(() => import('./pages/Projects/ProjectTodos'));
 const ProjectChat = page(() => import('./pages/Projects/ProjectChat'));
@@ -112,9 +114,6 @@ export function RouteFallback() {
 function ProtectedRoute() {
   const { session, loading } = useAuth();
   if (loading) return <RouteFallback />;
-  // Web build: no auth wall — signed-out visitors explore the Demo Workspace
-  // (lib/demoWorkspace). Only Electron gates these routes on a session.
-  if (!isElectron) return <Outlet />;
   return session ? <Outlet /> : <Navigate to="/auth" replace />;
 }
 
@@ -171,7 +170,7 @@ export default function AppRoutes({ Shell, ProjectShell }) {
           {LEGAL_STUB_TABS.map((t) => (
             <Route key={t.to} path={t.to.slice(1)} element={<LegalSourceStub key={t.id} />} />
           ))}
-          {(import.meta.env.DEV || isLocalhostWeb) && <Route path="debug" element={<Debug />} />}
+          {import.meta.env.DEV && <Route path="debug" element={<Debug />} />}
           <Route path="notifications" element={<Navigate to="/" replace />} />
           <Route path="invite/:token" element={<InviteAccept />} />
           <Route element={<ProtectedRoute />}>

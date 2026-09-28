@@ -17,12 +17,12 @@ export function warmLegalData() {
     () => import('./legislation').then((m) => (isElectron ? m.listArchive() : null)),
     () => import('./courts'),
     () => import('./anaf'),
-    () => import('./caen').then((m) => m.loadCaenNotes()),
+    // (The CAEN notes — 770 KB of data — are left to the first CAEN visit.)
   ];
   const next = () => {
     const step = steps.shift();
     if (!step) return;
-    Promise.resolve().then(step).catch(() => { /* warmed on first use instead */ }).finally(() => idle(next, { timeout: 2000 }));
+    Promise.resolve().then(step).catch(() => { /* warmed on first use instead */ }).finally(() => idle(next));
   };
-  idle(next, { timeout: 2000 });
+  idle(next);
 }

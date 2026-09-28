@@ -17,6 +17,7 @@ import {
   loadActivePresetId, saveActivePresetId, presetInUse,
 } from '../lib/docRules';
 import { useItemSpots } from '../components/DocRibbon';
+import { useRailSpotlight } from '../lib/pointerSpots';
 import { toLayoutPx } from '../lib/appZoom';
 import { BarPicker } from '../components/LegalBar';
 import '../components/LegalBar.css';
@@ -495,41 +496,10 @@ function RulesSection({ importSlot = null, head = null, wordOpen = false, setWor
   }, []);
   // The list is drawn as the APP SIDEBAR — its spotlight too: a soft
   // accent glow and a border shine following the pointer
-  // (`.pbk-prail::before` / `::after`, from --spot-x/y), chasing it with
-  // Sidebar.jsx's loop (exponential ease over elapsed time, parked once
-  // settled, snapped on the first move after entering).
-  useEffect(() => {
-    const el = railRef.current;
-    if (!el) return undefined;
-    const EASE = 0.28; const SETTLE = 0.5; const FRAME_60 = 1000 / 60;
-    const target = { x: 0, y: 0 }; const pos = { x: 0, y: 0, started: false };
-    let frame = null; let last = null;
-    const tick = (ts) => {
-      const dt = last == null ? FRAME_60 : Math.min(ts - last, 100);
-      last = ts;
-      const f = 1 - Math.pow(1 - EASE, dt / FRAME_60);
-      const dx = target.x - pos.x; const dy = target.y - pos.y;
-      if (Math.abs(dx) < SETTLE && Math.abs(dy) < SETTLE) { pos.x = target.x; pos.y = target.y; } else { pos.x += dx * f; pos.y += dy * f; }
-      el.style.setProperty('--spot-x', `${pos.x}px`);
-      el.style.setProperty('--spot-y', `${pos.y}px`);
-      if (pos.x === target.x && pos.y === target.y) { frame = null; last = null; return; }
-      frame = requestAnimationFrame(tick);
-    };
-    const move = (e) => {
-      const r = el.getBoundingClientRect();
-      target.x = toLayoutPx(e.clientX - r.left); target.y = toLayoutPx(e.clientY - r.top);
-      if (!pos.started) { pos.x = target.x; pos.y = target.y; pos.started = true; }
-      if (frame == null) frame = requestAnimationFrame(tick);
-    };
-    const leave = () => { pos.started = false; };
-    el.addEventListener('mousemove', move);
-    el.addEventListener('mouseleave', leave);
-    return () => {
-      el.removeEventListener('mousemove', move);
-      el.removeEventListener('mouseleave', leave);
-      if (frame != null) cancelAnimationFrame(frame);
-    };
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  // (the `.spot-glow` / `.spot-shine` lib/pointerSpots injects), chasing it with
+  // Sidebar.jsx's loop (lib/pointerSpots: exponential ease over elapsed time,
+  // parked once settled, snapped on the first move after entering).
+  useRailSpotlight(railRef);
   // The Word preview drawer's open state is the PAGE's (`wordOpen` /
   // `setWordOpen`): the Preview switch in the masthead toggles it.
   // The setting under the pointer — lit up in the drawer's document.
@@ -994,18 +964,36 @@ export default function Playbook() {
     if (added) await learn();
   }, [learn]);
 
+  // Optimistic: the document leaves the list the moment × is pressed; if the
+  // server refuses, it goes back where it was and the note says so. Only a
+  // confirmed removal re-learns the voice (that is an AI call, never guessed).
   const drop = async (id) => {
+    const index = samples.findIndex((s) => s.id === id);
+    const removed = samples[index];
+    if (!removed) return;
+    setSamples((prev) => prev.filter((s) => s.id !== id));
     const res = await removeSample(id);
-    if (res.error) { setNote({ tone: 'error', text: 'Couldn’t remove that document.' }); return; }
-    const next = samples.filter((s) => s.id !== id);
-    setSamples(next);
+    if (res.error) {
+      setSamples((prev) => {
+        if (prev.some((s) => s.id === id)) return prev;
+        const next = prev.slice();
+        next.splice(Math.min(index, next.length), 0, removed);
+        return next;
+      });
+      setNote({ tone: 'error', text: `Couldn’t remove “${removed.name || 'that document'}” — it is back in the list.` });
+      return;
+    }
     await learn();
   };
 
+  // Optimistic: the switch flips at once and flips back if the save fails.
   const toggle = async (on) => {
     setProfile((p) => (p ? { ...p, enabled: on } : p));
     const res = await setStyleEnabled(on);
-    if (res.error) { setProfile((p) => (p ? { ...p, enabled: !on } : p)); }
+    if (res.error) {
+      setProfile((p) => (p ? { ...p, enabled: !on } : p));
+      setNote({ tone: 'error', text: on ? 'Couldn’t switch your writing voice on — it is still off.' : 'Couldn’t switch your writing voice off — it is still on.' });
+    }
   };
 
   const hasStyle = !!profile?.text;

@@ -76,8 +76,8 @@ function SignIn({ flow: f }) {
       <div className="auv-or"><span>or</span></div>
       <GoogleButton onClick={f.google} />
       {/* Sign-up lives on the website — same Supabase project, so the account
-          created there signs in here. Opens in the default browser (or a new
-          tab on web) so the half-typed sign-in form survives. This is the only
+          created there signs in here. Opens in the default browser (not a new
+          tab) so the half-typed sign-in form survives. This is the only
           entry point to the in-app <SignUp/> wizard, so that wizard is now
           dormant; it's kept intact (and still driven by useAuthFlow) so
           onboarding can be pulled back in-app by restoring `f.toSignup` here. */}

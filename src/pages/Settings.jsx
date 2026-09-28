@@ -8,6 +8,8 @@ import { readProjectsDir, writeProjectsDir } from '../lib/projectsDir';
 import PageMasthead from '../components/PageMasthead';
 import TokenUsagePill from '../components/TokenUsagePill';
 import FpsMeter from '../components/FpsMeter';
+import { PERF_PRESETS, PERF_FEATURES, PERF_LEVELS, setPerfPreset, detectPerf, perfAllows } from '../lib/perf';
+import { usePerfPreset, usePerfLevel } from '../lib/usePerf';
 import './Settings.css';
 
 // App Settings tab (Claude Design handoff "app settings tab", Direction A —
@@ -445,13 +447,13 @@ function buildSettings(prefs, set) {
       icon: <Ico><path d="M3 17l5-6 4 3 5-7 4 4" /><path d="M3 21h18" /></Ico>,
       title: 'FPS counter',
       desc: 'Show how smoothly the app is drawing, at the top of the window. Simple shows the frame rate; Complex adds frame time, 1% low, the worst frame and stutters; Graph draws the last frames as bars.',
-      Control: () => <Segmented value={prefs.fpsCounter || 'simple'} onChange={(v) => set('fpsCounter', v)}
+      Control: () => <Segmented value={prefs.fpsCounter || 'off'} onChange={(v) => set('fpsCounter', v)}
         options={[{ value: 'off', label: 'Hidden' }, { value: 'simple', label: 'Simple' }, { value: 'complex', label: 'Complex' }, { value: 'graph', label: 'Graph' }]} />,
       Mini: () => (
         <div className="set-demo-fps">
-          {(prefs.fpsCounter || 'simple') === 'off'
+          {(prefs.fpsCounter || 'off') === 'off'
             ? <span className="set-demo-fps-off">Hidden</span>
-            : <FpsMeter key={prefs.fpsCounter} mode={prefs.fpsCounter || 'simple'} inline />}
+            : <FpsMeter key={prefs.fpsCounter} mode={prefs.fpsCounter} inline />}
         </div>
       ),
     },
@@ -466,6 +468,102 @@ function buildSettings(prefs, set) {
 }
 
 const GROUPS = ['Appearance', 'Text & display', 'Behavior', 'Language & region'];
+
+/* ───────────────────────── Optimization ───────────────────────── */
+const GaugeIcon = () => <Ico><path d="M4 18a8 8 0 1 1 16 0" /><path d="M12 18l4-6" /><circle cx="12" cy="18" r="1.2" /></Ico>;
+const BoltIcon = () => <Ico><path d="M13 2 4 14h7l-1 8 9-12h-7z" /></Ico>;
+const levelLabel = (l) => PERF_PRESETS.find((p) => p.id === l)?.label || l;
+
+// Graphics quality: game-style presets (lib/perf). Kept per DEVICE — the
+// setting describes the computer, so it is not in the per-account prefs.
+function GraphicsCard() {
+  const preset = usePerfPreset();
+  const level = usePerfLevel();
+  const det = detectPerf();
+  const chosen = PERF_PRESETS.find((p) => p.id === preset);
+  return (
+    <SettingCard
+      icon={<GaugeIcon />}
+      title="Graphics quality"
+      desc="Trade the app's glass, glow and motion for speed. Lower presets draw less, which keeps older office computers smooth. Applies instantly, on this computer only."
+      control={<Segmented value={preset} onChange={setPerfPreset} options={PERF_PRESETS.map((p) => ({ value: p.id, label: p.label }))} />}
+      wide
+    >
+      <div className="set-perf">
+        <p className="set-perf-blurb">
+          {preset === 'auto'
+            ? <>Auto chose <b>{levelLabel(det.level)}</b> for this computer{det.gpu ? <> — {det.gpu}</> : null}{det.cores ? <>, {det.cores} processor threads</> : null}{det.memory ? <>, {det.memory >= 8 ? '8 GB or more' : `${det.memory} GB`} of memory</> : null}.</>
+            : chosen?.blurb}
+        </p>
+        <table className="set-perf-table">
+          <thead>
+            <tr><th scope="col" />{PERF_LEVELS.map((l) => <th key={l} scope="col" className={l === level ? 'is-on' : ''}>{levelLabel(l)}</th>)}</tr>
+          </thead>
+          <tbody>
+            {Object.entries(PERF_FEATURES).map(([id, f]) => (
+              <tr key={id}>
+                <th scope="row">{f.label}</th>
+                {PERF_LEVELS.map((l) => (
+                  <td key={l} className={l === level ? 'is-on' : ''}>
+                    {perfAllows(id, l) ? <span className="set-perf-yes" aria-label="on">●</span> : <span className="set-perf-no" aria-label="off">–</span>}
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </SettingCard>
+  );
+}
+
+// Load times: what is already done for every preset, and what the owner of
+// the machine / the release process can still do.
+const LOAD_APPLIED = [
+  'With a sign-in saved on this computer, the window opens at once instead of waiting for the sign-in to be refreshed over the internet.',
+  'Fonts ship inside the app, so starting it never waits on a download from Google.',
+  'The Files page starts loading at the same moment as the sign-in, not after it.',
+  'A folder with nothing on screen yet is listed immediately, without the 300 ms pause.',
+  'Less code to read at start-up: search-only code (about 70 KB) now loads the first time it is used.',
+  'Warming the other tabs and the Legislation data waits until the app has settled, and runs only when the computer is idle.',
+  'The update check, the “Open with DocVex” registration and the release-notes download are moved out of the first seconds.',
+  'The “Open with DocVex” menu entry is written once per install instead of on every launch.',
+  'The document viewer is prepared in the background later, so it does not compete with the first screen.',
+  'Developer tools no longer load in the installed app.',
+  'The app is built for its own browser engine, with the start-up code compressed.',
+  'Auto-detecting the graphics preset reuses the last result, so it adds nothing to start-up.',
+];
+const LOAD_SUGGESTIONS = [
+  'Install the app on an SSD. Start-up reads hundreds of files, and a hard disk is the slowest part of an older office PC.',
+  'Ask IT to exclude the DocVex install folder and the project folders from real-time antivirus scanning. On Windows, Defender scanning often costs more at start-up than the app itself.',
+  'Sign the Windows installer with a code-signing certificate, so SmartScreen and antivirus trust it sooner and scan it less.',
+  'Keep the Graphics quality preset on Auto, or pick Medium or Low on computers without a dedicated graphics card.',
+  'Keep project folders on the local disk rather than a network share. Every listing and preview then reads from disk, not the network.',
+  'Keep the FPS counter hidden when you are not measuring: while it shows, the app redraws every frame.',
+  'For developers: serving the app from a custom protocol with a V8 code cache could cut script compile time by 20–40% on every launch after the first. It changes where sign-ins and preferences are stored, so it needs a one-time migration and testing.',
+  'For developers: smaller tray and window icons (the current one is 657 KB) and lazy-loading the account-sync code in the version gate would trim a little more.',
+];
+function LoadTimesCard() {
+  return (
+    <SettingCard
+      icon={<BoltIcon />}
+      title="Load times"
+      desc="How quickly the app opens and switches tabs. These optimizations are always on, whatever the graphics preset."
+      wide
+    >
+      <div className="set-load">
+        <div>
+          <h4 className="set-load-h">Always applied</h4>
+          <ul className="set-load-list is-done">{LOAD_APPLIED.map((t) => <li key={t}>{t}</li>)}</ul>
+        </div>
+        <div>
+          <h4 className="set-load-h">To make it faster still</h4>
+          <ul className="set-load-list">{LOAD_SUGGESTIONS.map((t) => <li key={t}>{t}</li>)}</ul>
+        </div>
+      </div>
+    </SettingCard>
+  );
+}
 
 export default function Settings() {
   // Theme flows through ThemeContext (its own per-user key + paint). Every other
@@ -483,6 +581,7 @@ export default function Settings() {
   const onReset = useCallback(() => {
     setTheme('cream');
     resetPrefs();
+    setPerfPreset('auto');
   }, [setTheme, resetPrefs]);
 
   const prefs = { ...appPrefs, theme: themePreference };
@@ -512,6 +611,11 @@ export default function Settings() {
             ))}
           </div>
         ))}
+        <div className="set-group">
+          <h2 className="set-group-title">Optimization</h2>
+          <GraphicsCard />
+          <LoadTimesCard />
+        </div>
         {isElectronBranch && (
           <div className="set-group">
             <h2 className="set-group-title">Workspace</h2>

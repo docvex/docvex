@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useEffect, useState } from 'react';
+import React, { createContext, useContext, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '../lib/supabaseClient';
 import { isNotificationsStorageKey } from '../lib/notifications';
@@ -7,7 +7,6 @@ import { deleteAllForUser as deleteAllNotificationsForUser } from '../lib/notifi
 import { sendWelcomeEmail } from '../lib/sendWelcome';
 import { PENDING_INVITE_TOKEN_KEY } from '../pages/Projects/InviteAccept';
 import {
-  isElectron,
   onDeepLink,
   getStartupDeepLink,
   onAccountSwitch,
@@ -15,21 +14,9 @@ import {
   quitApp,
 } from '../lib/platform';
 
-// Pick the OAuth callback URL based on which build is running. Electron
-// uses the custom protocol the OS routes to main; web uses an HTTPS path
-// on whichever origin the page is served from (production: docvex.ro/app,
-// dev: localhost:5174/app). Kept as a function so it picks up the current
-// origin at the time of the OAuth click rather than module-eval time.
-//
-// Web: we redirect to `/app/` (the SPA's root, which is a real file:
-// docs/demo/index.html). Avoids needing GitHub Pages SPA-fallback magic
-// just for OAuth — the page loads, supabase-js's detectSessionInUrl
-// auto-exchanges the `?code=…` query param, then strips it from the URL
-// via history.replaceState. React Router then routes `/` → Dashboard.
-function getOAuthRedirectUrl() {
-  if (isElectron) return 'docvex://auth/callback';
-  return `${window.location.origin}/demo/`;
-}
+// The OAuth callback: the custom protocol the OS routes back to main, which
+// forwards it as `oauth:callback-url` (see handleDeepLinkUrl below).
+const OAUTH_REDIRECT_URL = 'docvex://auth/callback';
 
 // Which window started an OAuth flow. sessionStorage is per-window in Electron
 // (localStorage is shared), so this is exactly "did I open the browser?" —
@@ -242,24 +229,20 @@ export function AuthProvider({ children }) {
       if (!data?.session) await supabase.auth.exchangeCodeForSession(code);
     };
 
-    // Subscribe to deep-link URLs the OS routes back to the app. On web
-    // the adapter returns a no-op unsubscribe — deep links on web arrive
-    // as browser navigations and are handled by BrowserRouter.
+    // Subscribe to deep-link URLs the OS routes back to the app.
     const unsubscribeDeepLink = onDeepLink(handleDeepLinkUrl);
 
     // Pull any docvex:// URL that arrived on the command line at COLD
     // start — the `oauth:callback-url` event fires only on subsequent
     // launches (via second-instance), so a fresh first launch with a URL
     // in argv would otherwise drop it. Safe to call when nothing is
-    // pending: the adapter returns null on web and main returns null on
-    // Electron when nothing is queued. The handle is one-shot on the main
+    // pending: main returns null when nothing is queued. The handle is one-shot on the main
     // side, so a StrictMode double-mount can't process the same URL twice.
     getStartupDeepLink().then((url) => {
       if (url) handleDeepLinkUrl(url);
     });
 
-    // Dev-only "Account" menu wiring. On web this is a no-op (no native
-    // menu). On Electron the menu item's click handler in main.js sends
+    // Dev-only "Account" menu wiring. The menu item's click handler in main.js sends
     // { email, password? } here; we sign out of the current session,
     // stash the credentials so AuthPage can prefill them on the next
     // render, and hard-reload so every in-memory context (project,
@@ -311,19 +294,14 @@ export function AuthProvider({ children }) {
     const { data, error } = await supabase.auth.signInWithOAuth({
       provider: 'google',
       options: {
-        redirectTo: getOAuthRedirectUrl(),
-        // Electron: hand the URL off to the OS browser ourselves so the
-        // OAuth tab doesn't open inside the BrowserWindow.
-        // Web: let supabase-js do the full-page redirect — that's the
-        // standard browser OAuth flow and lets detectSessionInUrl pick
-        // up the response on /demo/auth/callback.
-        skipBrowserRedirect: isElectron,
+        redirectTo: OAUTH_REDIRECT_URL,
+        // Hand the URL off to the OS browser ourselves so the OAuth tab
+        // doesn't open inside the BrowserWindow.
+        skipBrowserRedirect: true,
       },
     });
     if (error) throw error;
-    // On Electron we get a URL back to open externally. On web supabase-js
-    // has already navigated by this point.
-    if (data?.url && isElectron) {
+    if (data?.url) {
       // Claim the callback before the browser opens: this window holds the
       // PKCE verifier and is the one that should spend the auth code when it
       // comes back (see handleDeepLinkUrl).
@@ -347,12 +325,12 @@ export function AuthProvider({ children }) {
     const { data, error } = await supabase.auth.linkIdentity({
       provider: 'google',
       options: {
-        redirectTo: getOAuthRedirectUrl(),
-        skipBrowserRedirect: isElectron,
+        redirectTo: OAUTH_REDIRECT_URL,
+        skipBrowserRedirect: true,
       },
     });
     if (error) throw error;
-    if (data?.url && isElectron) {
+    if (data?.url) {
       // Same claim as sign-in: this window holds the verifier, so it exchanges.
       markOAuthInitiator();
       openOAuthUrl(data.url);
@@ -386,8 +364,7 @@ export function AuthProvider({ children }) {
   // the invite email-mismatch flow, which sign out only to reopen /auth in the
   // same window — those must NOT quit. We await signOut (it clears local storage
   // even if the network revoke fails) before quitting so the next launch is
-  // genuinely signed out. quitApp() is a no-op on web, so logout there just
-  // signs out and the caller's navigation takes over.
+  // genuinely signed out.
   const logout = async () => {
     try { await signOut(); } catch { /* local session still cleared; quit anyway */ }
     quitApp();
@@ -474,8 +451,20 @@ export function AuthProvider({ children }) {
     return { error };
   };
 
+  // One value object per auth state, not per render. This provider re-renders
+  // on every route change (useNavigate reads the location), and a fresh object
+  // literal here used to re-render every useAuth() consumer app-wide — Sidebar,
+  // TitleBar and each page — on each navigation. The methods only read module
+  // functions, except eraseData, which reads `session`; the memo is rebuilt
+  // whenever session changes, so the one it hands out always sees the current one.
+  const value = useMemo(
+    () => ({ session, loading, lastAuthEvent, signInWithEmail, signUpWithEmail, signInWithGoogle, linkGoogle, setPassword, signOut, logout, eraseData, deleteAccount }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [session, loading, lastAuthEvent],
+  );
+
   return (
-    <AuthContext.Provider value={{ session, loading, lastAuthEvent, signInWithEmail, signUpWithEmail, signInWithGoogle, linkGoogle, setPassword, signOut, logout, eraseData, deleteAccount }}>
+    <AuthContext.Provider value={value}>
       {children}
     </AuthContext.Provider>
   );

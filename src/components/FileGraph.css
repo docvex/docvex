@@ -1,0 +1,178 @@
+/* The Files tab's GRAPH view (components/FileGraph) — on the Design system's
+   rules: the page ground, hairlines, the gallery's soft pills, the tooltip
+   ground for every floating card, no card fills of its own. */
+.fg-view {
+  display: flex; flex-direction: column; gap: 8px;
+  height: max(460px, calc(100vh - 260px));
+  padding: 4px 0 var(--ds-page-inset, 8px);
+}
+.fg-bar {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap;
+  padding-bottom: 8px; border-bottom: 1px solid var(--ds-hairline, var(--border));
+}
+.fg-legend { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
+.fg-legend-item {
+  --fg-tone: var(--text-secondary);
+  display: inline-flex; align-items: center; gap: 6px;
+  height: var(--ds-pill-h, 20px); padding: 0 var(--ds-pill-pad, 8px);
+  border-radius: var(--ds-pill-radius, 999px);
+  font-size: var(--ds-tag-size, 10.4px); font-weight: var(--ds-pill-weight, 600);
+  color: var(--fg-tone);
+  background: color-mix(in srgb, var(--fg-tone) 10%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--fg-tone) 26%, transparent);
+}
+.fg-legend-item b { font-weight: 700; font-variant-numeric: tabular-nums; }
+.fg-legend-item.is-links { --fg-tone: var(--text-muted); }
+.fg-legend-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--fg-tone); }
+.fg-bar-tools { display: flex; align-items: center; gap: 8px; }
+.fg-tool {
+  display: grid; place-items: center; width: var(--ds-control-h, 24px); height: var(--ds-control-h, 24px);
+  border: 1px solid var(--ds-hairline, var(--border)); border-radius: var(--ds-control-radius, 6px);
+  background: var(--ds-control-tint, transparent); color: var(--text-secondary); cursor: pointer;
+}
+.fg-tool:hover { background: color-mix(in srgb, var(--text-primary) 6%, transparent); color: var(--text-primary); }
+
+.fg-body { position: relative; flex: 1; min-height: 0; display: flex; }
+.fg-stage {
+  position: relative; flex: 1; min-width: 0;
+  border: 1px solid var(--ds-hairline, var(--border)); border-radius: var(--ds-card-radius, 14px);
+  overflow: hidden;
+  /* The page ground with the app's faint dot grid, so the graph reads as a
+     surface to move around on. */
+  background:
+    radial-gradient(circle at 1px 1px, color-mix(in srgb, var(--text-primary) 9%, transparent) 1px, transparent 1.5px) 0 0 / 22px 22px,
+    var(--bg-page);
+}
+.fg-canvas { position: absolute; inset: 0; outline: none; }
+
+/* vis-network's hover card, on the app's tooltip ground (overrides the
+   library's own look). */
+.fg-canvas div.vis-tooltip {
+  position: absolute; visibility: hidden; z-index: 5; pointer-events: none;
+  max-width: 300px; padding: 7px 10px; white-space: normal;
+  font-family: var(--font-body); font-size: 12px; color: var(--text-primary);
+  background: var(--bg-sidebar);
+  border: 1px solid var(--ds-hairline, var(--border)); border-radius: 8px;
+  box-shadow: var(--shadow-elev);
+}
+.fg-tip { display: flex; flex-direction: column; gap: 2px; }
+.fg-tip-kind { font-size: 9.6px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; color: var(--accent); }
+.fg-tip-head { font-weight: 650; overflow-wrap: anywhere; }
+.fg-tip-body { font-size: 11.5px; line-height: 1.4; color: var(--text-secondary); }
+
+/* Laying out: a note while physics settles (then physics is off). */
+.fg-layout {
+  position: absolute; left: 50%; top: 12px; transform: translateX(-50%);
+  display: inline-flex; align-items: center; gap: 8px;
+  padding: 5px 12px; border-radius: 999px;
+  font-size: 11.5px; color: var(--text-secondary); font-variant-numeric: tabular-nums;
+  background: var(--bg-sidebar); border: 1px solid var(--ds-hairline, var(--border));
+}
+.fg-spin {
+  width: 12px; height: 12px; border-radius: 50%;
+  border: 1.6px solid color-mix(in srgb, var(--accent) 25%, transparent); border-top-color: var(--accent);
+  animation: fg-spin 0.8s linear infinite;
+}
+@keyframes fg-spin { to { transform: rotate(360deg); } }
+
+/* The zoom pill — the Doc Viewer's (− Fit +), on the tooltip ground. */
+.fg-zoom {
+  position: absolute; left: 10px; bottom: 10px;
+  display: inline-flex; align-items: center; gap: 2px; padding: 3px;
+  border-radius: 999px; background: var(--bg-sidebar); border: 1px solid var(--ds-hairline, var(--border));
+}
+.fg-zoom button {
+  min-width: 24px; height: 22px; padding: 0 6px; border: 0; border-radius: 999px;
+  background: transparent; color: var(--text-secondary); font: inherit; font-size: 13px; cursor: pointer;
+}
+.fg-zoom button.fg-zoom-fit { font-size: 11px; font-weight: 600; }
+.fg-zoom button:hover { background: color-mix(in srgb, var(--text-primary) 8%, transparent); color: var(--text-primary); }
+
+/* Nothing to draw: the gallery's empty state. */
+.fg-empty {
+  flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px;
+  text-align: center; padding: 32px;
+}
+.fg-empty-mark { width: 44px; height: 44px; color: var(--text-muted); margin-bottom: 6px; }
+.fg-empty-title { margin: 0; font-family: var(--font-display); font-size: 17px; font-weight: 600; color: var(--text-primary); }
+.fg-empty-sub { margin: 0; max-width: 56ch; font-size: 13px; line-height: 1.5; color: var(--text-muted); }
+
+/* THE DRAWER — a clicked connection: the tooltip ground, a hairline, the
+   link's type as a soft pill in its tone, both files, the AI's reasons. */
+.fg-drawer {
+  --fg-tone: var(--accent);
+  position: absolute; top: 10px; right: 10px; bottom: 10px; z-index: 6;
+  width: min(340px, calc(100% - 20px)); overflow-y: auto;
+  display: flex; flex-direction: column; gap: 10px;
+  padding: 12px 14px;
+  background: var(--bg-sidebar);
+  border: 1px solid var(--ds-hairline, var(--border)); border-radius: var(--ds-card-radius, 14px);
+  box-shadow: var(--shadow-elev);
+  animation: fg-drawer-in 220ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+@keyframes fg-drawer-in { from { opacity: 0; transform: translateX(16px); } to { opacity: 1; transform: none; } }
+:root[data-reduce-motion='true'] .fg-drawer { animation: none; }
+.fg-drawer-head { display: flex; align-items: center; justify-content: space-between; }
+.fg-drawer-kicker, .fg-drawer-label {
+  font-size: var(--ds-label-size, 10.4px); font-weight: 700; letter-spacing: var(--ds-label-tracking, 0.06em);
+  text-transform: uppercase; color: var(--text-muted);
+}
+.fg-drawer-close {
+  width: 24px; height: 24px; border: 0; border-radius: 999px; background: transparent;
+  color: var(--text-secondary); font-size: 18px; line-height: 1; cursor: pointer;
+}
+.fg-drawer-close:hover { background: color-mix(in srgb, var(--text-primary) 8%, transparent); color: var(--text-primary); }
+.fg-pill {
+  align-self: flex-start;
+  display: inline-flex; align-items: center; height: var(--ds-pill-h, 20px); padding: 0 var(--ds-pill-pad, 8px);
+  border-radius: var(--ds-pill-radius, 999px); font-size: var(--ds-tag-size, 10.4px); font-weight: var(--ds-pill-weight, 600);
+  color: var(--fg-tone); background: color-mix(in srgb, var(--fg-tone) 12%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--fg-tone) 30%, transparent);
+}
+.fg-ends { display: flex; flex-direction: column; align-items: stretch; gap: 2px; }
+.fg-ends-arrow { align-self: center; color: var(--fg-tone); font-size: 14px; line-height: 1; }
+.fg-file {
+  display: flex; align-items: center; gap: 8px; min-width: 0; width: 100%;
+  padding: 6px 8px; border: 1px solid var(--ds-hairline, var(--border)); border-radius: var(--ds-row-radius, 8px);
+  background: transparent; color: var(--text-primary); font: inherit; font-size: 12.5px; text-align: left; cursor: pointer;
+}
+.fg-file:hover:not(:disabled) { background: color-mix(in srgb, var(--text-primary) 5%, transparent); }
+.fg-file:disabled { cursor: default; }
+.fg-file-glyph { flex: none; width: 18px; height: 18px; display: grid; place-items: center; }
+.fg-file-glyph svg { width: 18px; height: 18px; }
+.fg-file-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fg-conf { display: flex; align-items: center; gap: 8px; font-size: 11.5px; color: var(--text-secondary); }
+.fg-conf b { font-variant-numeric: tabular-nums; color: var(--text-primary); }
+.fg-conf-bar { flex: 1; height: 4px; border-radius: 99px; background: color-mix(in srgb, var(--text-primary) 10%, transparent); overflow: hidden; }
+.fg-conf-bar > span { display: block; height: 100%; border-radius: inherit; background: var(--fg-tone); }
+.fg-why { margin: -4px 0 0; font-size: 13px; line-height: 1.55; color: var(--text-primary); }
+.fg-evidence { margin: -4px 0 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 4px; }
+.fg-evidence li {
+  font-size: 12px; line-height: 1.45; color: var(--text-secondary);
+  padding: 4px 8px; border-left: 2px solid color-mix(in srgb, var(--fg-tone) 55%, transparent);
+}
+
+/* The Files toolbar's view switch (File explorer · Graph): the Design
+   system's Segmented choice (components/RuleOptions), at control height. */
+.fx-mode.pbk-rule-opts { flex: none; }
+/* In the Graph view the file-grid controls (icon size, grid / list, sort,
+   group, search) have nothing to act on. */
+.fx-chrome-tools.is-graph :is(.fx-size-slider, .fx-view-btn, .fx-sort, .fx-search, .fx-cat-btn[aria-label="Group by category"]) { display: none; }
+
+/* The lens switch (Files · People & things) — the Segmented choice. */
+.fg-lens.pbk-rule-opts { flex: none; margin-right: 4px; }
+/* An entity end of a tie (People & things): not a file, so not a button. */
+.fg-entity {
+  display: flex; align-items: center; gap: 8px; min-width: 0;
+  padding: 6px 8px; border: 1px solid var(--ds-hairline, var(--border)); border-radius: var(--ds-row-radius, 8px);
+  font-size: 12.5px; color: var(--text-primary);
+}
+.fg-entity-kind { flex: none; margin-left: auto; font-size: 11px; color: var(--text-muted); }
+.fg-node-name { margin: -2px 0 0; font-family: var(--font-display); font-size: 16px; font-weight: 600; color: var(--text-primary); overflow-wrap: anywhere; }
+.fg-ties { margin: -4px 0 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 2px; }
+.fg-tie {
+  display: flex; align-items: center; gap: 8px; width: 100%; min-width: 0; padding: 5px 6px;
+  border: 0; border-radius: var(--ds-row-radius, 8px); background: transparent;
+  color: var(--text-primary); font: inherit; font-size: 12.5px; text-align: left; cursor: pointer;
+}
+.fg-tie:hover { background: color-mix(in srgb, var(--text-primary) 5%, transparent); }

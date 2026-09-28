@@ -1,12 +1,32 @@
 // Per-file cache of the DocViewer AI-advisor conversation (and, for generated
-// documents, the version iterations). Saved to localStorage keyed by the file's
-// on-disk path so reopening the same file restores the whole thread — matching
-// how lib/extractionHistory.js (OCR snippets) and lib/captionsHistory.js (audio
+// documents, the version iterations), keyed by the file's on-disk path so
+// reopening the same file restores the whole thread — matching how
+// lib/extractionHistory.js (OCR snippets) and lib/captionsHistory.js (audio
 // captions) persist their interactions per file.
+//
+// WHERE IT LIVES: the project index's PRIVATE store (lib/projectIndexClient;
+// src/projectIndex/README.md) — per signed-in user, on this machine only. A
+// conversation is the user's own, not knowledge about the file, so it is never
+// written to `.docvex/` where it would travel with the case folder to whoever
+// else opens it; the account sync's private bundle (lib/projectSyncData) is the
+// only thing that carries it, between the user's own devices.
+//
+// It is kept under projectId null (main's `_loose.db`) and keyed by the folded
+// absolute path, whatever project the file is in: a Doc Viewer window can read
+// a conversation before anyone has told it which project the file belongs to,
+// and one key per file, in one place, is what makes that read deterministic.
+// Every conversation of the user is loaded once (`privateList`) and served from
+// memory, so the reads stay synchronous.
+//
+// Without main's side, or signed out, it is the localStorage store it was; the
+// old keys are moved across on the first load and removed once main has them.
+import { supabase } from './supabaseClient';
+import { privateAvailable, privateList, privatePut, registerPathHydrator } from './projectIndexClient';
 
 const KEY_PREFIX = 'docvex:doc-viewer:conversation:';
+const PRIVATE_PREFIX = 'conversation:';
 
-// Exposed so other surfaces can recognise our keys (e.g. cross-window `storage`).
+// Exposed so other surfaces can recognise the old keys (lib/projectDataWipe).
 export const CONVERSATION_PREFIX = KEY_PREFIX;
 
 function safeRead(key) {
@@ -19,25 +39,135 @@ function safeRemove(key) {
   try { localStorage.removeItem(key); return true; } catch { return false; }
 }
 
-// Normalise a file path into a STABLE storage key. The same file can reach us
-// with different path text depending on where it came from — the create flow
+// Normalise a file path into a STABLE key. The same file can reach us with
+// different path text depending on where it came from — the create flow
 // (writeFiles result), a later double-click (directory listing), or a
 // generate-time rename — which on Windows can differ in separator (\ vs /),
 // drive-letter casing, or a trailing slash. Folding those out means a file
 // always maps to the same conversation, so reopening it shows the saved chat.
+const folded = (filePath) => String(filePath || '')
+  .replace(/\\/g, '/')
+  .replace(/\/+$/, '')
+  .toLowerCase();
 function keyFor(filePath) {
-  const norm = String(filePath || '')
-    .replace(/\\/g, '/')
-    .replace(/\/+$/, '')
-    .toLowerCase();
-  return KEY_PREFIX + norm;
+  return KEY_PREFIX + folded(filePath);
+}
+
+// ── The private store's copy ────────────────────────────────────────────────
+// folded path → record; loaded once per user.
+let userId = null;
+let loadedFor = null;
+let loading = null;
+const store = new Map();
+
+async function currentUser() {
+  try { return (await supabase.auth.getSession()).data.session?.user?.id || null; } catch { return null; }
+}
+try {
+  supabase.auth.onAuthStateChange((_e, session) => {
+    const next = session?.user?.id || null;
+    if (next === userId) return;
+    userId = next;
+    loadedFor = null;
+    store.clear();
+    if (next) void ensureLoaded();
+  });
+} catch { /* no auth in this context */ }
+
+const usingPrivate = () => !!(privateAvailable() && userId && loadedFor === userId);
+
+// Load every conversation of the user from the private store, then move the
+// old localStorage keys across (each removed only once main has it).
+export function ensureLoaded() {
+  if (!privateAvailable()) return Promise.resolve(false);
+  if (loading) return loading;
+  loading = (async () => {
+    if (!userId) userId = await currentUser();
+    if (!userId) return false;
+    if (loadedFor === userId) return true;
+    const who = userId;
+    const items = await privateList({ projectId: null, userId: who, prefix: PRIVATE_PREFIX });
+    if (!items || who !== userId) return false;
+    store.clear();
+    for (const { key, value } of items) {
+      const rec = parseRecord(value);
+      if (rec && String(key).startsWith(PRIVATE_PREFIX)) store.set(String(key).slice(PRIVATE_PREFIX.length), { ...rec, raw: value });
+    }
+    loadedFor = who;
+    await migrateLegacy(who);
+    return true;
+  })().finally(() => { loading = null; });
+  return loading;
+}
+// A Doc Viewer window awaits hydratePath before its first read; this makes
+// that include the conversations.
+registerPathHydrator(() => ensureLoaded());
+
+async function migrateLegacy(who) {
+  let keys = [];
+  try { keys = Object.keys(localStorage).filter((k) => k.startsWith(KEY_PREFIX)); } catch { return; }
+  for (const k of keys) {
+    const raw = safeRead(k);
+    const rec = parseRecord(raw);
+    if (!rec) { safeRemove(k); continue; }
+    const f = folded(k.slice(KEY_PREFIX.length));
+    const cur = store.get(f);
+    // The newer of the two stands; an older local copy is simply dropped.
+    if (!cur || (rec.updatedAt || 0) > (cur.updatedAt || 0)) {
+      const value = JSON.parse(raw);
+      if (!(await privatePut({ projectId: null, userId: who, key: PRIVATE_PREFIX + f, value }))) continue;
+      store.set(f, { ...rec, raw: value });
+    }
+    safeRemove(k);
+  }
+}
+
+function readRaw(filePath) {
+  if (usingPrivate()) {
+    const hit = store.get(folded(filePath));
+    if (hit) return hit.raw;
+  } else if (privateAvailable()) {
+    void ensureLoaded();
+  }
+  // Prefer the normalised key; fall back to the legacy raw-path key so chats
+  // saved before this normalisation still surface.
+  const raw = safeRead(keyFor(filePath)) || safeRead(KEY_PREFIX + filePath);
+  return raw == null ? null : raw;
+}
+
+function writeRecord(filePath, record) {
+  const f = folded(filePath);
+  if (usingPrivate()) {
+    store.set(f, { ...parseRecord(record), raw: record });
+    const who = userId;
+    privatePut({ projectId: null, userId: who, key: PRIVATE_PREFIX + f, value: record }).then((ok) => {
+      // Refused: keep it the old way, so it is not lost; the next load moves it.
+      if (!ok) safeWrite(keyFor(filePath), JSON.stringify(record));
+    });
+    safeRemove(keyFor(filePath));
+    return true;
+  }
+  return safeWrite(keyFor(filePath), JSON.stringify(record));
+}
+
+function removeRecord(filePath) {
+  const f = folded(filePath);
+  let had = false;
+  if (usingPrivate() && store.has(f)) {
+    store.delete(f);
+    had = true;
+    // The contract has no delete: a null value is the removal.
+    void privatePut({ projectId: null, userId, key: PRIVATE_PREFIX + f, value: null });
+  }
+  safeRemove(KEY_PREFIX + filePath); // legacy raw key, if any
+  return safeRemove(keyFor(filePath)) || had;
 }
 
 function parseRecord(raw) {
-  if (!raw) return null;
+  if (raw == null) return null;
   try {
-    const parsed = JSON.parse(raw);
-    if (!parsed) return null;
+    const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw;
+    if (!parsed || typeof parsed !== 'object') return null;
     return {
       messages: Array.isArray(parsed.messages) ? parsed.messages : [],
       versions: Array.isArray(parsed.versions) ? parsed.versions : [],
@@ -60,9 +190,7 @@ function parseRecord(raw) {
 // Returns { messages: [...], versions: [...], updatedAt } | null.
 export function loadConversation(filePath) {
   if (!filePath) return null;
-  // Prefer the normalised key; fall back to the legacy raw-path key so chats
-  // saved before this normalisation still surface (and get migrated on save).
-  return parseRecord(safeRead(keyFor(filePath))) || parseRecord(safeRead(KEY_PREFIX + filePath));
+  return parseRecord(readRaw(filePath));
 }
 
 export function saveConversation(filePath, { messages, versions, branches, activeBranchId, paraThreads }) {
@@ -96,8 +224,7 @@ export function saveConversation(filePath, { messages, versions, branches, activ
   //
   // So: a stored record that HAS a thread is never replaced by one that has
   // none. Emptying a conversation on purpose goes through clearConversation().
-  const priorRaw = safeRead(keyFor(filePath)) || safeRead(KEY_PREFIX + filePath);
-  const prior = parseRecord(priorRaw);
+  const prior = parseRecord(readRaw(filePath));
   if (prior) {
     const priorHasThread = prior.messages.length
       || prior.versions.length
@@ -114,13 +241,12 @@ export function saveConversation(filePath, { messages, versions, branches, activ
     record.activeBranchId = activeBranchId || undefined;
   }
   if (hasParaContent) record.paraThreads = paras;
-  return safeWrite(keyFor(filePath), JSON.stringify(record));
+  return writeRecord(filePath, record);
 }
 
 export function clearConversation(filePath) {
   if (!filePath) return false;
-  safeRemove(KEY_PREFIX + filePath); // legacy raw key, if any
-  return safeRemove(keyFor(filePath));
+  return removeRecord(filePath);
 }
 
 // Move a saved conversation from one path to another so the chat FOLLOWS the
@@ -130,15 +256,13 @@ export function clearConversation(filePath) {
 // thread (don't clobber).
 export function migrateConversation(oldPath, newPath) {
   if (!oldPath || !newPath) return false;
-  const fromKey = keyFor(oldPath);
-  const toKey = keyFor(newPath);
-  if (fromKey === toKey) return false;
-  const raw = safeRead(fromKey) || safeRead(KEY_PREFIX + oldPath);
-  if (!raw) return false;
-  if (safeRead(toKey)) return false; // a chat already exists at the destination
-  safeWrite(toKey, raw);
-  safeRemove(fromKey);
-  safeRemove(KEY_PREFIX + oldPath);
+  if (folded(oldPath) === folded(newPath)) return false;
+  const raw = readRaw(oldPath);
+  if (raw == null) return false;
+  if (readRaw(newPath) != null) return false; // a chat already exists at the destination
+  const value = typeof raw === 'string' ? JSON.parse(raw) : raw;
+  writeRecord(newPath, value);
+  removeRecord(oldPath);
   return true;
 }
 
@@ -146,17 +270,62 @@ export function migrateConversation(oldPath, newPath) {
 // renamed/moved — all the files inside shift path together).
 export function migrateConversationsUnder(oldDir, newDir) {
   if (!oldDir || !newDir) return 0;
-  const norm = (s) => String(s).replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase();
-  const from = KEY_PREFIX + norm(oldDir) + '/';
-  const to = KEY_PREFIX + norm(newDir) + '/';
+  const from = `${folded(oldDir)}/`;
+  const to = `${folded(newDir)}/`;
   let moved = 0;
-  let keys;
-  try { keys = Object.keys(localStorage); } catch { return 0; }
-  keys.forEach((k) => {
-    if (!k.startsWith(from)) return;
-    const dest = to + k.slice(from.length);
-    const raw = safeRead(k);
-    if (raw && !safeRead(dest)) { safeWrite(dest, raw); safeRemove(k); moved += 1; }
-  });
+  const paths = new Set();
+  if (usingPrivate()) for (const f of store.keys()) if (f.startsWith(from)) paths.add(f);
+  try {
+    for (const k of Object.keys(localStorage)) {
+      if (k.startsWith(KEY_PREFIX + from)) paths.add(k.slice(KEY_PREFIX.length));
+    }
+  } catch { /* storage unavailable */ }
+  for (const f of paths) {
+    if (migrateConversation(f, to + f.slice(from.length))) moved += 1;
+  }
   return moved;
+}
+
+// ── For account sync (lib/projectSyncData's private bundle) ─────────────────
+// Every conversation this user has, as [{ path (folded), record }] — whichever
+// store holds it. Loads the private store first.
+export async function listConversations() {
+  await ensureLoaded();
+  const out = new Map();
+  try {
+    for (const k of Object.keys(localStorage)) {
+      if (!k.startsWith(KEY_PREFIX)) continue;
+      const raw = safeRead(k);
+      const rec = raw && JSON.parse(raw);
+      if (rec && typeof rec === 'object') out.set(folded(k.slice(KEY_PREFIX.length)), rec);
+    }
+  } catch { /* none */ }
+  if (usingPrivate()) {
+    for (const [f, hit] of store) {
+      const cur = out.get(f);
+      const raw = typeof hit.raw === 'string' ? JSON.parse(hit.raw) : hit.raw;
+      if (!cur || (raw?.updatedAt || 0) >= (cur.updatedAt || 0)) out.set(f, raw);
+    }
+  }
+  return [...out.entries()].map(([path, record]) => ({ path, record }));
+}
+
+// Store a conversation that came from another of the user's devices, as is.
+export async function putConversationRecord(filePath, record) {
+  if (!filePath || !record || typeof record !== 'object') return false;
+  await ensureLoaded();
+  return writeRecord(filePath, record);
+}
+
+// Whether this user's saved conversations are in memory yet — and a promise
+// for when they are. The Doc Viewer WAITS on it before reading a file's thread:
+// read too early (a window opened straight on a file), the private store is
+// still loading, the read finds nothing, the file opens on an EMPTY thread —
+// and the next message then saved a new thread over the old one.
+export function conversationsSettled() {
+  return !privateAvailable() || (!!userId && loadedFor === userId);
+}
+export function whenConversationsReady() {
+  if (conversationsSettled()) return Promise.resolve(true);
+  return ensureLoaded().catch(() => false);
 }

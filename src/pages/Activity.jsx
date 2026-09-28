@@ -87,7 +87,11 @@ const AUTO_READ_DWELL_MS = 800;
 // ── Single timeline row ───────────────────────────────────────────────
 // The rail marker is the notification's own contextual icon (trash / plus /
 // envelope / …) in a category-tinted round medallion.
-function ActivityRow({ notification, ctx, onRemove, onSeen }) {
+// Memoised: the page re-renders on every NotificationsContext change (a toast
+// arriving, the unread count moving), and every prop here is stable per row —
+// the notification object only changes when that row does, ctx is memoised
+// and onRemove / onSeen are the context's own callbacks.
+const ActivityRow = React.memo(function ActivityRow({ notification, ctx, onRemove, onSeen }) {
   const { id, title, body, created_at, read_at, category, variant } = notification;
   // Auto-read: a row that actually sits in the viewport for a moment counts as
   // seen, so the unread state reflects what you've looked at instead of
@@ -192,6 +196,38 @@ function ActivityRow({ notification, ctx, onRemove, onSeen }) {
       </button>
     </li>
   );
+});
+
+// The pinned mini header, in a component of its own so that flipping its
+// pinned state re-renders only the bar (and its fade), never the whole feed.
+// The scroller lives ABOVE the page, so the listener is attached imperatively
+// (same pattern as the Events / Chat / Files pin detection), measured at most
+// once a frame.
+function ActivityToolbar({ children }) {
+  const [pinned, setPinned] = useState(false);
+  const barRef = useRef(null);
+  useEffect(() => {
+    const el = barRef.current?.closest('.sv-single-scroll, .main-content');
+    if (!el) return undefined;
+    let raf = 0;
+    const measure = () => {
+      raf = 0;
+      const bar = barRef.current;
+      setPinned(!!bar && (bar.getBoundingClientRect().top - el.getBoundingClientRect().top) <= 8);
+    };
+    const onScroll = () => { if (!raf) raf = requestAnimationFrame(measure); };
+    measure();
+    el.addEventListener('scroll', onScroll, { passive: true });
+    return () => { el.removeEventListener('scroll', onScroll); if (raf) cancelAnimationFrame(raf); };
+  }, []);
+  return (
+    <>
+      <MiniHeaderFade visible={pinned} />
+      <div ref={barRef} className={`avt-toolbar${pinned ? ' is-pinned' : ''}`}>
+        {children}
+      </div>
+    </>
+  );
 }
 
 export default function ActivityPage() {
@@ -205,11 +241,7 @@ export default function ActivityPage() {
   // the feed below can slide in from the same direction.
   const [filter, setFilter] = useState('all');
   const [slideDir, setSlideDir] = useState(0);
-  // True once the toolbar is ACTUALLY stuck at the scroller's top (rect-based,
-  // like every other mini header) — drives the frosted .is-pinned surface.
-  const [pinned, setPinned] = useState(false);
   const rootRef = useRef(null);
-  const barRef = useRef(null);
 
   const ctx = useMemo(() => ({ navigate, installUpdate }), [navigate, installUpdate]);
 
@@ -256,21 +288,6 @@ export default function ActivityPage() {
     setFilter(id);
   };
 
-  // The page (.sv-single-scroll) is the scroller, which lives ABOVE this
-  // component — attach the scroll listener imperatively (same pattern as the
-  // Events / Chat / Files pin detection).
-  useEffect(() => {
-    const el = rootRef.current?.closest('.sv-single-scroll, .main-content');
-    if (!el) return undefined;
-    const onScroll = () => {
-      const bar = barRef.current;
-      setPinned(!!bar && (bar.getBoundingClientRect().top - el.getBoundingClientRect().top) <= 8);
-    };
-    onScroll();
-    el.addEventListener('scroll', onScroll, { passive: true });
-    return () => el.removeEventListener('scroll', onScroll);
-  }, []);
-
   return (
     <div className="avt-root" ref={rootRef}>
       {/* ── Masthead — the big "large title" hero, 1:1 with the Events tab. */}
@@ -289,11 +306,7 @@ export default function ActivityPage() {
 
       {/* ── Mini header — frosted 40px bar that pins at the top once the
           masthead scrolls away. Same surface as every other pinned bar. */}
-      <MiniHeaderFade visible={pinned} />
-      <div
-        ref={barRef}
-        className={`avt-toolbar${pinned ? ' is-pinned' : ''}`}
-      >
+      <ActivityToolbar>
         {notifications.length > 0 && (
           <>
             <FilterTabs tabs={filterTabs} active={filter} onSelect={selectFilter} ariaLabel="Filter activity" />
@@ -304,7 +317,7 @@ export default function ActivityPage() {
             </div>
           </>
         )}
-      </div>
+      </ActivityToolbar>
 
       {/* ── Timeline — day-grouped rows on a vertical rail; the marker is each
           notification's own icon in a category-tinted medallion. */}

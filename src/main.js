@@ -7,6 +7,8 @@ import { spawn } from 'node:child_process';
 import started from 'electron-squirrel-startup';
 import { updateElectronApp } from 'update-electron-app';
 import { registerPhoneUpload } from './phoneUploadServer';
+import { guessMimeFromName, isIgnoredLocalFilename, walkLocalDir } from './projectIndex/walk.js';
+import { createProjectIndexService } from './projectIndex/index.js';
 
 // Resolve the path to Word's executable when Microsoft Word is
 // installed locally. Electron's `app.getApplicationNameForProtocol`
@@ -109,7 +111,171 @@ protocol.registerSchemesAsPrivileged([
       corsEnabled: true,
     },
   },
+  // The app's own bundle in packaged builds (see "The app origin" below).
+  // `codeCache` is the point of it: Chromium keeps V8's compiled code for
+  // scripts served over this scheme, which file:// never gets.
+  {
+    scheme: 'docvex-app',
+    privileges: {
+      standard: true,
+      secure: true,
+      supportFetchAPI: true,
+      corsEnabled: true,
+      stream: true,
+      codeCache: true,
+    },
+  },
 ]);
+
+// Content-Security-Policy of packaged builds — applied to every response in
+// whenReady below, and to the app origin's documents.
+const APP_CSP = app.isPackaged ? [
+  "default-src 'self'",
+  "script-src 'self' 'wasm-unsafe-eval' blob:",
+  "worker-src 'self' blob:",
+  "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+  "font-src 'self' https://fonts.gstatic.com data:",
+  "img-src 'self' localfile: data: blob: https:",
+  "media-src 'self' localfile: blob: data:",
+  "connect-src 'self' https://*.supabase.co wss://*.supabase.co https://api.github.com https://*.githubusercontent.com localfile: data: blob:",
+  // The ANAF record's map drawer (components/MapDrawer): Google Maps' embed.
+  "frame-src https://www.google.com https://maps.google.com",
+  "object-src 'none'",
+  "base-uri 'none'",
+  "frame-ancestors 'none'",
+].join('; ') : '';
+
+// ── The app origin ──────────────────────────────────────────────────────────
+// Packaged builds load every app window from `docvex-app://bundle/…` instead
+// of file://. Two reasons: V8's CODE CACHE (a custom scheme with `codeCache`
+// keeps the compiled startup bundle between launches — file:// scripts are
+// compiled from scratch every time, which on a slow office CPU is a large
+// share of start-up), and a real origin rather than the shared `file://` one.
+// Dev (`npm start`) is unchanged: it loads the Vite dev server.
+//
+// The ORIGIN changes, and localStorage is per origin — so the first launch on
+// this scheme copies the old file:// localStorage across (`migrateOriginStorage`,
+// before any window opens). It COPIES: the file:// data stays where it was, so
+// the escape hatch below (and an older build) still find it. IndexedDB is not
+// copied: in the desktop build it only holds caches that rebuild themselves
+// (the OCR models' copy).
+//
+// Escape hatch: DOCVEX_FILE_ORIGIN=1 in the environment loads from file:// as
+// before. A window whose docvex-app:// load fails falls back to file:// too.
+const APP_SCHEME = 'docvex-app';
+const APP_ORIGIN = `${APP_SCHEME}://bundle`;
+const USE_APP_ORIGIN = !MAIN_WINDOW_VITE_DEV_SERVER_URL && process.env.DOCVEX_FILE_ORIGIN !== '1';
+const RENDERER_DIR = () => path.join(__dirname, `../renderer/${MAIN_WINDOW_VITE_NAME}`);
+const MIGRATE_PAGE = '/__docvex-migrate.html';
+// True while the migration's hidden windows exist: closing them must not read
+// as "the last window closed" and quit the app before its first window opens.
+let migratingOrigin = false;
+
+// The bundle's own types. (guessMimeFromName answers text/plain for .js,
+// which a module script refuses.)
+const APP_MIME = {
+  html: 'text/html; charset=utf-8', js: 'text/javascript; charset=utf-8', mjs: 'text/javascript; charset=utf-8',
+  css: 'text/css; charset=utf-8', json: 'application/json', map: 'application/json', wasm: 'application/wasm',
+  svg: 'image/svg+xml', png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif', webp: 'image/webp',
+  ico: 'image/x-icon', woff2: 'font/woff2', woff: 'font/woff', ttf: 'font/ttf', txt: 'text/plain; charset=utf-8',
+  gz: 'application/gzip', bin: 'application/octet-stream', mp3: 'audio/mpeg', mp4: 'video/mp4', webm: 'video/webm',
+};
+
+// Load the app into an app window: the dev server, the app origin, or file://.
+function loadRendererBundle(win, query) {
+  const qs = query && Object.keys(query).length ? `?${new URLSearchParams(query).toString()}` : '';
+  if (MAIN_WINDOW_VITE_DEV_SERVER_URL) return win.loadURL(`${MAIN_WINDOW_VITE_DEV_SERVER_URL}${qs}`);
+  const fromFile = () => win.loadFile(path.join(RENDERER_DIR(), 'index.html'), query ? { query } : undefined);
+  if (!USE_APP_ORIGIN) return fromFile();
+  // A broken app-origin load must not leave a blank window: fall back once.
+  const onFail = (_e, code, desc, url, isMainFrame) => {
+    if (!isMainFrame || !String(url).startsWith(APP_ORIGIN) || code === -3 /* ABORTED: replaced by a navigation */) return;
+    console.warn(`[app-origin] ${url} failed (${code} ${desc}) — loading from file:// instead`);
+    fromFile();
+  };
+  win.webContents.once('did-fail-load', onFail);
+  win.webContents.once('did-finish-load', () => win.webContents.removeListener('did-fail-load', onFail));
+  return win.loadURL(`${APP_ORIGIN}/index.html${qs}`);
+}
+
+// Serve the renderer bundle over docvex-app://. Only files inside the bundle
+// folder; documents carry the same CSP the file:// build got from webRequest.
+function registerAppOrigin() {
+  if (!USE_APP_ORIGIN) return;
+  const root = path.resolve(RENDERER_DIR());
+  const debug = process.env.DOCVEX_ORIGIN_DEBUG === '1';
+  protocol.handle(APP_SCHEME, async (request) => {
+    if (debug) console.log('[app-origin] request', request.url);
+    try {
+      const url = new URL(request.url);
+      if (url.host !== 'bundle') return new Response('Not found', { status: 404 });
+      if (url.pathname === MIGRATE_PAGE) {
+        return new Response('<!doctype html><meta charset="utf-8"><title>DocVex</title>', { headers: { 'content-type': APP_MIME.html } });
+      }
+      const rel = decodeURIComponent(url.pathname).replace(/^\/+/, '') || 'index.html';
+      const file = path.resolve(root, rel);
+      if (file !== root && !file.startsWith(root + path.sep)) return new Response('Forbidden', { status: 403 });
+      const body = await fsp.readFile(file);
+      const ext = path.extname(file).slice(1).toLowerCase();
+      const headers = { 'content-type': APP_MIME[ext] || 'application/octet-stream' };
+      if (ext === 'html' && APP_CSP) headers['content-security-policy'] = APP_CSP;
+      return new Response(body, { headers });
+    } catch (err) {
+      if (err?.code !== 'ENOENT') console.warn('[app-origin] serving', request.url, 'failed:', err?.message || err);
+      return new Response('Not found', { status: err?.code === 'ENOENT' ? 404 : 500 });
+    }
+  });
+}
+
+// One-time copy of localStorage from the file:// origin to the app origin.
+// Runs before the first window; a fraction of a second, once. Only keys the
+// app origin doesn't already have are written, so a retry after a failed run
+// never overwrites anything newer. The marker is written only on success.
+const withTimeout = (p, ms) => Promise.race([p, new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), ms))]);
+async function migrateOriginStorage() {
+  if (!USE_APP_ORIGIN) return;
+  const userData = app.getPath('userData');
+  const marker = path.join(userData, 'app-origin-migrated.json');
+  if (fs.existsSync(marker)) return;
+  const hidden = { show: false, webPreferences: { contextIsolation: true, sandbox: true, nodeIntegration: false } };
+  migratingOrigin = true;
+  let read = null;
+  let write = null;
+  try {
+    // Every file:// page shares one storage origin, so any local page reads it.
+    const blank = path.join(userData, 'app-origin-migrate.html');
+    await fsp.writeFile(blank, '<!doctype html><meta charset="utf-8"><title>DocVex</title>');
+    read = new BrowserWindow(hidden);
+    await withTimeout(read.loadFile(blank), 8000);
+    const dump = await withTimeout(read.webContents.executeJavaScript(
+      'JSON.stringify(Object.fromEntries(Object.keys(localStorage).map((k) => [k, localStorage.getItem(k)])))', true), 8000);
+    read.destroy(); read = null;
+    fsp.rm(blank, { force: true }).catch(() => {});
+    const count = Object.keys(JSON.parse(dump || '{}')).length;
+    let copied = 0;
+    if (count) {
+      write = new BrowserWindow(hidden);
+      await withTimeout(write.loadURL(`${APP_ORIGIN}${MIGRATE_PAGE}`), 8000);
+      copied = await withTimeout(write.webContents.executeJavaScript(`(() => {
+        const d = ${dump};
+        let n = 0;
+        for (const [k, v] of Object.entries(d)) {
+          if (localStorage.getItem(k) === null) { try { localStorage.setItem(k, v); n += 1; } catch (e) { /* quota */ } }
+        }
+        return n;
+      })()`, true), 15000);
+      write.destroy(); write = null;
+      session.defaultSession.flushStorageData();
+    }
+    await fsp.writeFile(marker, JSON.stringify({ from: 'file://', to: APP_ORIGIN, keys: count, copied, at: new Date().toISOString() }));
+    console.log(`[app-origin] copied ${copied} of ${count} localStorage keys from file://`);
+  } catch (err) {
+    console.warn('[app-origin] storage migration failed — will retry next launch:', err?.message || err);
+  } finally {
+    try { read?.destroy(); } catch { /* gone */ }
+    try { write?.destroy(); } catch { /* gone */ }
+  }
+}
 
 // Known accounts for the dev-only "Account" menu. Clicking an item sends an
 // IPC to the renderer, which signs out of the current Supabase session,
@@ -148,20 +314,33 @@ let pendingStartupDeepLink = (process.argv || [])
 // to any project: it opens in its own Doc Viewer window and is recorded in
 // the "Opened with DocVex" list the Hub displays.
 const pendingExternalOpens = [];
+// A PROJECT file (`<name>.docvex`) is the exception: it isn't viewed, it
+// opens its project in the main window (see "Project files" further down).
+const pendingProjectFileOpens = [];
 function isOpenableFileArg(arg) {
   if (typeof arg !== 'string' || !arg) return false;
   if (arg.startsWith('-') || arg.startsWith('docvex://')) return false;
   try { return fs.statSync(arg).isFile(); } catch { return false; }
 }
+function isProjectFileArg(arg) {
+  return typeof arg === 'string' && arg.toLowerCase().endsWith('.docvex') && isOpenableFileArg(arg);
+}
+// Everything the OS hands over as a file goes through here.
+function openOsFile(filePath) {
+  if (isProjectFileArg(filePath)) openProjectFileFromOs(filePath);
+  else openExternalFile(filePath);
+}
 // Cold start: skip the executable (and the app path in dev) before probing.
 (process.argv || []).slice(process.defaultApp ? 2 : 1).forEach((arg) => {
-  if (isOpenableFileArg(arg)) pendingExternalOpens.push(arg);
+  if (isProjectFileArg(arg)) pendingProjectFileOpens.push(arg);
+  else if (isOpenableFileArg(arg)) pendingExternalOpens.push(arg);
 });
 // macOS delivers file-opens as an event — often BEFORE ready on cold start,
 // so the listener must exist this early and queue until the app is up.
 app.on('open-file', (event, filePath) => {
   event.preventDefault();
-  if (app.isReady()) openExternalFile(filePath);
+  if (app.isReady()) openOsFile(filePath);
+  else if (isProjectFileArg(filePath)) pendingProjectFileOpens.push(filePath);
   else pendingExternalOpens.push(filePath);
 });
 
@@ -194,11 +373,14 @@ const AUTO_UPDATE_SUPPORTED = process.platform === 'win32';
 // Polls every 10 min, downloads in the background, installs on next launch.
 // No-op in dev (`electron-forge start`) — only runs in packaged builds, and
 // only on platforms where Squirrel can actually apply the update.
+// The first check is held back 30 s: it spawns Update.exe (a .NET process,
+// disk + network), which on an office machine competes with the window's
+// first paint for no benefit — an update installs on the NEXT launch anyway.
 if (app.isPackaged && AUTO_UPDATE_SUPPORTED) {
-  updateElectronApp({
+  app.whenReady().then(() => setTimeout(() => updateElectronApp({
     repo: 'petreluca1105-dotcom/docvex',
     updateInterval: '10 minutes',
-  });
+  }), 30000));
 }
 
 // Branding: report a proper product name instead of the bundle default.
@@ -471,7 +653,13 @@ if (app.isPackaged && AUTO_UPDATE_SUPPORTED) {
 // the menu's `toggleDevTools` role provided. We re-add them per-window via the
 // raw input event, plus a right-click "Inspect element" context menu, so the
 // inspector is reachable again even without a menu bar.
+// DevTools exist ONLY when the app runs from the local Vite dev server
+// (`npm start`, http://localhost): never in a packaged or installed build —
+// the inspector is a way into every document and session the app holds.
+const DEVTOOLS_ALLOWED = !!MAIN_WINDOW_VITE_DEV_SERVER_URL;
+
 function wireDevtoolsShortcuts(win) {
+  if (!DEVTOOLS_ALLOWED) return;
   if (!win || win.isDestroyed()) return;
   const wc = win.webContents;
   wc.on('before-input-event', (event, input) => {
@@ -610,17 +798,9 @@ function createAppWindow({ query, openDevtools = false, bounds = null, show = tr
   // NOT preventDefault here, so Chromium mirrors document.title onto the window
   // title. index.html ships "DocVex" as the pre-mount fallback.
 
-  if (MAIN_WINDOW_VITE_DEV_SERVER_URL) {
-    const qs = query ? `?${new URLSearchParams(query).toString()}` : '';
-    win.loadURL(`${MAIN_WINDOW_VITE_DEV_SERVER_URL}${qs}`);
-  } else {
-    win.loadFile(
-      path.join(__dirname, `../renderer/${MAIN_WINDOW_VITE_NAME}/index.html`),
-      query ? { query } : undefined,
-    );
-  }
+  loadRendererBundle(win, query);
 
-  if (openDevtools) win.webContents.openDevTools();
+  if (openDevtools && DEVTOOLS_ALLOWED) win.webContents.openDevTools();
   return win;
 }
 
@@ -656,6 +836,7 @@ const createWindow = () => {
   // connected (otherwise let Electron center on the primary display).
   const saved = readWindowState();
   const bounds = saved && boundsAreOnScreen(saved) ? saved : null;
+  // DevTools only under `npm start` (DEVTOOLS_ALLOWED): never in a packaged build.
   mainWindow = createAppWindow({ openDevtools: true, bounds, show: false });
   // Reopen in the mode it was closed in — maximized, fullscreen, or minimized
   // to the taskbar. (Minimized is deliberate: "reopen how I left it" includes
@@ -669,7 +850,7 @@ const createWindow = () => {
   // Once the app itself is up and idle, pre-boot the doc-viewer window so the
   // first file opens instantly. Deliberately late: warming during startup
   // would compete with the main window's own first paint.
-  mainWindow.webContents.once('did-finish-load', () => scheduleWarmDocViewer(4000));
+  mainWindow.webContents.once('did-finish-load', () => scheduleWarmDocViewer(12000));
 };
 
 // ── Dedicated sign-in window ───────────────────────────────────────────────
@@ -1085,14 +1266,7 @@ async function openScreenSnip(mode = 'rect', { allScreens = false } = {}) {
     // suffixes its saved screenshot with the number so every screen's capture
     // + snippets can be kept side by side.
     if (displays.length > 1) query.w = String(displayIndex + 1);
-    if (MAIN_WINDOW_VITE_DEV_SERVER_URL) {
-      win.loadURL(`${MAIN_WINDOW_VITE_DEV_SERVER_URL}?${new URLSearchParams(query).toString()}`);
-    } else {
-      win.loadFile(
-        path.join(__dirname, `../renderer/${MAIN_WINDOW_VITE_NAME}/index.html`),
-        { query },
-      );
-    }
+    loadRendererBundle(win, query);
     snipWindows.push(win);
     win.on('closed', () => {
       appWindowContentIds.delete(wcId);
@@ -1141,14 +1315,7 @@ function openSnipPanel() {
   appWindowContentIds.add(wcId);
   win.removeMenu();
   const query = { snipPanel: '1' };
-  if (MAIN_WINDOW_VITE_DEV_SERVER_URL) {
-    win.loadURL(`${MAIN_WINDOW_VITE_DEV_SERVER_URL}?${new URLSearchParams(query).toString()}`);
-  } else {
-    win.loadFile(
-      path.join(__dirname, `../renderer/${MAIN_WINDOW_VITE_NAME}/index.html`),
-      { query },
-    );
-  }
+  loadRendererBundle(win, query);
   snipPanelWindow = win;
   win.on('closed', () => {
     appWindowContentIds.delete(wcId);
@@ -1206,14 +1373,7 @@ function openSnipCountdowns(delaySec, allScreens) {
     appWindowContentIds.add(wcId);
     win.removeMenu();
     const query = { snipCountdown: '1', n: String(delaySec) };
-    if (MAIN_WINDOW_VITE_DEV_SERVER_URL) {
-      win.loadURL(`${MAIN_WINDOW_VITE_DEV_SERVER_URL}?${new URLSearchParams(query).toString()}`);
-    } else {
-      win.loadFile(
-        path.join(__dirname, `../renderer/${MAIN_WINDOW_VITE_NAME}/index.html`),
-        { query },
-      );
-    }
+    loadRendererBundle(win, query);
     win.once('ready-to-show', () => { if (!win.isDestroyed()) win.showInactive(); });
     snipCountdownWindows.push(win);
     win.on('closed', () => {
@@ -1369,14 +1529,7 @@ function createTrayMenuWindow() {
   appWindowContentIds.add(wcId);
   win.removeMenu();
   const query = { trayMenu: '1' };
-  if (MAIN_WINDOW_VITE_DEV_SERVER_URL) {
-    win.loadURL(`${MAIN_WINDOW_VITE_DEV_SERVER_URL}?${new URLSearchParams(query).toString()}`);
-  } else {
-    win.loadFile(
-      path.join(__dirname, `../renderer/${MAIN_WINDOW_VITE_NAME}/index.html`),
-      { query },
-    );
-  }
+  loadRendererBundle(win, query);
   // Click-away dismissal. DevTools focus counts as a blur too, so keep the
   // menu out of the dev-tools flow (it's a plain route — open /tray-menu in
   // the main window to inspect it).
@@ -1466,7 +1619,7 @@ app.on('browser-window-created', (_e, created) => {
       // a window the user opened, so neither should hold the app open.
       const alive = BrowserWindow.getAllWindows()
         .filter((w) => !w.isDestroyed() && w !== trayMenuWindow && w !== warmViewer);
-      if (alive.length) return;
+      if (alive.length || migratingOrigin) return;
       clearTimeout(warmViewerTimer);
       if (warmViewer && !warmViewer.isDestroyed()) warmViewer.destroy();
       if (trayMenuWindow && !trayMenuWindow.isDestroyed()) trayMenuWindow.destroy();
@@ -1937,7 +2090,7 @@ app.on('second-instance', (_, argv) => {
   // "Open with DocVex" while the app is already running — the second
   // instance's argv carries the file path(s).
   (argv || []).slice(1).forEach((arg) => {
-    if (isOpenableFileArg(arg)) openExternalFile(arg);
+    if (isOpenableFileArg(arg)) openOsFile(arg);
   });
 });
 
@@ -2021,10 +2174,157 @@ function registerOpenWithDocVexVerb() {
     const icoPath = path.join(__dirname, 'favicon.ico');
     try { if (fs.existsSync(icoPath)) iconSpec = `"${icoPath}"`; } catch { /* keep the exe */ }
   }
+  // Written once per install: three reg.exe spawns on EVERY launch were pure
+  // startup cost. Remembered in userData by exactly what was written.
+  const stampFile = path.join(app.getPath('userData'), 'openwith.json');
+  const stamp = JSON.stringify({ exe, cmd, iconSpec });
+  try { if (fs.readFileSync(stampFile, 'utf8') === stamp) return; } catch { /* first run */ }
   (async () => {
-    await run([base, '/ve', '/d', 'Open with DocVex']);
-    await run([base, '/v', 'Icon', '/d', iconSpec]);
-    await run([`${base}\\command`, '/ve', '/d', cmd]);
+    const a = await run([base, '/ve', '/d', 'Open with DocVex']);
+    const b = await run([base, '/v', 'Icon', '/d', iconSpec]);
+    const c = await run([`${base}\\command`, '/ve', '/d', cmd]);
+    if (a && b && c) { try { fs.writeFileSync(stampFile, stamp); } catch { /* try again next launch */ } }
+  })();
+}
+
+// ── Project files + the project index (src/projectIndex/README.md) ────────
+// A project's listing comes from a machine-local SQLite index and is kept
+// equal to the folder in the background; what the app knows about files
+// lives in the index and, portably, under `.docvex/` in the case folder.
+// The service is created on first use — nothing here runs on the startup
+// path before the first window.
+let projectIndex = null;
+function broadcastToAllWindows(channel, payload) {
+  for (const w of BrowserWindow.getAllWindows()) {
+    try { if (!w.isDestroyed()) w.webContents.send(channel, payload); } catch { /* closing */ }
+  }
+}
+function projectIndexService() {
+  if (!projectIndex) {
+    projectIndex = createProjectIndexService({
+      userDataDir: app.getPath('userData'),
+      broadcast: broadcastToAllWindows,
+      // A project's folder is the user's own case folder: serve it over
+      // localfile:// like any folder the Files tab lists.
+      onProjectDir: registerLocalfileRoot,
+    });
+  }
+  return projectIndex;
+}
+function closeProjectIndex() {
+  if (!projectIndex) return;
+  try { projectIndex.close(); } catch { /* quitting anyway */ }
+  projectIndex = null;
+}
+
+// The contract's calls, one channel each. The service answers
+// `{ ok: false, error }` rather than throwing; the wrapper covers a payload
+// that isn't even an object.
+const PROJECT_INDEX_CALLS = {
+  'project:open': (s, a) => s.projectOpen(a),
+  'project:locate': (s, a) => s.projectLocate(typeof a === 'string' ? a : a?.projectId),
+  'project:files': (s, a) => s.projectFiles(a),
+  'project:reconcile': (s, a) => s.projectReconcile(a),
+  'project:file-id': (s, a) => s.projectFileId(a),
+  'project:path-for-id': (s, a) => s.projectPathForId(a),
+  'knowledge:get': (s, a) => s.knowledgeGet(a),
+  'knowledge:put': (s, a) => s.knowledgePut(a),
+  'knowledge:clear': (s, a) => s.knowledgeClear(a),
+  'knowledge:list': (s, a) => s.knowledgeList(a),
+  'settings:get': (s, a) => s.settingsGet(a),
+  'settings:put': (s, a) => s.settingsPut(a),
+  'private:get': (s, a) => s.privateGet(a),
+  'private:put': (s, a) => s.privatePut(a),
+  'private:list': (s, a) => s.privateList(a),
+};
+for (const [channel, call] of Object.entries(PROJECT_INDEX_CALLS)) {
+  ipcMain.handle(channel, async (_, arg) => {
+    try { return await call(projectIndexService(), arg ?? {}); } catch (err) {
+      return { ok: false, error: err?.message || String(err) };
+    }
+  });
+}
+
+// `project:opened` goes to the MAIN window only once its renderer is
+// listening: preload's onProjectOpened announces the subscription with
+// `project:opened-ready`. Until then (cold start, still signed out, a
+// reload) the events wait here — sent any earlier, they would be dropped.
+const pendingProjectOpened = [];
+const projectOpenedListeners = new Set(); // webContents ids subscribed
+function flushProjectOpened() {
+  if (!pendingProjectOpened.length) return;
+  if (!mainWindow || mainWindow.isDestroyed()) return;
+  const wc = mainWindow.webContents;
+  if (!projectOpenedListeners.has(wc.id)) return;
+  for (const payload of pendingProjectOpened.splice(0)) wc.send('project:opened', payload);
+}
+ipcMain.on('project:opened-ready', (e) => {
+  const wc = e.sender;
+  if (projectOpenedListeners.has(wc.id)) { flushProjectOpened(); return; }
+  projectOpenedListeners.add(wc.id);
+  const forget = () => projectOpenedListeners.delete(wc.id);
+  wc.once('did-start-loading', forget);
+  wc.once('destroyed', forget);
+  flushProjectOpened();
+});
+
+// A `.docvex` file double-clicked in Explorer / Finder (or passed on the
+// command line): register its folder as that project's and tell the main
+// window, which selects the project and shows its Files.
+async function openProjectFileFromOs(filePath) {
+  const res = await projectIndexService().registerProjectFile(filePath);
+  if (!res?.ok) {
+    // Not a project file after all (a stray file with the extension): view it.
+    openExternalFile(filePath);
+    return;
+  }
+  pendingProjectOpened.push({ projectId: res.projectId, dir: res.dir, name: res.name });
+  // Bring the app forward. Signed out, the sign-in window is the front; a
+  // main window still booting reveals itself when its session resolves.
+  if (authWindow && !authWindow.isDestroyed()) {
+    if (authWindow.isMinimized()) authWindow.restore();
+    authWindow.focus();
+  } else if (mainWindow && !mainWindow.isDestroyed() && pendingMainReveal === null) {
+    showMainWindow();
+  }
+  flushProjectOpened();
+}
+
+// Windows: `.docvex` → "DocVex project", opened by this app — written per
+// user (HKCU\Software\Classes, no admin prompt), once per install, stamped
+// like the Open-with verb. Dev registers the electron.exe + app-path form.
+// macOS declares the type in forge.config's extendInfo instead.
+function registerProjectFileType() {
+  if (process.platform !== 'win32') return;
+  const exe = process.execPath;
+  const cmd = process.defaultApp && process.argv.length >= 2
+    ? `"${exe}" "${path.resolve(process.argv[1])}" "%1"`
+    : `"${exe}" "%1"`;
+  let iconSpec = `"${exe}",0`;
+  if (!app.isPackaged) {
+    const icoPath = path.join(__dirname, 'favicon.ico');
+    try { if (fs.existsSync(icoPath)) iconSpec = `"${icoPath}"`; } catch { /* keep the exe */ }
+  }
+  const stampFile = path.join(app.getPath('userData'), 'docvex-filetype.json');
+  const stamp = JSON.stringify({ exe, cmd, iconSpec, v: 1 });
+  try { if (fs.readFileSync(stampFile, 'utf8') === stamp) return; } catch { /* first run */ }
+  const run = (args) => new Promise((resolve) => {
+    try {
+      const child = spawn('reg.exe', ['add', ...args, '/f'], { windowsHide: true });
+      child.on('error', () => resolve(false));
+      child.on('exit', (code) => resolve(code === 0));
+    } catch { resolve(false); }
+  });
+  const cls = 'HKCU\Software\Classes';
+  (async () => {
+    const results = [
+      await run([`${cls}\.docvex`, '/ve', '/d', 'DocVex.Project']),
+      await run([`${cls}\.docvex`, '/v', 'Content Type', '/d', 'application/json']),
+      await run([`${cls}\DocVex.Project`, '/ve', '/d', 'DocVex project']),
+      await run([`${cls}\DocVex.Project\DefaultIcon`, '/ve', '/d', iconSpec]),
+      await run([`${cls}\DocVex.Project\shell\open\command`, '/ve', '/d', cmd]),
+    ];
+    if (results.every(Boolean)) { try { fs.writeFileSync(stampFile, stamp); } catch { /* try again next launch */ } }
   })();
 }
 
@@ -2045,9 +2345,13 @@ const appWindowContentIds = new Set();
 function isAppContentUrl(url) {
   if (typeof url !== 'string') return false;
   if (/^localfile:\/\//i.test(url) || /^file:\/\//i.test(url) || /^devtools:\/\//i.test(url)) return true;
+  if (url.startsWith(`${APP_ORIGIN}/`)) return true;
   return !!MAIN_WINDOW_VITE_DEV_SERVER_URL && url.startsWith(MAIN_WINDOW_VITE_DEV_SERVER_URL);
 }
 app.on('web-contents-created', (_e, contents) => {
+  // Backstop for DEVTOOLS_ALLOWED: whatever opens them outside the dev server
+  // (a stray accelerator, a future menu entry), they close again at once.
+  if (!DEVTOOLS_ALLOWED) contents.on('devtools-opened', () => contents.closeDevTools());
   contents.on('will-navigate', (event, url) => {
     if (!appWindowContentIds.has(contents.id)) return; // viewer windows load remote docs — allowed
     if (!isAppContentUrl(url)) {
@@ -2782,30 +3086,6 @@ ipcMain.handle('update:download-and-install', async (_evt, payload) => {
 // the easiest path that avoids loading multi-MB videos into renderer
 // memory just to pipe them back out.
 
-// Map a filename's extension to a best-effort MIME type so the renderer
-// can pick the right card icon (PDF / video / image / text / generic).
-// Mirrors the categoriser in ProjectFiles.jsx so local + cloud cards
-// bucket into the same Photos / Videos / Documents sections.
-function guessMimeFromName(name) {
-  const ext = path.extname(name).slice(1).toLowerCase();
-  if (!ext) return '';
-  if (['jpg', 'jpeg'].includes(ext)) return 'image/jpeg';
-  if (['png', 'gif', 'webp', 'bmp', 'svg', 'heic'].includes(ext)) return `image/${ext}`;
-  if (['mp4', 'webm', 'mov', 'mkv', 'avi', 'm4v'].includes(ext)) return `video/${ext}`;
-  // Audio — WhatsApp voice notes are Ogg-Opus (`.opus`); the rest cover the
-  // common shared-audio formats. Without these the localfile handler falls
-  // back to octet-stream and Chromium refuses to decode the <audio> element.
-  if (['opus', 'ogg', 'oga'].includes(ext)) return 'audio/ogg';
-  if (ext === 'mp3') return 'audio/mpeg';
-  if (['m4a', 'aac'].includes(ext)) return 'audio/mp4';
-  if (ext === 'wav') return 'audio/wav';
-  if (ext === 'pdf') return 'application/pdf';
-  if (ext === 'md') return 'text/markdown';
-  if (['txt', 'log', 'json', 'csv', 'xml', 'html', 'css', 'js', 'ts'].includes(ext)) return 'text/plain';
-  if (ext === 'docx') return 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
-  if (['doc', 'xls', 'xlsx', 'ppt', 'pptx'].includes(ext)) return 'application/octet-stream';
-  return '';
-}
 
 // Strip path separators + Windows-reserved chars. The cloud filename
 // almost always comes from `File.name` (already sanitised by the OS file
@@ -2864,8 +3144,14 @@ function sanitizeFolderName(name) {
     .trim();
 }
 
-// Read the projectId a folder's .docvex.json sidecar claims (or null).
+// Read the projectId a folder claims (or null): its project file first —
+// the project index deletes the legacy `.docvex.json` sidecars once it has
+// imported their ids — then the sidecar of a folder not yet opened since.
 async function sidecarProjectId(dirPath) {
+  try {
+    const fromProjectFile = await projectIndexService().projectIdOfFolder(dirPath);
+    if (fromProjectFile) return fromProjectFile;
+  } catch { /* fall back to the sidecar */ }
   try {
     const j = JSON.parse(await fsp.readFile(path.join(dirPath, '.docvex.json'), 'utf8'));
     return j?.projectId || null;
@@ -2946,55 +3232,6 @@ ipcMain.handle('local-folder:project-dir', async (_, arg) => {
   }
 });
 
-// Filenames that should never surface as "your project's files" — they
-// are OS / editor bookkeeping artifacts that materialise transiently
-// next to the documents the user actually cares about. Leaving them
-// visible causes three classes of bugs:
-//   1. Word's `~$report.docx` lockfile appears as a phantom new file
-//      every time the user opens a .docx for editing, gets minted a
-//      sidecar UUID, and rides into the next commit (the bug the
-//      user explicitly hit and reported).
-//   2. Vim / IDE swap files (`.swp`, `.swo`, `*~`) flicker in and out
-//      of the list, racing the watcher debounce.
-//   3. macOS / Windows file managers drop hidden metadata (`.DS_Store`,
-//      `desktop.ini`, `Thumbs.db`) the user never agreed to share.
-//
-// The check is filename-only — we don't try to peek at file headers
-// or sizes. Anything matching one of these patterns is dropped from
-// the list before it has a chance to be hashed, reconciled with the
-// sidecar, or compared against cloud state.
-function isIgnoredLocalFilename(name) {
-  if (!name) return true;
-  // Dotfiles cover the broadest swath: .DS_Store, .git, .vscode/,
-  // .env, the sidecar's own .docvex.json, .Trashes, .Spotlight-V100,
-  // etc. The Files tab is for documents, not config.
-  if (name.startsWith('.')) return true;
-  // Office lockfiles use ~$ prefix — Word, Excel, PowerPoint all do
-  // this. The lockfile exists for the duration of the open session
-  // and is deleted on clean close. Without this filter, a user
-  // editing a .docx gets a phantom "~$Report.docx" card.
-  if (name.startsWith('~$')) return true;
-  // Vim / classic editor backup files end with ~ — e.g. `report.docx~`.
-  if (name.endsWith('~')) return true;
-  // Editor swap files — Vim / NeoVim are the dominant offenders.
-  if (/\.(swp|swo|swn|swm)$/i.test(name)) return true;
-  // Lockfile patterns from various OSes / editors (LibreOffice's
-  // `.~lock.report.docx#`, OS-level `.lock`, `.lck`). The dotfile
-  // rule catches LibreOffice's because it starts with `.`; the
-  // generic `.lock` / `.lck` extension catch covers third parties.
-  if (/\.(lock|lck)$/i.test(name)) return true;
-  // Generic temp scratch — most apps write `*.tmp` and `*.temp` next
-  // to the open file for atomic rename-on-save. They disappear after
-  // save but the watcher tick can catch them mid-flight.
-  if (/\.(tmp|temp|bak|partial|crdownload|part)$/i.test(name)) return true;
-  // Windows folder metadata (capital-T variant for older releases).
-  if (name === 'Thumbs.db' || name === 'thumbs.db') return true;
-  if (name === 'desktop.ini' || name === 'Desktop.ini') return true;
-  if (name === 'ehthumbs.db') return true;
-  // macOS quirks not always caught by the dotfile rule.
-  if (name === 'Icon\r') return true; // Finder custom-icon marker
-  return false;
-}
 
 // List regular files in `dir`. Subdirectories are filtered out — the
 // Files tab is flat by design, and recursing could surface a project's
@@ -3088,42 +3325,6 @@ ipcMain.handle('local-folder:stat', async (_, filePath) => {
   }
 });
 
-// Recursive listing — every file anywhere under `dir`, each tagged with
-// its `folderPath` (relative dir from the root, forward-slash separated,
-// '' for root). This is the SYNC source: the branch flow needs to see
-// files in subfolders so the folder structure can sync to the team.
-// Dotfolders + noise files are skipped, same as the flat list.
-// `dirsOut` (optional) collects every subfolder's relative path — account sync
-// needs them, or an empty folder would never reach another device.
-async function walkLocalDir(root, rel, out, dirsOut = null) {
-  const dir = rel ? path.join(root, rel) : root;
-  let entries;
-  try { entries = await fsp.readdir(dir, { withFileTypes: true }); }
-  catch { return; }
-  for (const entry of entries) {
-    if (entry.isDirectory()) {
-      if (entry.name.startsWith('.')) continue;
-      const childRel = rel ? `${rel}/${entry.name}` : entry.name;
-      if (dirsOut) dirsOut.push(childRel);
-      await walkLocalDir(root, childRel, out, dirsOut);
-      continue;
-    }
-    if (!entry.isFile()) continue;
-    if (isIgnoredLocalFilename(entry.name)) continue;
-    try {
-      const full = path.join(dir, entry.name);
-      const stat = await fsp.stat(full);
-      out.push({
-        name: entry.name,
-        path: full,
-        folderPath: rel || '',
-        sizeBytes: stat.size,
-        mtimeIso: stat.mtime.toISOString(),
-        mimeType: guessMimeFromName(entry.name),
-      });
-    } catch { /* skip unstattable */ }
-  }
-}
 
 ipcMain.handle('local-folder:list-recursive', async (_, dir) => {
   if (!dir) return { files: [], error: 'No directory specified' };
@@ -4112,7 +4313,7 @@ const stopPurgeTimer = () => {
 };
 
 // Tear the watcher + purge timer down on quit so we don't leave handles dangling.
-app.on('before-quit', () => { stopWatcher(); stopPurgeTimer(); });
+app.on('before-quit', () => { stopWatcher(); stopPurgeTimer(); closeProjectIndex(); });
 // --------------------------------------------------------------------------
 
 app.whenReady().then(() => {
@@ -4123,21 +4324,7 @@ app.whenReady().then(() => {
   // objects/base-uri/frame-ancestors are locked down so exfil + navigation
   // tricks are blocked. NOT applied in dev — Vite HMR needs eval + ws:.
   if (app.isPackaged) {
-    const csp = [
-      "default-src 'self'",
-      "script-src 'self' 'wasm-unsafe-eval' blob:",
-      "worker-src 'self' blob:",
-      "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
-      "font-src 'self' https://fonts.gstatic.com data:",
-      "img-src 'self' localfile: data: blob: https:",
-      "media-src 'self' localfile: blob: data:",
-      "connect-src 'self' https://*.supabase.co wss://*.supabase.co https://api.github.com https://*.githubusercontent.com localfile: data: blob:",
-      // The ANAF record's map drawer (components/MapDrawer): Google Maps' embed.
-      "frame-src https://www.google.com https://maps.google.com",
-      "object-src 'none'",
-      "base-uri 'none'",
-      "frame-ancestors 'none'",
-    ].join('; ');
+    const csp = APP_CSP;
     session.defaultSession.webRequest.onHeadersReceived((details, cb) => {
       cb({ responseHeaders: { ...details.responseHeaders, 'Content-Security-Policy': [csp] } });
     });
@@ -4379,6 +4566,9 @@ app.whenReady().then(() => {
   // trimmed even if this one writes little.
   sweepThumbCache();
 
+  // The app's own bundle over docvex-app:// (packaged builds; see "The app origin").
+  registerAppOrigin();
+
   protocol.handle('localfile', async (request) => {
     let filePath = '';
     try {
@@ -4539,8 +4729,7 @@ app.whenReady().then(() => {
         label: 'View',
         submenu: [
           { role: 'togglefullscreen' },
-          { type: 'separator' },
-          { role: 'toggleDevTools' },
+          ...(DEVTOOLS_ALLOWED ? [{ type: 'separator' }, { role: 'toggleDevTools' }] : []),
         ],
       },
       {
@@ -4551,14 +4740,29 @@ app.whenReady().then(() => {
     Menu.setApplicationMenu(null);
   }
 
-  createWindow();
-
-  // "Open with DocVex": register the Explorer verb (Windows, best-effort)
-  // and open any files the OS handed us before we were ready.
-  registerOpenWithDocVexVerb();
-  if (pendingExternalOpens.length) {
-    pendingExternalOpens.splice(0).forEach((p) => openExternalFile(p));
+  // The first windows. On the first launch that loads from the app origin,
+  // localStorage is copied over from file:// BEFORE any window opens (see
+  // "The app origin"), so nothing boots signed out or with default prefs.
+  // "Open with DocVex": open any files the OS handed us before we were ready.
+  const openFirstWindows = () => {
+    createWindow();
+    migratingOrigin = false; // a real window exists now (see migrateOriginStorage)
+    if (pendingExternalOpens.length) {
+      pendingExternalOpens.splice(0).forEach((p) => openExternalFile(p));
+    }
+    if (pendingProjectFileOpens.length) {
+      pendingProjectFileOpens.splice(0).forEach((p) => openProjectFileFromOs(p));
+    }
+  };
+  if (USE_APP_ORIGIN && !fs.existsSync(path.join(app.getPath('userData'), 'app-origin-migrated.json'))) {
+    migrateOriginStorage().finally(openFirstWindows);
+  } else {
+    openFirstWindows();
   }
+  // Register the Explorer verb and the .docvex file type (Windows,
+  // best-effort), off the startup path.
+  setTimeout(registerOpenWithDocVexVerb, 15000);
+  setTimeout(registerProjectFileType, 15000);
 
   // ── System tray / menu-bar icon ─────────────────────────────────────────
   // Puts the app icon in the Windows notification area / macOS menu bar.
@@ -5143,6 +5347,7 @@ ipcMain.handle('legislation:archive-clear', () => {
 });
 
 app.on('window-all-closed', () => {
+  if (migratingOrigin) return; // the storage migration's hidden windows
   if (process.platform !== 'darwin') {
     app.quit();
   }

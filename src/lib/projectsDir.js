@@ -1,13 +1,10 @@
 // Per-user "projects folder" preference — the directory under which Docvex
-// auto-creates a folder for each new project (and where the Files page / Title
-// bar resolve a project's local folder). There's no backend for this; it lives
-// in localStorage alongside the other docvex.* keys.
-//
-// This used to be duplicated inline in the launch hub, the Title bar, the Files
-// page and the AI-chat page. The hub is gone (its project-launcher merged into
-// the main app), so the read/write helpers live here as the single source of
-// truth. Electron-only in effect — on web `localFolderApi.projectDir` returns
-// null (no ambient filesystem path), so the readers no-op gracefully.
+// makes a folder for each NEW project. It no longer decides where an existing
+// project is: that is its project file (`<Project name>.docvex`, see
+// src/projectIndex/README.md), found through main's machine registry. It is
+// still read when a project that has never been opened on this machine is
+// linked for the first time (lib/localFolder → legacyProjectDir). There's no
+// backend for this; it lives in localStorage alongside the other docvex.* keys.
 
 const projectsDirKey = (uid) => `docvex.projectsDir.${uid || '_anonymous'}`;
 

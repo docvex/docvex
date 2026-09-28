@@ -25,8 +25,8 @@
 // browser's own lazy-loading decides when it's fetched. If a candidate fails,
 // the component walks to the next one; when the list runs out it paints the
 // file's glyph. Renderer-side generation (pdf.js / video frame grab / PPTX
-// preview) is now only the LAST resort — for the web build, or where no OS
-// provider exists — and it runs through a bounded queue with single-flight,
+// preview) is now only the LAST resort — where no OS provider
+// exists — and it runs through a bounded queue with single-flight,
 // refcounted blob URLs, and a negative cache so failures don't stampede.
 //
 // Exports:
@@ -228,8 +228,8 @@ export function buildCandidates(descriptor) {
     if (kind === 'image') out.push({ kind: 'url', url: descriptor.url, id: 'raw' });
   }
 
-  // 3. Renderer-side generation. Last resort: the web build (no localfile://),
-  //    a platform with no shell thumbnail provider (Linux), or a format whose
+  // 3. Renderer-side generation. Last resort: a platform with no shell
+  //    thumbnail provider (Linux), or a format whose
   //    provider is missing (PDF without a viewer installed).
   // A HEIC picture is decoded here (lib/heic) when the OS has no thumbnail
   // for it — Windows without the HEIF extension, i.e. most machines.

@@ -1,0 +1,72 @@
+/* The pointer-following LIGHTS of the bars, rails, composers and the danger
+   menu (lib/pointerSpots.js injects them into their host).
+
+   Each light is a real element holding a gradient drawn ONCE at the centre of
+   a square twice its radius (`.spot-dot`), MOVED by a transform — the
+   Sidebar's `.sidebar-glow` / `.sidebar-shine` recipe. They replace
+   `::before` / `::after` layers whose gradient centre was `--spot-x/y`: those
+   repainted the whole layer (and re-composited the frosted surface under it)
+   on every frame the pointer moved, where moving a painted layer only
+   re-composites.
+
+   Only DEFAULTS here, at zero specificity (`:where`), so each surface's own
+   rules — its radius (`--spot-r`), colours, opacity, z-index, inset — always
+   win whatever order the stylesheets load in. A surface sets `position:
+   absolute` again in its own `host > .spot-light` rule, since hosts lift
+   `> *` above the light with a relative position of their own.
+
+   Until the pointer first moves, the dot sits centred, as the old gradient's
+   `50% 50%` did; the first move gives it `.is-moved` (its corner at the
+   host's origin) and from then on only its transform changes. */
+:where(.spot-light) {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  overflow: hidden;
+}
+/* A border shine: the light masked to the border ring (the mask XORs the
+   content box away from the whole box); the surface sets the padding = the
+   border width. */
+:where(.spot-light.spot-shine) {
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  mask-composite: exclude;
+}
+:where(.spot-dot) {
+  position: absolute;
+  left: calc(50% - var(--spot-r, 0px));
+  top: calc(50% - var(--spot-r, 0px));
+  width: calc(var(--spot-r, 0px) * 2);
+  height: calc(var(--spot-r, 0px) * 2);
+  pointer-events: none;
+}
+/* Promoted to a layer of its own only WHILE it moves (lib/pointerSpots adds
+   `.is-live` on a move and drops it once the light has been still a moment).
+   A layer under a surface's text puts that text on a layer too, and Chromium
+   draws text on a see-through layer without subpixel (LCD) antialiasing — a
+   dot promoted for good would have changed how every bar's and rail's text
+   renders, hovered or not. At rest the light paints into the surface as the
+   pseudo-element did, pixel for pixel. */
+:where(.spot-dot.is-live) { will-change: transform; }
+:where(.spot-dot.is-moved) {
+  left: calc(-1 * var(--spot-r, 0px));
+  top: calc(-1 * var(--spot-r, 0px));
+}
+/* A light injected while the pointer is already over its host: held at 0
+   for one style pass, so its hover fade runs as the pseudo-element's did
+   rather than popping in. */
+.spot-light.spot-fresh { opacity: 0 !important; transition: none !important; }
+
+/* NO GPU LAYER over sharp text. On a surface without frosted glass behind its
+   text (an unpinned mini header, the Doc Viewer composer, the pop-up menus),
+   promoting the moving light to its own layer makes Chromium drop the text's
+   subpixel (LCD) smoothing while the light moves — a visible change. There
+   the light is repainted instead: only its own square, not the whole surface
+   as the old pseudo-element gradient was, and the text stays exactly as it was.
+   Frosted surfaces (rails, pinned bars) have no subpixel text to lose and keep
+   the layer. */
+.mini-glow:not(.is-pinned) .spot-dot.is-live,
+.dv-advisor-composer .spot-dot.is-live,
+.project-files-morph-pill .spot-dot.is-live { will-change: auto; }

@@ -117,10 +117,9 @@
 <body>
   <div class="card">
     <h1>Opening invitation…</h1>
-    <p id="lede">If you have the Docvex desktop app installed, it should open automatically. If not, you'll be redirected to open the invitation in your browser in a moment.</p>
+    <p id="lede">If you have the Docvex desktop app installed, it should open automatically. If it doesn't, use the button below, or install the app first.</p>
 
     <a id="open-link" class="open-btn" href="#" hidden>Open in desktop app</a>
-    <a id="open-web" class="open-btn" href="#" hidden style="background:transparent;border:1px solid var(--indigo);color:var(--text)">Open in browser instead</a>
 
     <p style="margin-top:1rem">Or paste this link into Docvex (Account → Open invite):</p>
     <div class="copy-row">
@@ -142,7 +141,6 @@
     const token = params.get('token');
     const lede = document.getElementById('lede');
     const openLink = document.getElementById('open-link');
-    const openWeb = document.getElementById('open-web');
     const linkText = document.getElementById('link-text');
     const copyBtn = document.getElementById('copy-btn');
 
@@ -150,72 +148,25 @@
       lede.className = 'error';
       lede.textContent = 'This link is missing the invitation token. Open the invite link from your email again, or ask the project admin to resend.';
       openLink.remove();
-      openWeb.remove();
       document.querySelector('.copy-row').remove();
     } else {
-      // Two URL forms for the same invitation:
-      //   - deepLink: docvex://invite?token=… — desktop app receives via
-      //     OS protocol handler (setAsDefaultProtocolClient in src/main.js).
-      //   - webLink: docvex.ro/app/invite/<token> — the web build's
-      //     BrowserRouter handles this route directly.
+      // The invitation opens in the desktop app: docvex://invite?token=… is
+      // received via the OS protocol handler (setAsDefaultProtocolClient in
+      // src/main.js). DocVex is desktop-only — there is no browser fallback.
       // encodeURIComponent guards against weird characters in the token
       // (the issued tokens are hex so it's a no-op, but cheap insurance).
-      const encoded = encodeURIComponent(token);
-      const deepLink = 'docvex://invite?token=' + encoded;
-      const webLink  = 'https://docvex.ro/app/invite/' + encoded;
+      const deepLink = 'docvex://invite?token=' + encodeURIComponent(token);
 
-      // Wire up both fallback buttons. Desktop button retries the protocol
-      // handoff; web button bypasses it entirely and opens the SPA.
+      // The button retries the protocol hand-off by hand.
       openLink.href = deepLink;
       openLink.hidden = false;
-      openWeb.href = webLink;
-      openWeb.hidden = false;
       linkText.textContent = deepLink;
-
-      // ── Auto-detect-and-route ─────────────────────────────────────────
-      // Try the desktop hand-off first. If the OS dispatches docvex:// to
-      // the installed app, the browser tab loses focus (visibilityState →
-      // 'hidden') as the desktop app takes the foreground. We watch for
-      // that signal; if it fires before our 1500ms timer, we cancel the
-      // fallback and stay on this page (the user is now in the desktop
-      // app). If the timer fires while the tab is still visible, the
-      // protocol handler didn't catch it — fall back to the web app.
-      //
-      // 1500ms is conservative: typical desktop hand-off is <500ms; we
-      // budget extra for slow disks and protocol-handler prompts.
-      const FALLBACK_MS = 1500;
-      let fallbackTimer = null;
-
-      const onVisibilityChange = () => {
-        // Tab went hidden → assume the desktop app grabbed focus. Cancel
-        // the web fallback. (If the user later switches back to the tab,
-        // we don't retry — they can use the buttons manually.)
-        if (document.visibilityState === 'hidden' && fallbackTimer) {
-          clearTimeout(fallbackTimer);
-          fallbackTimer = null;
-          document.removeEventListener('visibilitychange', onVisibilityChange);
-        }
-      };
-      document.addEventListener('visibilitychange', onVisibilityChange);
 
       // Kick off the protocol attempt after a tick so the DOM paints first.
       // Use location.href (not location.replace) so the back button still
       // returns the user here if the OS shows a "Open Docvex?" prompt and
       // the user cancels — Chrome and Edge handle this correctly.
       setTimeout(() => { location.href = deepLink; }, 100);
-
-      // Schedule the web fallback. Cleared by onVisibilityChange if the
-      // desktop app grabs focus before this fires.
-      fallbackTimer = setTimeout(() => {
-        fallbackTimer = null;
-        document.removeEventListener('visibilitychange', onVisibilityChange);
-        // Only redirect if we're still actively in the foreground. A
-        // page in the background that fires this timer has probably had
-        // the desktop app open in another window already.
-        if (document.visibilityState !== 'hidden') {
-          location.replace(webLink);
-        }
-      }, FALLBACK_MS);
 
       // Copy-to-clipboard with a brief "Copied!" indicator. Async API is
       // gated on a secure context (https://), which this page is, so it's

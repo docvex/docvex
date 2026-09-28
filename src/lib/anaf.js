@@ -68,6 +68,9 @@ export function normalizeCompany(rec) {
     split: { on: yes(split.statusSplitTVA), from: split.dataInceputSplitTVA || '', to: split.dataAnulareSplitTVA || '' },
     hq: address(rec?.adresa_sediu_social, 's'),
     fiscalAddress: address(rec?.adresa_domiciliu_fiscal, 'd'),
+    // ANAF's own answer for this company, as it came — the Legislation tab's
+    // Source view (kept with the copy on this machine too; it is small).
+    raw: rec || null,
   };
 }
 

@@ -24,7 +24,7 @@ import {
   windowIsFullscreen,
   onWindowFullscreenChanged,
 } from '../lib/platform';
-import { toLayoutPx } from '../lib/appZoom';
+import { registerHoverSpot } from '../lib/pointer';
 
 import { LEGAL_TAB_PATHS } from './LegalTabs';
 import brandIcon from '../favicon.ico';
@@ -177,6 +177,8 @@ const CloseGlyph = (
 );
 
 export default function TitleBar() {
+  // The Doc Viewer burger's back-arrow light (see the button below).
+  useEffect(() => registerHoverSpot('.tb-burger'), []);
   const { session } = useAuth();
   const { selectedProject } = useSelectedProject();
   const { hasUpdate, latestVersion, currentVersion } = useUpdates();
@@ -338,16 +340,11 @@ export default function TitleBar() {
               aria-pressed={docFocus ? undefined : !docSideHidden}
               // The sidebar's rail buttons light up TOWARD THE CURSOR rather
               // than filling flat (--item-spot-x/y, see .nav-item in
-              // Sidebar.css), and the back arrow borrows that. Bound on the
-              // button itself, not on a container: the bar around it is an
-              // Electron drag region, which the OS handles, so no mousemove
-              // over it ever reaches the renderer — only the button's own
-              // `no-drag` box gets events.
-              onMouseMove={(e) => {
-                const r = e.currentTarget.getBoundingClientRect();
-                e.currentTarget.style.setProperty('--item-spot-x', `${toLayoutPx(e.clientX - r.left)}px`);
-                e.currentTarget.style.setProperty('--item-spot-y', `${toLayoutPx(e.clientY - r.top)}px`);
-              }}
+              // Sidebar.css), and the back arrow borrows that — registered
+              // below (registerHoverSpot). It works on the button alone: the
+              // bar around it is an Electron drag region, which the OS
+              // handles, so no pointer move over it ever reaches the renderer
+              // — only the button's own `no-drag` box gets events.
             >
               {docFocus ? BackArrowGlyph : BurgerGlyph}
             </button>

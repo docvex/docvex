@@ -86,14 +86,17 @@ html.dv-focus-moving .tooltip {
 }
 
 /* Multi-line override — useMorphPill adds `.is-multiline` to the
-   tooltip pill when hoverContent contains a newline. Half the radius
+   tooltip pill when it MEASURES two lines or more. Half the radius
    reads cleanly on a 2-line pill while still feeling pill-shaped.
    Single-line pills keep the 999px stadium ends from the base rule.
    (The Tooltip component itself needs no class: useTooltip MEASURES the
    pill on show and, at two lines or more, sets an inline radius of half
    the one-line pill's — Tooltip.jsx.) */
+/* HALF the one-line pill's radius: a one-line pill is its line box plus
+   padding and border tall, its radius half that; two lines or more get half
+   of THAT — the same figure Tooltip.jsx sets inline from its measurement. */
 .tooltip.is-multiline {
-  border-radius: 9.6px;
+  border-radius: calc((0.6rem * 1.2 + 4.8px * 2 + 2px) / 4);
 }
 
 

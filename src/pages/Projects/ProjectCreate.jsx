@@ -4,16 +4,15 @@ import { createProject } from '../../lib/projects';
 import { useNotifications } from '../../context/NotificationsContext';
 import { useSelectedProject } from '../../context/SelectedProjectContext';
 import { useAuth } from '../../context/AuthContext';
-import { localFolderApi, isElectronBranch } from '../../lib/localFolder';
+import { localFolderApi, isElectronBranch, hasProjectIndex, linkProjectFolder } from '../../lib/localFolder';
 import { readProjectsDir } from '../../lib/projectsDir';
 import './ProjectCreate.css';
 
-// Mirror a newly-created project to disk: create + register its folder under
-// the user's chosen projects directory (the shared resolver, so the Files page
-// later resolves to this same folder) and drop a `.docvex.json` sidecar so the
-// folder re-attaches to the project without prompting. Electron only — web has
-// no ambient projects directory. Best-effort: surfaces a toast on failure but
-// never blocks navigation. Migrated from the old launch hub's create flow.
+// Mirror a newly-created project to disk: create its folder under the user's
+// chosen projects directory and link it with a `<Project name>.docvex` project
+// file (src/projectIndex/README.md), so the folder opens as this project —
+// from the Files page, and double-clicked in Explorer. Electron only.
+// Best-effort: surfaces a toast on failure but never blocks navigation.
 async function mirrorProjectToDisk(project, userId, notify) {
   if (!isElectronBranch || !project?.id || !project?.name) return;
   const projectsDir = readProjectsDir(userId);
@@ -26,6 +25,10 @@ async function mirrorProjectToDisk(project, userId, notify) {
     });
     return;
   }
+  // The folder is made where the projects folder says (main's per-project
+  // directory), then linked by its project file. projectDir links it on its
+  // own when main has the project index; the explicit link below is what says
+  // so when it could not (another project's file already in that folder).
   const { path: dir, error } = await localFolderApi.projectDir(project.id, project.name, projectsDir);
   if (error || !dir) {
     notify?.({
@@ -35,7 +38,18 @@ async function mirrorProjectToDisk(project, userId, notify) {
     });
     return;
   }
-  await localFolderApi.writeSidecar({ dir, json: { version: 1, projectId: project.id, entries: {} } });
+  if (!hasProjectIndex()) return;
+  const linked = await linkProjectFolder({ projectId: project.id, name: project.name, dir });
+  if (!linked?.ok) {
+    notify?.({
+      category: 'project', variant: 'warning', icon: 'folder',
+      title: 'Project created, but its folder couldn’t be linked',
+      body: linked?.error === 'project_mismatch'
+        ? `“${dir}” already belongs to another DocVex project. Open the project’s Files to choose its folder.`
+        : (linked?.error || 'Unknown error'),
+      dedupeKey: `folder-link-fail-${project.id}`,
+    });
+  }
 }
 
 const ArrowLeftIcon = (

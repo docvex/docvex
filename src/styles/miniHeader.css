@@ -3,9 +3,9 @@
    dc-compact, versions-compact, mx-compact, fx-pathbar, dvx-toolbar) reads as
    the same surface.
 
-   Usage: add `mini-glow` to the bar and wire `miniHeaderSpot` from
-   lib/miniHeaderSpot.js as its onMouseMove — it writes the bar-relative
-   --spot-x/--spot-y vars the gradients track. The glow colour defaults to the
+   Usage: add `mini-glow` to the bar and call `useMiniGlowSpot()` (from
+   lib/pointerSpots.js) in the component rendering it — the app's one pointer
+   then gives the bar its light elements and moves them. The glow colour defaults to the
    accent; a surface can override it via --mini-spot-color (the Files bar's
    red edit mode flips it to white).
 
@@ -32,71 +32,55 @@
   --mini-seam-shadow-down: 0 var(--chrome-inset, 6.4px) 0 0 var(--bg-backdrop);
 }
 
-/* The SIDEBAR's cursor-following spotlight (.sidebar::before / ::after in
+/* The SIDEBAR's cursor-following spotlight (.sidebar-glow / .sidebar-shine in
    Sidebar.css, same values): a soft accent glow inside the bar and a bright
-   accent shine on its border, both following --spot-x/--spot-y and fading in
-   while the pointer is over the bar. Worn by every mini header and by the two
-   footers (the Files action bar, the Chat composer when it is the footer).
-   Bars that are transparent in flow already hide the border shine
-   (.fx-pathbar / .dvx-toolbar :not(.is-pinned)::after). */
-.mini-glow::before,
-.sv-footer .dvx-composer.mini-glow::before {
-  content: '';
-  display: block;
+   accent shine on its border, following the pointer and fading in while it
+   is over the bar. Worn by every mini header and by the two footers (the
+   Files action bar, the Chat composer when it is the footer — see
+   ProjectChatVariantB.css for the composer's own). Bars that are transparent
+   in flow already hide the border shine (.fx-pathbar / .dvx-toolbar
+   :not(.is-pinned) > .spot-shine).
+   They are lib/pointerSpots' injected lights (`.spot-glow` / `.spot-shine`,
+   styles/spotLights.css): pre-drawn dots snapped to the pointer by a
+   transform. They used to be this bar's ::before / ::after with the gradient
+   centred on --spot-x/y, which repainted both full-size layers — and
+   re-composited the frosted bar under them — on every pointer move. */
+.mini-glow > .spot-light {
   position: absolute;
   inset: 0;
-  border-radius: inherit;
-  pointer-events: none;
-  z-index: 0;
+  --spot-r: 264px;
+  opacity: 0;
+  transition: opacity 240ms ease;
+}
+.mini-glow > .spot-glow { z-index: 0; }
+.mini-glow > .spot-shine { z-index: 2; padding: 1.5px; }
+.mini-glow > .spot-glow > .spot-dot {
   background: radial-gradient(
-    264px circle at var(--spot-x, 50%) var(--spot-y, 50%),
+    264px circle at 50% 50%,
     color-mix(in srgb, var(--accent) 4.5%, transparent) 0%,
     color-mix(in srgb, var(--accent) 1.5%, transparent) 38%,
     transparent 68%
   );
-  backdrop-filter: none;
-  -webkit-backdrop-filter: none;
-  opacity: 0;
-  transition: opacity 240ms ease;
 }
-.mini-glow::after,
-.sv-footer .dvx-composer.mini-glow::after {
-  content: '';
-  display: block;
-  position: absolute;
-  inset: 0;
-  border-radius: inherit;
-  padding: 1.5px;
-  pointer-events: none;
-  z-index: 2;
+.mini-glow > .spot-shine > .spot-dot {
   background: radial-gradient(
-    264px circle at var(--spot-x, 50%) var(--spot-y, 50%),
+    264px circle at 50% 50%,
     color-mix(in srgb, var(--accent) 42%, transparent) 0%,
     color-mix(in srgb, var(--accent) 12%, transparent) 34%,
     transparent 62%
   );
-  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
-  -webkit-mask-composite: xor;
-  mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
-  mask-composite: exclude;
-  opacity: 0;
-  transition: opacity 240ms ease;
 }
-.mini-glow:hover::before,
-.mini-glow:hover::after { opacity: 0.7; }
+.mini-glow:hover > .spot-light { opacity: 0.7; }
 /* Only while the bar has its background: a mini header scrolled back into
    the page (not pinned / not shown) is transparent, and a glow on nothing
    reads as a stray light. The footers always carry their fill; the Files bar
    keeps it in its tinted edit mode. */
-.mini-glow:not(.is-pinned, .is-visible, .is-editing, .fx-bottombar, .dvx-composer)::before,
-.mini-glow:not(.is-pinned, .is-visible, .is-editing, .fx-bottombar, .dvx-composer)::after { opacity: 0; }
+.mini-glow:not(.is-pinned, .is-visible, .is-editing, .fx-bottombar, .dvx-composer) > .spot-light { opacity: 0; }
 @media (prefers-reduced-motion: reduce) {
-  .mini-glow::before,
-  .mini-glow::after { display: none; }
+  .mini-glow > .spot-light { display: none; }
 }
 
-/* Lift the bar's content above the (former) glow layer — kept so the bars'
-   internal stacking doesn't shift. */
+/* Lift the bar's content above the glow layer. */
 .mini-glow > * { position: relative; z-index: 1; }
 
 /* Gap-strip fade — dissolves content passing through the seam between the

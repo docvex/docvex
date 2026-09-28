@@ -21,9 +21,9 @@ import { deleteCustomRole } from '../../lib/customRoles';
 import { localFolderApi, isElectronBranch } from '../../lib/localFolder';
 import { readProjectsDir } from '../../lib/projectsDir';
 import { wipeProjectFiles, wipeProjectAiMemory, wipeProjectFileData } from '../../lib/projectDataWipe';
-import { syncStatus, enableSync, disableSync, syncProject, syncKeepsFolders } from '../../lib/projectSync';
+import { syncStatus, enableSync, disableSync, syncProject } from '../../lib/projectSync';
 import { formatRelativeTime } from '../../lib/notifications';
-import { miniHeaderSpot } from '../../lib/miniHeaderSpot';
+import { useMiniGlowSpot } from '../../lib/pointerSpots';
 import { readAiTokens, resetAiTokens, AI_TOKENS_CHANGED_EVENT } from '../../lib/aiTokenMeter';
 import MiniHeaderFade from '../../components/MiniHeaderFade';
 import { useHasCapability } from '../../hooks/useHasCapability';
@@ -260,11 +260,43 @@ const WIPE_COPY = {
   },
 };
 
+// Compact-header-on-scroll, mirroring the Versions page. The page scrolls
+// inside the single-window pane's `.sv-single-scroll` (falling back to
+// `.main-content`); we listen there and fade a fixed, blurred bar in once the
+// hero has scrolled away. Hysteresis (show past 32px, hide under 8px) avoids
+// flicker at the threshold. A component of its own so a flip re-renders only
+// the bar and its fade; it mounts with the real page (after the loading
+// state), and `resetKey` re-attaches it when the project changes.
+function PjdCompactBar({ resetKey, children }) {
+  useMiniGlowSpot(); // the .mini-glow bar's spotlight (lib/pointerSpots)
+  const barRef = useRef(null);
+  const [scrolled, setScrolled] = useState(false);
+  useEffect(() => {
+    const scroller = barRef.current?.closest('.sv-single-scroll, .main-content');
+    if (!scroller) return undefined;
+    const onScroll = () => {
+      const top = scroller.scrollTop;
+      setScrolled((s) => (s ? top > 8 : top > 32));
+    };
+    onScroll();
+    scroller.addEventListener('scroll', onScroll, { passive: true });
+    return () => scroller.removeEventListener('scroll', onScroll);
+  }, [resetKey]);
+  return (
+    <>
+      <MiniHeaderFade visible={scrolled} />
+      <div ref={barRef} className={`pjd-compact mini-glow${scrolled ? ' is-visible' : ''}`} aria-hidden={!scrolled}>
+        {children}
+      </div>
+    </>
+  );
+}
+
 export default function ProjectOverview() {
   const {
     project, role, members, customRoles, loading, error, refresh,
     removeMemberLocal, setMemberRoleLocal, removeCustomRoleLocal,
-    refreshCustomRoles,
+    refreshCustomRoles, patchProjectLocal, replaceCustomRoleLocal,
   } = useProject();
   // Capability-aware gates for the affordances that ARE in the toggleable
   // set (post-migration 008). Owners/admins resolve to true for all of
@@ -394,21 +426,27 @@ export default function ProjectOverview() {
   const jurisdiction = getJurisdiction(jurisdictionCode);
   const handleJurisdictionChange = async (code) => {
     if (savingJurisdiction || code === jurisdictionCode) return;
+    // Optimistic: the select, the help text and the ambient jurisdiction
+    // every AI request is stamped with (the selected-project row) all move to
+    // the new code at once; a refusal puts the previous value back on both.
+    const previous = project?.jurisdiction ?? null;
     setSavingJurisdiction(code);
+    patchProjectLocal?.({ jurisdiction: code });
+    patchSelectedProject?.({ id: project.id, jurisdiction: code });
     const { error: jErr } = await updateProjectJurisdiction(project.id, code);
     setSavingJurisdiction(null);
     if (jErr) {
+      patchProjectLocal?.({ jurisdiction: previous });
+      patchSelectedProject?.({ id: project.id, jurisdiction: previous });
       notify({
         category: 'project',
         variant: 'error',
         title: 'Could not change the jurisdiction',
-        body: jErr.message || 'The server rejected the request.',
+        body: `It is back to ${getJurisdiction(previous || DEFAULT_JURISDICTION).name}. ${jErr.message || 'The server rejected the request.'}`,
+        dedupeKey: `project-jurisdiction-failed-${project.id}`,
       });
       return;
     }
-    // Mirror into the selected-project row so the ambient jurisdiction every AI
-    // request is stamped with updates now, without waiting for a refetch.
-    patchSelectedProject?.({ jurisdiction: code });
     refresh?.();
     notify({
       category: 'project',
@@ -439,8 +477,7 @@ export default function ProjectOverview() {
 
   // File count + total bytes for the hero kicker. Files are local-only now (no
   // cloud file store since migration 031), so these come from the project's
-  // local folder — Electron only; the web build has no ambient folder and shows
-  // zeros. Mirrors the count the title bar shows.
+  // local folder. Mirrors the count the title bar shows.
   const [fileStats, setFileStats] = useState({ count: 0, bytes: 0 });
 
   // ── Sync with account ───────────────────────────────────────────────────
@@ -500,25 +537,9 @@ export default function ProjectOverview() {
     refreshSync();
   }, [project?.id, refreshSync]);
 
-  // Compact-header-on-scroll, mirroring the Versions page. The page scrolls
-  // inside the single-window pane's `.sv-single-scroll` (falling back to
-  // `.main-content`); we listen there and fade a fixed, blurred bar in once the
-  // hero has scrolled away. Hysteresis (show past 32px, hide under 8px) avoids
-  // flicker at the threshold. Keyed on project/loading so it re-attaches once
-  // the real page (with `pageRef`) mounts after the loading state.
+  // The compact header's scroll tracking lives in PjdCompactBar (below), so a
+  // show/hide flip re-renders only the bar, not this whole page.
   const pageRef = useRef(null);
-  const [scrolled, setScrolled] = useState(false);
-  useEffect(() => {
-    const scroller = pageRef.current?.closest('.sv-single-scroll, .main-content');
-    if (!scroller) return undefined;
-    const onScroll = () => {
-      const top = scroller.scrollTop;
-      setScrolled((s) => (s ? top > 8 : top > 32));
-    };
-    onScroll();
-    scroller.addEventListener('scroll', onScroll, { passive: true });
-    return () => scroller.removeEventListener('scroll', onScroll);
-  }, [project?.id, loading, error]);
   const scrollToTop = () => {
     pageRef.current?.closest('.sv-single-scroll, .main-content')?.scrollTo({ top: 0, behavior: 'smooth' });
   };
@@ -556,7 +577,10 @@ export default function ProjectOverview() {
   // remote change refreshes the buffer; because Save writes the trimmed value,
   // the post-save Realtime echo re-seeds to the same text rather than clobbering
   // in-flight typing.
+  const keepAiBufferRef = useRef(false);
   useEffect(() => {
+    // A failed optimistic save rolls the row back; keep the typed buffer.
+    if (keepAiBufferRef.current) { keepAiBufferRef.current = false; return; }
     setAiContext(project?.ai_context ?? '');
   }, [project?.id, project?.ai_context]);
 
@@ -589,19 +613,28 @@ export default function ProjectOverview() {
       setEditingName(false);
       return;
     }
+    // Optimistic: the hero, the sidebar picker and the banner take the new
+    // name the moment the field is left (the title drawn faded while
+    // `savingProject`); a refusal puts the old name back everywhere.
+    const oldName = project?.name ?? '';
     setSavingProject(true);
+    setEditingName(false);
+    patchProjectLocal?.({ name: trimmedName });
+    patchSelectedProject({ id: project.id, name: trimmedName });
     const { data: updated, error: updErr } = await updateProject(project.id, {
       name: trimmedName,
     });
     setSavingProject(false);
-    setEditingName(false);
     if (updErr) {
-      setEditName(project?.name ?? '');
+      patchProjectLocal?.({ name: oldName });
+      patchSelectedProject({ id: project.id, name: oldName });
+      setEditName(oldName);
       notify({
         category: 'project',
         variant: 'error',
         title: 'Could not rename project',
-        body: updErr.message || 'The server rejected the request.',
+        body: `The old name was put back. ${updErr.message || 'The server rejected the request.'}`,
+        dedupeKey: `project-rename-failed-${project.id}`,
       });
       return;
     }
@@ -632,17 +665,32 @@ export default function ProjectOverview() {
   // RLS ("admins update projects") rejects non-admins too. The Realtime UPDATE
   // from ProjectContext re-seeds the buffer to the saved value, so no explicit
   // local patch is needed here.
+  //
+  // Optimistic: the saved value is patched into the project row at once, so
+  // the counter stops saying "unsaved" and the buttons settle the moment Save
+  // is pressed. If the write fails the row goes back to what the server has —
+  // but the text typed is NOT thrown away: the seed effect would copy the old
+  // value over the buffer, so `keepAiBufferRef` tells it to skip that one
+  // re-seed and the edit stays in the box, dirty again, ready to retry.
   const handleSaveAiContext = async () => {
     if (savingAiContext) return;
+    const attempted = aiContext;
+    const trimmed = attempted.trim();
+    const previous = project?.ai_context ?? null;
     setSavingAiContext(true);
-    const { error: aiErr } = await updateProjectAiContext(project.id, aiContext);
+    patchProjectLocal?.({ ai_context: trimmed.length ? trimmed : null });
+    const { error: aiErr } = await updateProjectAiContext(project.id, attempted);
     setSavingAiContext(false);
     if (aiErr) {
+      keepAiBufferRef.current = true;
+      patchProjectLocal?.({ ai_context: previous });
+      setAiContext(attempted);
       notify({
         category: 'project',
         variant: 'error',
         title: 'Could not save AI context',
-        body: aiErr.message || 'The server rejected the request.',
+        body: `Your text is still in the box, not saved. ${aiErr.message || 'The server rejected the request.'}`,
+        dedupeKey: `ai-context-save-failed-${project.id}`,
       });
       return;
     }
@@ -1033,8 +1081,7 @@ export default function ProjectOverview() {
       {/* Compact header — fades/slides in once the hero has scrolled away,
           mirroring the Versions page exactly: title · eyebrow · a clickable
           status pill (with a dot) that jumps back to the top. */}
-      <MiniHeaderFade visible={scrolled} />
-      <div className={`pjd-compact mini-glow${scrolled ? ' is-visible' : ''}`} aria-hidden={!scrolled} onMouseMove={miniHeaderSpot}>
+      <PjdCompactBar resetKey={project?.id}>
         <span className="pjd-compact-title">{project.name}</span>
         <span className="pjd-compact-sep" aria-hidden="true">·</span>
         <span className="pjd-compact-eyebrow">
@@ -1051,7 +1098,7 @@ export default function ProjectOverview() {
             Back to top
           </button>
         </Tooltip>
-      </div>
+      </PjdCompactBar>
 
       {/* Hero — masthead styling that mirrors the Versions page: accent eyebrow
           + muted tail, big display title, then a kicker stat line (real member
@@ -1085,7 +1132,7 @@ export default function ProjectOverview() {
                   className="pjd-hero-title-btn"
                   onClick={() => { setEditName(project.name ?? ''); setEditingName(true); }}
                 >
-                  <h1 className="pjd-hero-title">{project.name}</h1>
+                  <h1 className={`pjd-hero-title${savingProject ? ' is-pending' : ''}`}>{project.name}</h1>
                   <span className="pjd-hero-title-pencil" aria-hidden="true">{PencilIcon}</span>
                 </button>
               </Tooltip>
@@ -1193,7 +1240,6 @@ export default function ProjectOverview() {
             the newer file wins. Everything Docvex keeps about the files travels with them too —
             extracted text, metadata, captions, AI data, folder colours, the timeline — and your
             own advisor chats go to a private copy only you can read.
-            {!syncKeepsFolders && ' In the browser build there is only one folder, so files come down into it side by side rather than in their subfolders.'}
           </p>
           <div className="pjd-sync-row">
             <button
@@ -1755,6 +1801,10 @@ export default function ProjectOverview() {
             setMemberRoleLocal(roleChangeTarget.user_id, baseRole, customRoleId);
           }
         }}
+        onFailed={({ userId, baseRole, customRoleId }) => {
+          // The server refused: put the row back to the role it had.
+          setMemberRoleLocal(userId, baseRole, customRoleId);
+        }}
       />
 
       <CustomRoleEditor
@@ -1768,6 +1818,8 @@ export default function ProjectOverview() {
           // landed instead of waiting up to 200ms for the debounced reconcile.
           refreshCustomRoles();
         }}
+        onOptimistic={replaceCustomRoleLocal}
+        onFailed={replaceCustomRoleLocal}
       />
 
       <ConfirmModal

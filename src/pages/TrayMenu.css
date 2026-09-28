@@ -113,7 +113,7 @@
   font-weight: 500;
   text-align: left;
   cursor: pointer;
-  transition: background 90ms ease-out, color 90ms ease-out;
+  transition: background 90ms ease-out;
 }
 .tm-item:hover,
 .tm-item.is-cursor,

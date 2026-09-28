@@ -58,13 +58,13 @@
         <section class="lg-card" id="overview">
           <h2>1. What this policy covers</h2>
           <p class="lg-sub">Scope.</p>
-          <p>This policy explains how the docvex.ro website, the web application at docvex.ro/app, and the DocVex desktop application use cookies and similar browser-storage technologies (localStorage, sessionStorage, and IndexedDB). It supplements the <a href="privacy.html">Privacy Policy</a>.</p>
+          <p>This policy explains how the docvex.ro website and the DocVex desktop application use cookies and similar browser-storage technologies (localStorage, sessionStorage, and IndexedDB). It supplements the <a href="privacy.html">Privacy Policy</a>.</p>
         </section>
 
         <section class="lg-card" id="what">
           <h2>2. Cookies &amp; similar storage</h2>
           <p class="lg-sub">A short primer.</p>
-          <p>Cookies are small files a website places in your browser; localStorage, sessionStorage, and IndexedDB are related browser mechanisms for storing data on your device. DocVex primarily uses <strong>browser storage rather than cookies</strong>: the authentication session and your preferences are held in localStorage, temporary caches in sessionStorage, and (on the web app) the connection to your local project folder in IndexedDB.</p>
+          <p>Cookies are small files a website places in your browser; localStorage, sessionStorage, and IndexedDB are related browser mechanisms for storing data on your device. DocVex primarily uses <strong>browser storage rather than cookies</strong>: the authentication session and your preferences are held in localStorage and temporary caches in sessionStorage.</p>
           <p>Everything we store falls into two categories: <strong>essential</strong> (the Service cannot work without it) and <strong>preferences</strong> (remembering choices you made). We use no analytics, advertising, or cross-site tracking storage of any kind.</p>
         </section>
 
@@ -80,7 +80,6 @@
                 <tr><td>App preferences (docvex.appPrefs.*)</td><td>Preference</td><td>Interface settings such as text size, display scale, language, and file view.</td><td>Until cleared</td></tr>
                 <tr><td>Workspace state (docvex.*)</td><td>Essential / Preference</td><td>Selected project, chat read-markers, notification history, recently opened projects, cached AI results for files you opened.</td><td>Until cleared</td></tr>
                 <tr><td>Release &amp; digest caches (sessionStorage)</td><td>Essential</td><td>Short-lived caches of release notes and the legal-feed briefing to avoid repeated fetches.</td><td>Browser session</td></tr>
-                <tr><td>Folder handle (IndexedDB, web app only)</td><td>Essential</td><td>Remembers which local folder you granted the web app access to, per project.</td><td>Until disconnected or cleared</td></tr>
               </tbody>
             </table>
           </div>

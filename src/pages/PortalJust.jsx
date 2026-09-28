@@ -382,6 +382,9 @@ export default function PortalJust() {
     <LegalWorkspace
       className="pj-page"
       rootRef={pageRef}
+      // The open file AS THE SERVICE GAVE IT (the Source view): the Dosar
+      // record CautareDosare answered, in its own fields.
+      source={open ? { site: 'portal.just.ro', service: 'portalquery.just.ro/query.asmx — CautareDosare', data: open } : null}
       masthead={masthead}
       items={files.map((f) => ({
         id: f.id,

@@ -1,4 +1,4 @@
-﻿/* ReportProblemModal â€” full-screen overlay for filing a bug report.
+/* ReportProblemModal â€” full-screen overlay for filing a bug report.
    Reuses the shared .modal-btn / .modal-btn-cancel / .modal-btn-confirm
    classes from ConfirmModal.css (loaded transitively via any modal that
    mounts those rules first; we don't re-declare them here so a single
@@ -64,7 +64,7 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  transition: background 150ms, color 150ms, border-color 150ms;
+  transition: background 150ms, border-color 150ms;
 }
 
 .report-modal-close:hover:not(:disabled) {
@@ -221,7 +221,7 @@
   border: 1px solid var(--border);
   border-radius: 4.8px;
   cursor: pointer;
-  transition: background 120ms, color 120ms, border-color 120ms;
+  transition: background 120ms, border-color 120ms;
 }
 
 .report-modal-attachment-remove:hover:not(:disabled) {
@@ -254,7 +254,7 @@
      100px thumb + ~38px meta + 2px border = ~140px. */
   min-height: 112px;
   padding: 0.4rem;
-  transition: border-color 150ms, color 150ms, background 150ms;
+  transition: border-color 150ms, background 150ms;
 }
 
 .report-modal-attachment-add:hover:not(:disabled) {

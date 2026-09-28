@@ -99,7 +99,7 @@
   border: 1.5px solid transparent; border-radius: 6.4px;
   background: none; color: var(--text-secondary);
   font: inherit; font-size: 11.6px; font-weight: 600; white-space: nowrap;
-  transition: background 150ms, color 150ms, border-color 150ms;
+  transition: background 150ms, border-color 150ms;
 }
 .phe-btn.is-wide { padding: 0 11px; }
 .phe-btn:hover:not(:disabled) { background: color-mix(in srgb, var(--accent) 20%, transparent); color: var(--text-primary); }
@@ -133,7 +133,7 @@
 .phe-view {
   position: relative; width: 100%; height: 100%; overflow: hidden;
   display: grid; place-items: center;
-  cursor: grab;
+  cursor: default;
 }
 .phe-view.is-panning { cursor: grabbing; }
 /* The moving layer: it carries the pan AND the zoom, as one transform, the way

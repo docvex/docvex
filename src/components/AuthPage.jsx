@@ -1,10 +1,13 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Navigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { isElectron, isAuthWindow, authCompleted, authRequired } from '../lib/platform';
+import { isAuthWindow, authCompleted, authRequired } from '../lib/platform';
 import { useAuthFlow } from './auth/useAuthFlow';
 import AuthCabinet from './auth/AuthCabinet';
 import './AuthPage.css';
+import '@fontsource/cinzel/500.css';
+import '@fontsource/cinzel/600.css';
+import '@fontsource/cinzel/700.css';
 import './auth/authCabinet.css';
 
 // One-shot read of the prefill credentials written by AuthContext when the
@@ -55,7 +58,7 @@ export default function AuthPage() {
   // anyone who does get here (a stray navigation, a window shown by the tray):
   // point them at the real sign-in window rather than drawing a second copy of
   // the Cabinet in a window that isn't meant to be showing one.
-  if (isElectron && !isAuthWindow && !signedIn) {
+  if (!isAuthWindow && !signedIn) {
     return (
       <div className="auth-page auth-handoff">
         <p className="auth-handoff-text">Sign in to continue.</p>
@@ -69,9 +72,8 @@ export default function AuthPage() {
   // Once AuthContext has a session (email sign-in resolves, or the OAuth
   // callback completes exchangeCodeForSession), bounce out of /auth onto the
   // Hub — the app's default landing (matches the cold-launch route).
-  // An ANONYMOUS session (the web build's demo sign-in) does NOT bounce:
-  // this page is exactly where an anonymous visitor upgrades to a real
-  // account, so it must stay reachable while one is active. The sign-in window
+  // An ANONYMOUS session is not a signed-in user and does NOT bounce (no
+  // flow creates one any more — it's kept as a guard). The sign-in window
   // doesn't navigate at all — it's closing.
   if (signedIn && !isAuthWindow) {
     return <Navigate to="/projects" replace />;

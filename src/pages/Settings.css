@@ -47,7 +47,7 @@
   padding: 6.4px 10.4px; border-radius: 7.2px; flex-shrink: 0;
   background: var(--bg-card); border: 1px solid var(--border);
   color: var(--text-secondary); font-family: inherit; font-size: 10.4px; font-weight: 600; cursor: pointer;
-  transition: border-color 140ms, color 140ms, background 140ms;
+  transition: border-color 140ms, background 140ms;
 }
 .set-reset-btn:hover { border-color: var(--border-strong); color: var(--text-primary); background: var(--bg-elevated); }
 
@@ -278,7 +278,7 @@
   display: inline-flex; align-items: center; gap: 6.4px; padding: 8px 12.8px; border-radius: 7.2px;
   background: var(--bg-elevated); border: 1px solid var(--border); color: var(--text-secondary);
   font-size: 10.4px; font-weight: 600; cursor: pointer;
-  transition: transform 160ms cubic-bezier(.4,0,.2,1), box-shadow 160ms, color 160ms;
+  transition: transform 160ms cubic-bezier(.4,0,.2,1), box-shadow 160ms;
 }
 .set-mm-hover-card:hover { transform: translateY(-2.4px) scale(1.03); box-shadow: var(--shadow-elev); color: var(--accent); }
 .set-mm-hover-card .set-mm-hover-ico { color: var(--accent); display: inline-flex; }
@@ -311,3 +311,23 @@
 /* FPS counter preview: the meter drawn in place, in the mode chosen. */
 .set-demo-fps { display: flex; justify-content: center; align-items: center; min-height: 40px; padding: 8px 0; }
 .set-demo-fps-off { font-size: 12px; color: var(--text-muted); }
+
+/* Optimization — Graphics quality: the preset's effect as a feature × level table. */
+.set-perf { display: flex; flex-direction: column; gap: 10px; }
+.set-perf-blurb { margin: 0; font-size: 11.2px; line-height: 1.5; color: var(--text-secondary); }
+.set-perf-blurb b { color: var(--text-primary); }
+.set-perf-table { width: 100%; border-collapse: collapse; font-size: 10.8px; }
+.set-perf-table th, .set-perf-table td { padding: 5px 8px; border-bottom: 1px solid var(--border); text-align: center; }
+.set-perf-table tbody th { text-align: left; font-weight: 500; color: var(--text-secondary); }
+.set-perf-table thead th { font-weight: 600; color: var(--text-muted); }
+.set-perf-table .is-on { background: var(--accent-tint); color: var(--accent); }
+.set-perf-table tr:last-child th, .set-perf-table tr:last-child td { border-bottom: none; }
+.set-perf-yes { color: var(--success); }
+.set-perf-no { color: var(--text-muted); }
+
+/* Optimization — Load times: done / still to do. */
+.set-load { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+@media (max-width: 760px) { .set-load { grid-template-columns: 1fr; } }
+.set-load-h { margin: 0 0 6px; font-size: 10.4px; font-weight: 650; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-muted); }
+.set-load-list { margin: 0; padding-left: 16px; display: flex; flex-direction: column; gap: 5px; font-size: 11.2px; line-height: 1.45; color: var(--text-secondary); }
+.set-load-list.is-done li::marker { content: '✓  '; color: var(--success); }

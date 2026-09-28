@@ -362,6 +362,49 @@ contextBridge.exposeInMainWorld('electronAPI', {
     return () => ipcRenderer.removeListener('update:status', listener);
   },
 
+  // ── Project data (src/projectIndex/README.md — the contract) ──────────
+  // A project's listing from the machine index, the background reconcile's
+  // deltas, portable file ids, and the knowledge / settings / private stores.
+  // Every call resolves (failures come back as { ok: false, error }).
+  projectOpen: (args) => ipcRenderer.invoke('project:open', args),
+  projectLocate: (projectId) => ipcRenderer.invoke('project:locate', projectId),
+  projectFiles: (args) => ipcRenderer.invoke('project:files', args),
+  projectReconcile: (args) => ipcRenderer.invoke('project:reconcile', args),
+  projectFileId: (args) => ipcRenderer.invoke('project:file-id', args),
+  projectPathForId: (args) => ipcRenderer.invoke('project:path-for-id', args),
+  knowledgeGet: (args) => ipcRenderer.invoke('knowledge:get', args),
+  knowledgePut: (args) => ipcRenderer.invoke('knowledge:put', args),
+  knowledgeClear: (args) => ipcRenderer.invoke('knowledge:clear', args),
+  knowledgeList: (args) => ipcRenderer.invoke('knowledge:list', args),
+  settingsGet: (args) => ipcRenderer.invoke('settings:get', args),
+  settingsPut: (args) => ipcRenderer.invoke('settings:put', args),
+  privateGet: (args) => ipcRenderer.invoke('private:get', args),
+  privatePut: (args) => ipcRenderer.invoke('private:put', args),
+  privateList: (args) => ipcRenderer.invoke('private:list', args),
+  onProjectDelta: (handler) => {
+    const listener = (_, payload) => handler(payload);
+    ipcRenderer.on('project:delta', listener);
+    return () => ipcRenderer.removeListener('project:delta', listener);
+  },
+  // Subscribing tells main this window is listening: a project file opened
+  // from the OS before the app was ready is held in main until then.
+  onProjectOpened: (handler) => {
+    const listener = (_, payload) => handler(payload);
+    ipcRenderer.on('project:opened', listener);
+    ipcRenderer.send('project:opened-ready');
+    return () => ipcRenderer.removeListener('project:opened', listener);
+  },
+  onKnowledgeChanged: (handler) => {
+    const listener = (_, payload) => handler(payload);
+    ipcRenderer.on('knowledge:changed', listener);
+    return () => ipcRenderer.removeListener('knowledge:changed', listener);
+  },
+  onSettingsChanged: (handler) => {
+    const listener = (_, payload) => handler(payload);
+    ipcRenderer.on('settings:changed', listener);
+    return () => ipcRenderer.removeListener('settings:changed', listener);
+  },
+
   // Local-folder sync — backs the Files page's "download to my PC"
   // workflow. The renderer pre-signs Supabase URLs and hands them off
   // to main, which does the actual fs writes (renderer is sandboxed

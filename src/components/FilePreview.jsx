@@ -129,7 +129,10 @@ const PDF_FIT_GAP = 12;
 // not only the ones scrolled past; a very long one gets them page by page.
 const PDF_EAGER_TEXT_PAGES = 60;
 
-function PdfPage({ pdf, n, width, paintWidth, fallbackRatio, scrollRoot, eagerText }) {
+// Memoised: its props are plain values, so the column's own re-renders — a
+// pan frame of a one-page PDF, the page counter moving on scroll — leave every
+// page alone unless its size actually changed.
+const PdfPage = React.memo(function PdfPage({ pdf, n, width, paintWidth, fallbackRatio, scrollRoot, eagerText }) {
   const holderRef = useRef(null);
   const canvasRef = useRef(null);
   // A transparent copy of the page's text, positioned over the canvas. The
@@ -251,7 +254,7 @@ function PdfPage({ pdf, n, width, paintWidth, fallbackRatio, scrollRoot, eagerTe
       />
     </div>
   );
-}
+});
 
 // One page of the LIST beside the document (`pdfView.rail`): a small canvas,
 // painted when its slot nears the list's viewport and then kept (it is tiny).
@@ -262,7 +265,9 @@ const PDF_THUMB_W = 104;
 // shows its pages at once instead of painting them again. Bounded; oldest out.
 const PDF_THUMB_CACHE = new Map();
 const PDF_THUMB_CACHE_MAX = 600;
-function PdfThumb({ pdf, n, cacheKey, fallbackRatio, root, current, onPick }) {
+// Memoised like PdfPage: scrolling the document moves `current` from one
+// thumbnail to the next, and only those two need to redraw.
+const PdfThumb = React.memo(function PdfThumb({ pdf, n, cacheKey, fallbackRatio, root, current, onPick }) {
   const slotRef = useRef(null);
   const canvasRef = useRef(null);
   const cached = cacheKey ? PDF_THUMB_CACHE.get(cacheKey) : null;
@@ -340,7 +345,7 @@ function PdfThumb({ pdf, n, cacheKey, fallbackRatio, root, current, onPick }) {
       <span className="dv-pagerail-num">{n}</span>
     </button>
   );
-}
+});
 
 // `pdfView` = `{ zoom, rail, fitTick, pageNums }` from the Doc Viewer's quick actions:
 // `zoom` multiplies the fit-to-WIDTH page size (1 = as wide as the pane), `rail`
@@ -668,7 +673,8 @@ function PdfPreview({ signedUrl, file, onOpen, pdfView = null, onPdfZoom = null,
       const sel = window.getSelection?.();
       if (sel && !sel.isCollapsed && sel.anchorNode && el.contains(sel.anchorNode)) sel.removeAllRanges();
     }
-    if (!single || onText) return;
+    // Only the MIDDLE button pans the page; the left one selects text.
+    if (!single || !middle) return;
     e.preventDefault();
     const x0 = e.clientX; const y0 = e.clientY;
     const from = panRef.current;
@@ -700,11 +706,12 @@ function PdfPreview({ signedUrl, file, onOpen, pdfView = null, onPdfZoom = null,
   const railOn = showRail && railWanted && count > 0;
   const railPad = `calc(var(--dv-doc-inset, 0px) + ${railOn ? 126 : 0}px)`;
 
-  const goToPage = (n) => {
+  // Stable, so the memoised thumbnails keep their props.
+  const goToPage = useCallback((n) => {
     const el = containerRef.current;
     const node = el?.querySelector(`.file-preview-pdf-page[data-page="${n}"]`);
     if (el && node) el.scrollTo({ top: Math.max(0, node.offsetTop - PDF_FIT_GAP), behavior: 'smooth' });
-  };
+  }, []);
 
   if (error) return <NoPreview reason={error} />;
   return (

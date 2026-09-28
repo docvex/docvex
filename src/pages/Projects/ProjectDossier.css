@@ -721,3 +721,10 @@
   font-size: 12px; color: var(--text-secondary);
 }
 .pjd-sync-confirm > span { flex: 1 1 260px; min-width: 0; }
+
+/* Optimistic rename: the new name shows at once, faded until the server
+   has saved it (ProjectOverview commitName → `savingProject`). */
+.pjd-hero-title.is-pending {
+  opacity: 0.55;
+  transition: opacity 160ms ease;
+}

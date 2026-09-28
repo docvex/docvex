@@ -2,8 +2,8 @@
 //
 // Two kinds of view pan differently, and each keeps its own logic:
 //   STAGES — a picture, the photo editor, a one-page PDF — move their content
-//            with a transform; their own pan handlers take the middle button as
-//            well as the left (MediaOcrPane `onStageMouseDown`, PhotoEditor
+//            with a transform; their own pan handlers take the middle button ONLY —
+//            the left one never pans (MediaOcrPane `onStageMouseDown`, PhotoEditor
 //            `onStagePointerDown`, FilePreview `onPagesMouseDown`).
 //   SCROLLERS — a Word document, a PDF of several pages, the side panel's
 //            lists — scroll; a middle press anywhere in one DRAGS it (the

@@ -234,7 +234,7 @@
    lines around the floating composer — mirror the Chat/Files exception: just
    the solid seam strip in the chrome-inset gap, content scrolls visibly
    through the composer's frost. */
-.sv-single-body:has(.ai-chat-page)::after {
+.sv-single-body:has(.ai-chat-page.dv-advisor-chat)::after {
   height: var(--chrome-inset, 6.4px);
   background: var(--bg-page);
 }
@@ -674,7 +674,7 @@
   background: transparent;
   color: var(--text-secondary);
   cursor: pointer;
-  transition: background 120ms ease, color 120ms ease, border-color 120ms ease;
+  transition: background 120ms ease, border-color 120ms ease;
 }
 .ai-chat-page .aichat-railtoggle:hover {
   background: var(--bg-elevated);
@@ -851,7 +851,7 @@
   overflow: hidden;
   cursor: pointer;
   color: var(--text-secondary);
-  transition: background 120ms, color 120ms, border-color 120ms;
+  transition: background 120ms, border-color 120ms;
 }
 .ai-chat-page .aichat-item:hover { background: var(--bg-elevated); color: var(--text-primary); }
 /* Selected chat — accent-tinted row with a border matching the window-select
@@ -1211,7 +1211,7 @@
   border-radius: 5.6px;
   padding: 3.2px 6.4px;
   cursor: pointer;
-  transition: background 120ms ease, color 120ms ease;
+  transition: background 120ms ease;
 }
 .ai-chat-page .aichat-msg-action:hover {
   background: var(--bg-elevated);
@@ -1417,6 +1417,15 @@
 }
 .aichat-attach-x:hover { color: var(--danger); background: var(--danger-soft); }
 .aichat-attach-chip.is-static { background: color-mix(in srgb, var(--accent) 10%, transparent); border-color: color-mix(in srgb, var(--accent) 25%, transparent); }
+
+/* The files an answer comes from (lib/aiSources) — under the reply, each a
+   chip that opens the file, with what it says beside it. */
+.aichat-sources { display: flex; flex-direction: column; gap: 4.8px; margin-top: 8px; padding-left: 9.6px; border-left: 2px solid color-mix(in srgb, var(--accent) 40%, transparent); }
+.aichat-sources-label { font-size: var(--ds-label-size, 0.6rem); letter-spacing: var(--ds-label-tracking, 0.06em); text-transform: uppercase; color: var(--text-muted); }
+.aichat-source { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.aichat-source-chip { cursor: pointer; font: inherit; font-size: 0.624rem; color: var(--text-secondary); }
+.aichat-source-chip:hover { border-color: color-mix(in srgb, var(--accent) 50%, transparent); color: var(--text-primary); }
+.aichat-source-why { font-size: 0.72rem; color: var(--text-secondary); }
 
 /* ── AI "thinking" waveform ─────────────────────────────────────────────
    Replaces the three bouncing dots with an audio/voice-style waveform: a row
@@ -1904,3 +1913,239 @@
   color: var(--text-primary);
   word-break: break-word;
 }
+
+/* ── The chats as TABS (lib/advisorChats) — the Legislation tab's rail ─────
+   The rail keeps this page's own box (its width, the resizer, the hide),
+   and takes the Legislation rail's SURFACE and contents: the frosted page
+   ground (Cream: --bg-sidebar), a 1.5px --border ring, 9.6px corners, the
+   card shadow, 12.8 × 9.6px padding, the pointer lights; inside, the
+   `.lgb-rail-head` / `.lgb-rail-list` / `.lg-rail-item` recipes of
+   components/LegalBrowser.css + LegalWorkspace.css (keep in step). */
+.ai-chat-page .aichat-rail.is-tabrail {
+  box-sizing: border-box;
+  padding: 12.8px 9.6px;
+  border: 1.5px solid var(--border);
+  border-radius: 9.6px;
+  background: color-mix(in srgb, var(--bg-page) 66%, transparent);
+  backdrop-filter: blur(6.4px);
+  -webkit-backdrop-filter: blur(6.4px);
+  box-shadow: var(--shadow-card);
+  isolation: isolate;
+  overflow: hidden;
+}
+:root[data-theme="cream"] .ai-chat-page .aichat-rail.is-tabrail { background: color-mix(in srgb, var(--bg-sidebar) 90%, transparent); }
+.ai-chat-page .aichat-rail.is-tabrail > * { position: relative; z-index: 1; }
+.ai-chat-page .aichat-rail.is-tabrail > .spot-light { position: absolute; inset: 0; --spot-r: 264px; opacity: 0; transition: opacity 240ms ease; }
+.ai-chat-page .aichat-rail.is-tabrail > .spot-glow { z-index: 0; }
+.ai-chat-page .aichat-rail.is-tabrail > .spot-shine { z-index: 2; padding: 1.5px; }
+.ai-chat-page .aichat-rail.is-tabrail > .spot-glow > .spot-dot {
+  background: radial-gradient(264px circle at 50% 50%, color-mix(in srgb, var(--accent) 4.5%, transparent) 0%, color-mix(in srgb, var(--accent) 1.5%, transparent) 38%, transparent 68%);
+}
+.ai-chat-page .aichat-rail.is-tabrail > .spot-shine > .spot-dot {
+  background: radial-gradient(264px circle at 50% 50%, color-mix(in srgb, var(--accent) 42%, transparent) 0%, color-mix(in srgb, var(--accent) 12%, transparent) 34%, transparent 62%);
+}
+.ai-chat-page .aichat-rail.is-tabrail:hover > .spot-light { opacity: 0.7; }
+@media (prefers-reduced-motion: reduce) { .ai-chat-page .aichat-rail.is-tabrail > .spot-light { display: none; } }
+/* The tab on show stays in view inside the list, as in the Legislation rail. */
+.ai-chat-page .aichat-rail.is-tabrail .lgb-rail-list > .lg-rail-item.is-active { position: sticky; top: 0; bottom: 0; z-index: 2; }
+/* A boxed rail needs no hairline divider beside it — the resizer's line
+   shows only while hovered or dragged. */
+.ai-chat-page .aichat-shell:has(.aichat-rail.is-tabrail) .aichat-resizer:not(:hover):not(.is-active)::before { background: transparent; }
+
+/* ── THE PAGE SCROLLS ─────────────────────────────────────────────────────
+   The Advisor scrolls as one page, like the Legislation tab: the masthead
+   (components/PageMasthead) scrolls away, the MINI HEADER (components/
+   LegalTabs, `.aichat-bar`) sticks at the top, the chat list sticks under it
+   and runs to one inset above the window's foot (--airail-top / --airail-h,
+   measured in ProjectAI.jsx), the thread flows in the page and the composer
+   sticks to the window's foot. (It used to be a fixed column where only the
+   bubbles scrolled.) These rules override the fixed-column ones above. */
+.project-page-frame:has(.ai-chat-page:not(.dv-advisor-chat)) { height: auto; min-height: 0; overflow: visible; }
+.ai-hub.ai-chat-page:not(.dv-advisor-chat) { height: auto; min-height: 100%; overflow: visible; }
+.sv-single-scroll:has(.ai-chat-page:not(.dv-advisor-chat)) { scrollbar-gutter: stable; }
+.ai-chat-page:not(.dv-advisor-chat) .dvx-scroll-area { display: block; overflow: visible; }
+.ai-chat-page:not(.dv-advisor-chat) .aichat-fill { flex: none; }
+.ai-chat-page:not(.dv-advisor-chat) .aichat-debug.aichat-fill,
+.ai-chat-page:not(.dv-advisor-chat) .aichat-empty.aichat-fill { min-height: var(--airail-h, 60vh); }
+.ai-chat-page:not(.dv-advisor-chat) .aichat-shell {
+  align-items: flex-start;
+  /* Clips the rail sliding off to the left WITHOUT becoming a scroll
+     container (which would stop the rail and the composer sticking). */
+  overflow: visible;
+  overflow-x: clip;
+  min-height: var(--airail-h, 60vh);
+}
+.ai-chat-page:not(.dv-advisor-chat) .aichat-rail.is-tabrail {
+  position: sticky;
+  top: var(--airail-top, 56px);
+  height: var(--airail-h, 70vh);
+  align-self: flex-start;
+}
+.ai-chat-page:not(.dv-advisor-chat) .aichat-resizer { align-self: stretch; }
+.ai-chat-page:not(.dv-advisor-chat) .aichat-thread-col { min-height: var(--airail-h, 70vh); }
+.ai-chat-page:not(.dv-advisor-chat) .aichat-main {
+  flex: 1 0 auto;
+  overflow: visible;
+  -webkit-mask-image: none;
+  mask-image: none;
+  padding-bottom: 20px !important;
+}
+/* The composer sticks to the window's foot while the thread scrolls under
+   its frost. */
+.ai-chat-page:not(.dv-advisor-chat) .aichat-thread-col > .vb-composer-wrap {
+  position: sticky;
+  bottom: 0;
+  left: auto; right: auto;
+}
+/* The page's own scrollbar does the work: the thread's overlay thumb goes. */
+.ai-chat-page:not(.dv-advisor-chat) .aichat-msg-scrollbar { display: none; }
+
+/* THE MINI HEADER — the Design system's (LegalTabs): its frosted ground is
+   drawn ONLY while it is stuck (`.is-pinned`), as on every other page. */
+.ai-chat-page:not(.dv-advisor-chat) .lgt-bar.aichat-bar .aichat-railtoggle { margin-right: auto; }
+
+/* ── THE LEGISLATION TAB'S CONTENT RULES (the Design system's page layout —
+   components/LegalBrowser.css .lgb-rail / .lgb-shell, keep in step) ────────
+   The chat list stands as the Legislation rail does: its LEFT EDGE on the
+   header divider's left end (pulled out by --ds-divider-pull, its items
+   padded back onto the content edge), --ds-head-gap under the divider, one
+   --ds-page-inset clear of the window's foot, and --ds-list-gap between it
+   and the content (the resize band IS that gap). The window's bottom fade and the mini
+   header's gap fade are the page's own again (the page scrolls). */
+.ai-chat-page:not(.dv-advisor-chat) .aichat-rail.is-tabrail {
+  padding: 12.8px 9.6px 12.8px calc(var(--ds-divider-pull, 11.2px) - 1.5px);
+  margin-bottom: var(--ds-page-inset, 6.4px);
+}
+.ai-chat-page:not(.dv-advisor-chat) .aichat-shell {
+  overflow-x: visible;
+}
+.ai-chat-page:not(.dv-advisor-chat) .aichat-shell.rail-hidden,
+.ai-chat-page:not(.dv-advisor-chat) .aichat-shell.is-resizing { overflow-x: clip; }
+.ai-chat-page:not(.dv-advisor-chat) .aichat-resizer { flex: 0 0 var(--ds-list-gap, 20px); }
+.ai-chat-page:not(.dv-advisor-chat) .aichat-thread-col > .vb-composer-wrap {
+  /* Sticks one inset above the window's foot, above the bottom fade. */
+  bottom: var(--ds-page-inset, 6.4px);
+}
+
+/* ── THE COMPOSER IS THE DESIGN SYSTEM'S BOTTOM BAR ────────────────────────
+   The gallery's "Bottom bar" (.dsg-bottombar; the Files .fx-bottombar and
+   CAEN .cn-bottombar — keep in step): the frosted page ground, the bar's
+   1.5px flat border and radius, the downward seam shadow, sticky one inset
+   above the window's foot. It is ONE surface — the input box inside drops
+   its own frame, fill, glow and shadow; focus turns the bar's edge accent.
+   The frost is a pseudo-layer BEHIND the content (as .dvx-composer's was),
+   so typing in the textarea never re-runs the backdrop blur. */
+.ai-chat-page:not(.dv-advisor-chat) .aichat-thread-col > .vb-composer-wrap {
+  isolation: isolate;
+  padding: 8px 12px;
+  pointer-events: auto;
+  border: var(--ds-bar-border, 1.5px) solid var(--border-flat, var(--border));
+  border-radius: var(--ds-bar-radius, 9.6px);
+  background: transparent;
+  box-shadow: var(--mini-seam-shadow-down, var(--shadow-card));
+  transition: border-color 340ms ease;
+}
+.ai-chat-page:not(.dv-advisor-chat) .aichat-thread-col > .vb-composer-wrap::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  background: color-mix(in srgb, var(--bg-page) var(--ds-bar-frost, 66%), transparent);
+  backdrop-filter: blur(var(--ds-bar-blur, 6.4px));
+  -webkit-backdrop-filter: blur(var(--ds-bar-blur, 6.4px));
+}
+.ai-chat-page:not(.dv-advisor-chat) .aichat-thread-col > .vb-composer-wrap > * { position: relative; z-index: 1; }
+.ai-chat-page:not(.dv-advisor-chat) .aichat-thread-col > .vb-composer-wrap:focus-within {
+  border-color: color-mix(in srgb, var(--accent) 60%, var(--border-flat, var(--border)));
+}
+.ai-chat-page:not(.dv-advisor-chat) .aichat-thread-col > .vb-composer-wrap .dvx-composer,
+.ai-chat-page:not(.dv-advisor-chat) .aichat-thread-col > .vb-composer-wrap .dvx-composer:focus-within {
+  border: 0;
+  border-radius: 0;
+  padding: 0;
+  background: transparent;
+  box-shadow: none;
+}
+.ai-chat-page:not(.dv-advisor-chat) .aichat-thread-col > .vb-composer-wrap .dvx-composer::before,
+.ai-chat-page:not(.dv-advisor-chat) .aichat-thread-col > .vb-composer-wrap .dvx-composer::after,
+.ai-chat-page:not(.dv-advisor-chat) .aichat-thread-col > .vb-composer-wrap .dvx-composer > .spot-light { display: none; }
+
+/* NOT UNDER THE PAGE'S FADE: the window's tall bottom fade (SplitView.css
+   .sv-single-body::after) is painted over the page and would bleach the
+   composer bar's frost — so, as on the pages with a bottom bar (Files, the
+   CAEN picker), it gives way to the solid seam strip alone, in the inset
+   under the bar. */
+.sv-single-body:has(.ai-chat-page:not(.dv-advisor-chat))::after {
+  height: var(--chrome-inset, 6.4px);
+  background: var(--bg-page);
+}
+
+/* ── The composer bar's distance from the APP SIDEBAR (the Design system's
+   bottom bar — .fx-bottombar / .cn-bottombar, keep in step) ────────────────
+   With the chat list shown the bar starts at the thread column's own edge
+   (the list stands between it and the sidebar, as beside the CAEN rail).
+   With the list hidden (toggled, or listed in the app sidebar) it starts ONE
+   --rail-gap from the app sidebar — level with the mini header above — and
+   its padding gives that distance back, so the text does not move. Nothing
+   clips it sideways: a hidden list is already invisible (opacity 0), so the
+   shell no longer needs to cut at its edge (that clip was what shaved the
+   bar's left edge). */
+.ai-chat-page:not(.dv-advisor-chat) .aichat-shell,
+.ai-chat-page:not(.dv-advisor-chat) .aichat-shell.rail-hidden,
+.ai-chat-page:not(.dv-advisor-chat) .aichat-shell.is-resizing { overflow-x: visible; }
+.ai-chat-page:not(.dv-advisor-chat) .aichat-shell.rail-hidden .aichat-rail { visibility: hidden; transition: margin-left 320ms cubic-bezier(0.16, 1, 0.3, 1), opacity 200ms ease, visibility 0s 320ms; }
+.ai-chat-page:not(.dv-advisor-chat) .aichat-shell.rail-hidden .aichat-thread-col > .vb-composer-wrap {
+  margin-left: calc(var(--rail-gap, 6.4px) - var(--content-left-gap, 17.6px));
+  padding-left: calc(12px + var(--content-left-gap, 17.6px) - var(--rail-gap, 6.4px));
+}
+
+/* ── An EMPTY CHAT fits the window: no scrolling ───────────────────────────
+   With nothing said yet ("How can I help?", `.is-empty-chat`) the page is
+   the height of the window: the page scroller is locked and the shell, its
+   list and its column take exactly what is left under the header
+   (--aifit-h, measured in ProjectAI.jsx) — the Legislation search screen's
+   rule. The greeting is the Design system's empty state, centred over the
+   column. */
+.sv-single-scroll:has(.ai-chat-page.is-empty-chat:not(.dv-advisor-chat)) { overflow: hidden; }
+.ai-chat-page.is-empty-chat:not(.dv-advisor-chat) .aichat-shell,
+.ai-chat-page.is-empty-chat:not(.dv-advisor-chat) .aichat-thread-col {
+  min-height: 0;
+  height: var(--aifit-h, 60vh);
+}
+.ai-chat-page.is-empty-chat:not(.dv-advisor-chat) .aichat-rail.is-tabrail { height: var(--aifit-h, 60vh); }
+.ai-chat-page.is-empty-chat:not(.dv-advisor-chat) .aichat-main { flex: 1 1 auto; min-height: 0; }
+.ai-chat-page:not(.dv-advisor-chat) .aichat-convo-empty .lss-card { padding: 0 28px; }
+
+/* A TIGHT left side in the composer bar: the text ("Message DocVex AI…")
+   starts ~8px from the bar's edge (the bar's 6.4px + the text's hairline
+   1.6px) and the attach button is drawn 4.8px further left — its glyph sits
+   4.8px inside its hit area — so the glyph lines up with the text. */
+.ai-chat-page:not(.dv-advisor-chat) .aichat-thread-col > .vb-composer-wrap { padding-left: 6.4px; }
+.ai-chat-page:not(.dv-advisor-chat) .aichat-shell.rail-hidden .aichat-thread-col > .vb-composer-wrap {
+  padding-left: calc(6.4px + var(--content-left-gap, 17.6px) - var(--rail-gap, 6.4px));
+}
+.ai-chat-page:not(.dv-advisor-chat) .aichat-thread-col > .vb-composer-wrap .dvx-composer-textarea { padding-left: 1.6px; }
+.ai-chat-page:not(.dv-advisor-chat) .aichat-thread-col > .vb-composer-wrap .dvx-composer-toolbar { margin-left: -4.8px; }
+
+/* Prompts to start with, under the empty chat's greeting — the reply pills
+   (components/AiChoices' .ai-choice) as an UNEVEN GRID: wrapping, each pill
+   as wide as its words, centred; the grid SCROLLS in a box of its own (the
+   page itself doesn't, on an empty chat) with fading top and bottom edges,
+   and never ends (ProjectAI.jsx adds more as its end comes near). The
+   greeting takes what it needs, the grid the rest of the column. */
+.ai-chat-page .aichat-convo-empty { justify-content: flex-start; padding-top: clamp(16px, 6vh, 56px); padding-bottom: 12px; }
+.ai-chat-page .aichat-convo-empty .lss-card { flex: 1 1 auto; min-height: 0; max-width: 920px; }
+.ai-chat-page .aichat-convo-empty .aichat-starters {
+  flex: 1 1 auto; min-height: 0; width: 100%;
+  flex-direction: row; flex-wrap: wrap; justify-content: center; align-content: flex-start;
+  gap: 7px 6px;
+  margin-top: 14px; padding: 14px 4px 28px;
+  overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin;
+  pointer-events: auto;
+  -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 22px, #000 calc(100% - 40px), transparent 100%);
+  mask-image: linear-gradient(to bottom, transparent 0, #000 22px, #000 calc(100% - 40px), transparent 100%);
+}
+.ai-chat-page .aichat-convo-empty .aichat-starters .ai-choice { max-width: 46ch; text-align: left; }
+.ai-chat-page .aichat-starters-end { flex: 0 0 100%; height: 1px; }

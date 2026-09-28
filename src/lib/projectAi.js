@@ -105,6 +105,32 @@ export async function askProjectAi({ messages, projectName, fileNames, model, to
   };
 }
 
+// ── The file graph (the Files tab's AI scan; project-ai fileGraph.ts) ──────
+// MAP: ≤8 files' text → one PASSPORT each (summary, subject, document type,
+// facts, parties, dates, themes, identity-document holder). Returns
+// `{ passports, missing }` or `{ error }`; a file in `missing` was left out by
+// the model and should be retried.
+export async function passportFiles({ files, jurisdiction, usageProject, usageAction = 'files-scan' }) {
+  const body = withJurisdiction({ action: 'passport', files }, jurisdiction);
+  const { data, error } = await supabase.functions.invoke('project-ai', { body });
+  const res = unwrap(data, error);
+  if (res.error) return res;
+  recordAiTokens({ projectId: usageProject, usage: res.data.usage || {}, action: usageAction, model: 'claude-sonnet-5' });
+  return { passports: res.data.passports || [], missing: res.data.missing || [] };
+}
+
+// REDUCE: passports (`{ id, name, ...passport }`) → `{ graph: { timeline,
+// facts, links }, dropped }` or `{ error }`. Each link is `{ from_file_id,
+// to_file_id, connection_type, explanation, evidence, confidence }`.
+export async function crossrefPassports({ passports, jurisdiction, usageProject, usageAction = 'files-scan' }) {
+  const body = withJurisdiction({ action: 'crossref', passports }, jurisdiction);
+  const { data, error } = await supabase.functions.invoke('project-ai', { body });
+  const res = unwrap(data, error);
+  if (res.error) return res;
+  recordAiTokens({ projectId: usageProject, usage: res.data.usage || {}, action: usageAction, model: 'claude-sonnet-5' });
+  return { graph: res.data.graph || { timeline: [], facts: [], links: [] }, dropped: res.data.dropped || [] };
+}
+
 // Build the two messages that RESUME a paused ask_user turn: the assistant turn
 // replayed exactly as received (its tool_use block) + a user turn carrying the
 // tool_result. Append both to history before the next askProjectAi call.

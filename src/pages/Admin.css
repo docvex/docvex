@@ -337,7 +337,7 @@ h1.dc-title, .dc-mh-title, .dc-mail-head h2, .dc-danger-hd h2, .dc-modal-hd h3, 
   display: inline-flex; align-items: center; justify-content: center;
   border: 1px solid var(--border); border-radius: 6.4px; background: var(--bg-card); color: var(--text-secondary);
   cursor: pointer; opacity: 0;
-  transition: opacity 140ms ease, background 130ms, border-color 130ms, color 130ms;
+  transition: opacity 140ms ease, background 130ms, border-color 130ms;
 }
 .dc-svc-edit svg { width: 11.2px; height: 11.2px; }
 .dc-svc:hover .dc-svc-edit,
@@ -672,4 +672,11 @@ h1.dc-title, .dc-mh-title, .dc-mail-head h2, .dc-danger-hd h2, .dc-modal-hd h3, 
   .dc-grid-2 { grid-template-columns: 1fr; }
   .dc-svc-grid { grid-template-columns: 1fr; }
   .dc-extract-grid { grid-template-columns: 1fr; }
+}
+
+/* Optimistic save: a service card still on its way to the server is drawn
+   faded (Admin onSaveService → `_pending`). */
+.dc-svc.is-pending {
+  opacity: 0.55;
+  transition: opacity 160ms ease;
 }

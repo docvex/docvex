@@ -769,7 +769,38 @@ export function applyGenderToText(text, gender) {
     if (!fem) return stem;
     return /ul$/i.test(stem) ? stem.slice(0, -2) + tail : stem + tail;
   });
+  // The slash form of the same ending: "identificat/ă", "născut/a" — the
+  // feminine is "-ă" whichever way the slash half is typed ("-ul/a" → "-a").
+  out = out.replace(new RegExp(`(${RO_LETTER}{3,})\\s*/\\s*([ăa])(?!${RO_LETTER})`, 'g'), (_all, stem) => {
+    if (!fem) return stem;
+    return /ul$/i.test(stem) ? `${stem.slice(0, -2)}a` : `${stem}ă`;
+  });
   return out;
+}
+
+// A person's GENDER for the wording, when the record doesn't state one: the
+// CNP says it (its first digit — 1 3 5 7 a man, 2 4 6 8 a woman), else the
+// first name does (a Romanian woman's name ends in -a, bar a few men's names
+// that do too). 'male' | 'female' | '' (don't know → the wording is left as
+// drafted). A company has no gender here.
+const MALE_A_NAMES = new Set(['luca', 'mihnea', 'toma', 'horia', 'mircea', 'costea', 'sava', 'ilia', 'nicola', 'andrea', 'noa', 'jonah', 'joshua', 'zaharia', 'ilie', 'mina', 'gheorghita', 'vasilica']);
+export function genderOf(rec) {
+  if (!rec || rec.kind === 'org') return '';
+  const g = String(rec.gender || '').trim().toLowerCase();
+  if (/^(m|male|masculin|bărbat|barbat)$/.test(g)) return 'male';
+  if (/^(f|female|feminin|femeie)$/.test(g)) return 'female';
+  const cnp = String(rec.nationalId || rec.cnp || '').replace(/\D/g, '');
+  if (cnp.length === 13) {
+    if ('1357'.includes(cnp[0])) return 'male';
+    if ('2468'.includes(cnp[0])) return 'female';
+  }
+  const first = String(rec.firstName || '').trim().split(/[\s-]+/)[0]?.toLowerCase() || '';
+  if (first) {
+    const plain = first.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+    if (MALE_A_NAMES.has(plain)) return 'male';
+    return /a$/.test(plain) ? 'female' : 'male';
+  }
+  return '';
 }
 
 // ── Card presentation ───────────────────────────────────────────────────

@@ -41,7 +41,7 @@
   background: none;
   color: var(--text-secondary);
   cursor: pointer;
-  transition: background 120ms ease, color 120ms ease;
+  transition: background 120ms ease;
 }
 .lgb-icobtn:hover:not(:disabled),
 .lgb-addbtn:hover { background: color-mix(in srgb, var(--text-primary) var(--ds-control-tint-hover, 8%), transparent); color: var(--text-primary); }
@@ -240,41 +240,35 @@
 @media (prefers-reduced-motion: reduce) { .lgb-rail.is-easing { transition: none; } }
 html[data-reduce-motion="true"] .lgb-rail.is-easing { transition: none; }
 .lgb-rail > * { position: relative; z-index: 1; }
-.lgb-rail::before,
-.lgb-rail::after {
-  content: '';
-  position: absolute; inset: 0;
-  border-radius: inherit;
-  pointer-events: none;
+/* The sidebar's spotlight: a glow and a border shine following the pointer
+   (lib/pointerSpots' injected lights, styles/spotLights.css — pre-drawn
+   dots moved by a transform, eased by useRailSpotlight), faded in while
+   the pointer is over the rail. */
+.lgb-rail > .spot-light {
+  position: absolute; inset: 0; --spot-r: 264px;
   opacity: 0;
   transition: opacity 240ms ease;
 }
-.lgb-rail::before {
-  z-index: 0;
+.lgb-rail > .spot-glow { z-index: 0; }
+.lgb-rail > .spot-shine { z-index: 2; padding: 1.5px; }
+.lgb-rail > .spot-glow > .spot-dot {
   background: radial-gradient(
-    264px circle at var(--spot-x, 50%) var(--spot-y, 50%),
+    264px circle at 50% 50%,
     color-mix(in srgb, var(--accent) 4.5%, transparent) 0%,
     color-mix(in srgb, var(--accent) 1.5%, transparent) 38%,
     transparent 68%
   );
 }
-.lgb-rail::after {
-  z-index: 2;
-  padding: 1.5px;
+.lgb-rail > .spot-shine > .spot-dot {
   background: radial-gradient(
-    264px circle at var(--spot-x, 50%) var(--spot-y, 50%),
+    264px circle at 50% 50%,
     color-mix(in srgb, var(--accent) 42%, transparent) 0%,
     color-mix(in srgb, var(--accent) 12%, transparent) 34%,
     transparent 62%
   );
-  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
-  -webkit-mask-composite: xor;
-  mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
-  mask-composite: exclude;
 }
-.lgb-rail:hover::before,
-.lgb-rail:hover::after { opacity: 0.7; }
-@media (prefers-reduced-motion: reduce) { .lgb-rail::before, .lgb-rail::after { display: none; } }
+.lgb-rail:hover > .spot-light { opacity: 0.7; }
+@media (prefers-reduced-motion: reduce) { .lgb-rail > .spot-light { display: none; } }
 
 /* The head — the Playbook list's: the label, its buttons, a hairline 8px
    under it and the list another 8px under that. */
@@ -293,7 +287,7 @@ html[data-reduce-motion="true"] .lgb-rail.is-easing { transition: none; }
   border: 1px solid var(--ds-hairline, var(--border)); border-radius: var(--ds-control-radius, 4.8px);
   background: color-mix(in srgb, var(--text-primary) var(--ds-control-tint, 4%), transparent);
   color: var(--text-secondary); cursor: pointer;
-  transition: background 120ms ease, border-color 120ms ease, color 120ms ease;
+  transition: background 120ms ease, border-color 120ms ease;
 }
 .lgb-rail-add:hover { background: color-mix(in srgb, var(--text-primary) var(--ds-control-tint-hover, 8%), transparent); border-color: var(--accent); color: var(--accent); }
 .lgb-rail-add:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
@@ -721,3 +715,70 @@ html[data-reduce-motion="true"] .lgb-menu { animation: none; }
   animation: lgb-spin 700ms linear infinite;
 }
 @media (prefers-reduced-motion: reduce) { .lgb-switching-spin { animation-duration: 2s; } }
+
+/* ── DocVex · Source (the address row's first control, lib/legalViewMode) ── */
+.lgb-viewmode { margin-right: 4px; }
+
+/* ── The Source view (LegalWorkspace SourceView): the open item as its service
+   gave it — monospace, unstyled, the page ground, a hairline between parts. */
+.lgb-source { display: flex; flex-direction: column; gap: 10px; padding: 4px 0 var(--ds-page-foot, 64px); min-width: 0; }
+.lgb-source-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding-bottom: 8px; border-bottom: 1px solid var(--ds-hairline, var(--border)); }
+.lgb-source-meta { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.lgb-source-site { font-size: var(--ds-label-size, 10.4px); letter-spacing: var(--ds-label-tracking, 0.06em); text-transform: uppercase; font-weight: 650; color: var(--text-muted); }
+.lgb-source-service { font-size: 12px; color: var(--text-secondary); }
+.lgb-source-note { margin: 0; font-size: 11.2px; line-height: 1.5; color: var(--text-muted); }
+.lgb-source-label { margin: 6px 0 0; font-size: var(--ds-label-size, 10.4px); letter-spacing: var(--ds-label-tracking, 0.06em); text-transform: uppercase; font-weight: 650; color: var(--text-muted); }
+.lgb-source-json,
+.lgb-source-text {
+  margin: 0; padding: 12px 14px;
+  border: 1px solid var(--ds-hairline, var(--border)); border-radius: var(--ds-row-radius, 8px);
+  background: color-mix(in srgb, var(--text-primary) 3%, transparent);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 11.5px; line-height: 1.55;
+  color: var(--text-primary);
+  white-space: pre-wrap; overflow-wrap: anywhere;
+  user-select: text;
+}
+
+/* ── THE DICE STANDS APART, to the RIGHT of the search field ────────────────
+   (It used to be joined to the field's left end.) Its own control: the
+   accent fill, all four corners, 6px from the field — whose corners are all
+   rounded again. */
+.lgb-omni { gap: 6px; }
+.lgb-omni .lgb-dice {
+  order: 2;
+  border-right: 1px solid var(--accent);
+  border-radius: var(--ds-control-radius, 4.8px);
+}
+.lgb-omni .lgb-field { order: 1; border-radius: var(--ds-control-radius, 4.8px); }
+
+/* ── THE SEARCH SCREEN, in the Design system's terms ────────────────────────
+   Its head is the gallery's EMPTY STATE (pages/LegalSourceStub .lss-card —
+   the Doc Viewer advisor's): the thin-stroke mark in the accent, the title
+   at 21px / 600, the muted line. The platforms are the gallery's LIST ROWS:
+   on the page ground, a hairline between them, no card fill or frame — the
+   site with its dot, what it holds, then its tries as soft pills. */
+.lgb-newtab { gap: 10px; padding: 40px 28px 0; max-width: 880px; }
+.lgb-newtab-mark { color: var(--accent); opacity: 1; margin-bottom: 6px; display: grid; place-items: center; }
+.lgb-newtab-mark svg { width: 64px; height: 64px; stroke-width: 1.15; }
+.lgb-newtab-title { margin: 0; font-size: 21px; font-weight: 600; letter-spacing: -0.01em; }
+.lgb-newtab-sub { max-width: 56ch; font-size: 13.2px; line-height: 1.6; color: var(--text-muted); text-wrap: balance; }
+.lgb-plats {
+  display: flex; flex-direction: column; gap: 0;
+  width: 100%; max-width: 720px; margin: 22px auto 0;
+  border-top: 1px solid var(--ds-hairline, var(--border));
+}
+.lgb-plat {
+  display: grid; grid-template-columns: minmax(150px, 190px) 1fr; column-gap: 18px; row-gap: 6px;
+  padding: calc(10px * var(--ds-row-density, 1)) 10px;
+  border: 0; border-bottom: 1px solid var(--ds-hairline, var(--border));
+  border-radius: 0; background: transparent;
+  transition: background 120ms ease;
+}
+.lgb-plat:hover { background: color-mix(in srgb, var(--text-primary) 3%, transparent); border-radius: var(--ds-row-radius, 8px); }
+.lgb-plat-site { grid-row: span 2; align-self: start; padding-top: 1px; font-size: 12.8px; font-weight: 650; }
+.lgb-plat-about { font-size: 12.4px; color: var(--text-secondary); }
+.lgb-plat-tries { margin-top: 0; }
+@media (max-width: 620px) {
+  .lgb-plat { grid-template-columns: 1fr; }
+  .lgb-plat-site { grid-row: auto; }
+}

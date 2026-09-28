@@ -32,7 +32,12 @@
 
 import { startTransition } from 'react';
 import { requestWorkspace, workspacesSnapshot } from './workspaceItems';
-import { detectQuery } from './legalOmni';
+// The query reader (legalOmni → lawRefs + legislation, ~70 KB) is loaded on
+// first use, not with the app: the Sidebar imports this module, which put it
+// in the startup bundle only for `urlOf`. `applyPage` awaits it (below).
+let detectQuery = null;
+let detectLoading = null;
+const loadDetect = () => (detectLoading ||= import('./legalOmni').then((m) => { detectQuery = m.detectQuery; }));
 
 const KEY = 'docvex:legal-browser:v1';
 const MAX_CLOSED = 20;
@@ -98,9 +103,12 @@ const persist = () => {
     } catch { /* full or refused */ }
   }, 250);
 };
-const set = (next) => {
+// `save: false` for a change storage never sees anyway (the typed draft and
+// the loading flag are stripped from what is saved): scheduling a write for
+// it on every keystroke only re-serialised every tab for nothing.
+const set = (next, { save = true } = {}) => {
   state = typeof next === 'function' ? next(state) : { ...state, ...next };
-  persist();
+  if (save) persist();
   listeners.forEach((fn) => fn());
 };
 export const subscribeBrowser = (fn) => { listeners.add(fn); return () => listeners.delete(fn); };
@@ -211,7 +219,7 @@ const freshUrl = (url) => {
 };
 const urlOf = (page) => {
   if (page.url) return freshUrl(page.url);
-  const d = detectQuery(page.addr || '');
+  const d = detectQuery ? detectQuery(page.addr || '') : null;
   return d ? d.to : page.route;
 };
 
@@ -241,6 +249,7 @@ export function applyPage(page, go) {
   if (item) switchTimer = setTimeout(endSwitch, 8000);     // never stuck
   const run = () => {
     if (mine !== applySeq) return;
+    if (!detectQuery) { loadDetect().then(run, run); return; }
     // The tab's CURRENT page, not the one captured (a set() in between may
     // have replaced the object).
     const cur = curPage(activeTab());
@@ -400,11 +409,14 @@ export function stepTab(id, d, go) {
 }
 export function setDraft(v) {
   const id = state.active;
-  set((s) => ({ ...s, tabs: mapTab(id, (t) => ({ ...t, draft: v })) }));
+  // Unchanged (Escape on an untouched field, clearing an empty one): nothing
+  // to tell the subscribers.
+  if ((state.tabs.find((t) => t.id === id)?.draft ?? null) === (v ?? null)) return;
+  set((s) => ({ ...s, tabs: mapTab(id, (t) => ({ ...t, draft: v })) }), { save: false });
 }
 export function setTabLoading(id, loading) {
   if (state.tabs.find((t) => t.id === id)?.loading === loading) return;
-  set((s) => ({ ...s, tabs: mapTab(id, (t) => ({ ...t, loading })) }));
+  set((s) => ({ ...s, tabs: mapTab(id, (t) => ({ ...t, loading })) }), { save: false });
 }
 
 // ── Reloading a page ──
@@ -545,6 +557,13 @@ function settlePending(route, pid) {
  *  files, the Newsletter): a page of the active tab — or of a new one when
  *  `newTab`, or when the active tab is pinned. */
 export function arrive(route, url, label, go, { newTab: inNew = false } = {}) {
+  // A NEW tab only when no tab already shows it: a tab whose page on show is
+  // the same item (same platform, same address) is brought forward instead.
+  if (inNew) {
+    const want = sameAddr(url);
+    const open = state.tabs.find((t) => { const p = curPage(t); return p.type === 'item' && p.route === route && sameAddr(p.url) === want; });
+    if (open) { selectTab(open.id, go); return; }
+  }
   const ws = workspacesSnapshot()[route];
   const pl = platformOfRoute(route);
   const pid = uid('p');
@@ -559,6 +578,15 @@ export function arrive(route, url, label, go, { newTab: inNew = false } = {}) {
   logVisit(page);
   setTimeout(() => settlePending(route, pid), PENDING_MS);
   void go;
+}
+
+// An item's address, compared: its path and its parameters in one order, the
+// one-off ones left out (the nonce `_`, `open`, `newtab`).
+function sameAddr(url) {
+  const [path, query = ''] = String(url || '').split('?');
+  const params = new URLSearchParams(query);
+  const kept = [...params.entries()].filter(([k]) => !['_', 'open', 'newtab'].includes(k)).sort(([a], [b]) => a.localeCompare(b));
+  return `${path}?${new URLSearchParams(kept).toString()}`;
 }
 
 /** A link's label from its query: what the tab will be called while it opens. */

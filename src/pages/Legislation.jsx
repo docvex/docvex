@@ -2,10 +2,12 @@ import React, { startTransition, useCallback, useEffect, useMemo, useRef, useSta
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import './Legislation.css';
 import PageMasthead from '../components/PageMasthead';
-import LegalTabs, { LegalSearchBox } from '../components/LegalTabs';
+import { LegalSearchBox } from '../components/LegalTabs';
 import { LegalBar, BarDice, BarPicker, BarInput, BarGo } from '../components/LegalBar';
 import Tooltip from '../components/Tooltip';
 import CaenModal from '../components/CaenModal';
+import { useMorphPill } from '../components/useMorphPill';
+import { refHitPill } from '../components/RefHitPill';
 import { findFollowableRefs, lawRefDetails, lawRefLabel } from '../lib/lawRefs';
 import { isElectron, openExternal } from '../lib/platform';
 import { askProjectAi } from '../lib/projectAi';
@@ -229,6 +231,77 @@ function markFindIn(s, c) {
   if (last < s.length) out.push(s.slice(last));
   return out;
 }
+// Each reference drawn in the act carries an id that leads back to its hit
+// (`data-ref-hit`), so ONE controller (LegalRefPill) can show its pill and card.
+const HIT_IDS = new WeakMap();
+const HIT_BY_ID = new Map();
+let hitSeq = 0;
+function hitIdOf(h) {
+  let id = HIT_IDS.get(h);
+  if (!id) { id = `h${(hitSeq += 1)}`; HIT_IDS.set(h, id); HIT_BY_ID.set(id, h); }
+  return id;
+}
+
+// THE REFERENCES BEHAVE AS IN THE DOC VIEWER: hovering one shows the
+// highlight pill (components/RefHitPill — the viewer's `refPill`), and a click
+// EXPANDS it into the card: everything known, the citation as written, then
+// Search (what a click used to do — open the act here, the CAEN code, the court
+// file, the company) and Close. One morph pill for the whole page, driven by
+// native listeners delegated on it.
+function LegalRefPill({ hostRef, onRef }) {
+  const [hover, setHover] = useState(null);
+  const [card, setCard] = useState(null);
+  const [, setTick] = useState(0);
+  const morph = useMorphPill({
+    hoverContent: hover ? refHitPill(hover, { onLoaded: () => setTick((n) => n + 1) }) : '',
+    stickyMenu: !!card,
+    menuHeader: card ? <div className="dv-refcard">{refHitPill(card, { full: true, onLoaded: () => setTick((n) => n + 1) })}</div> : undefined,
+    menuItems: card ? [
+      { key: 'search', label: 'Search', className: 'dv-refcard-search', onClick: () => onRef(card) },
+      { key: 'close', label: 'Close', onClick: () => {} },
+    ] : [],
+  });
+  const morphRef = useRef(morph);
+  morphRef.current = morph;
+  useEffect(() => { if (card && !morph.isMenuOpen) setCard(null); }, [card, morph.isMenuOpen]);
+  useEffect(() => {
+    const host = hostRef.current;
+    if (!host) return undefined;
+    let on = null;
+    const markOf = (e) => e.target?.closest?.('.lg-ref[data-ref-hit]') || null;
+    const onMove = (e) => {
+      const m = morphRef.current;
+      if (m.isMenuOpen) return;
+      const mark = markOf(e);
+      if (!mark) { if (on) { on = null; m.handleMouseLeave(); } return; }
+      if (mark !== on) { on = mark; setHover(HIT_BY_ID.get(mark.dataset.refHit) || null); }
+      m.handleMouseMove(e);
+    };
+    const onLeave = () => { if (on) { on = null; if (!morphRef.current.isMenuOpen) morphRef.current.handleMouseLeave(); } };
+    // Captured, ahead of the button's own click: the click opens the card.
+    const onClick = (e) => {
+      const mark = markOf(e);
+      if (!mark) return;
+      const hit = HIT_BY_ID.get(mark.dataset.refHit);
+      if (!hit) return;
+      e.preventDefault();
+      e.stopPropagation();
+      setHover(hit);
+      setCard(hit);
+      morphRef.current.handleContextMenu(e);
+    };
+    host.addEventListener('mousemove', onMove);
+    host.addEventListener('mouseleave', onLeave);
+    host.addEventListener('click', onClick, true);
+    return () => {
+      host.removeEventListener('mousemove', onMove);
+      host.removeEventListener('mouseleave', onLeave);
+      host.removeEventListener('click', onClick, true);
+    };
+  }, [hostRef]);
+  return morph.node;
+}
+
 function markString(s, c, refsOf, onRef) {
   if (!s) return s;
   const refs = refsOf(s);
@@ -237,9 +310,9 @@ function markString(s, c, refsOf, onRef) {
   refs.forEach((h, i) => {
     if (h.start > last) out.push(<React.Fragment key={`t${i}`}>{markFindIn(s.slice(last, h.start), c)}</React.Fragment>);
     out.push(
-      <Tooltip key={`r${i}`} content={refTipOf(h)}>
-        <button type="button" className={`lg-ref is-${h.kind}`} onClick={() => onRef(h)}>{markFindIn(s.slice(h.start, h.end), c)}</button>
-      </Tooltip>,
+      // Its pill and card are LegalRefPill's (hover / click); `onClick` stays
+      // for the keyboard (Enter on a focused reference follows it).
+      <button key={`r${i}`} type="button" className={`lg-ref is-${h.kind}`} data-ref-hit={hitIdOf(h)} aria-label={refTipOf(h)} onClick={() => onRef(h)}>{markFindIn(s.slice(h.start, h.end), c)}</button>,
     );
     last = h.end;
   });
@@ -963,27 +1036,24 @@ export default function Legislation() {
 
   const head = act ? actHeading(act) : null;
 
-  // ── The browser build has neither the service nor the archive ──────────
-  if (!isElectron) {
-    return (
-      <div className="lws lg-page" ref={pageRef}>
-        <PageMasthead eyebrow="Portalul legislativ" eyebrowMuted="source: legislatie.just.ro" title="Legislation" compact={false} />
-        <LegalTabs />
-        <div className="lg-empty">
-          <p className="lg-empty-title">Only in the desktop app</p>
-          <p className="lg-empty-sub">
-            The portal’s web service refuses browser requests, and the offline copy is a folder on
-            your computer. Both need the desktop app.
-          </p>
-        </div>
-      </div>
-    );
-  }
-
   return (
+    <>
+    <LegalRefPill hostRef={pageRef} onRef={onRef} />
     <LegalWorkspace
       className="lg-page"
       rootRef={pageRef}
+      // The open act AS THE SERVICE GAVE IT (the Source view): the Search
+      // record in its own fields, and its text as sent.
+      source={act ? (() => {
+        const r = act.raw || act;
+        const { text, ...fields } = r;
+        return {
+          site: 'legislatie.just.ro',
+          service: `FreeWebService — Search${actSource === 'archive' ? ' · from your copy on this machine' : ''}`,
+          data: fields,
+          text: text || act.text || '',
+        };
+      })() : null}
       // The rail — one item per reading session, the active one lit;
       // Search (the mini header's, at the far left of its second line) is
       // the way back to the search and its results.
@@ -1338,5 +1408,6 @@ export default function Legislation() {
       )}
       <CaenModal open={caenModal} onClose={closeCaen} />
     </LegalWorkspace>
+    </>
   );
 }

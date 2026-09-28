@@ -1,0 +1,198 @@
+/* The Files tab's INSIGHTS view (components/CaseInsights) — on the Design
+   system's rules: rows on the page ground divided by hairlines, soft pills,
+   the gallery's buttons, the Segmented choice for the sections, no card
+   fills of its own. */
+.ci-view {
+  display: flex; flex-direction: column; gap: 10px;
+  min-height: max(460px, calc(100vh - 260px));
+  padding: 4px 0 var(--ds-page-foot, 64px);
+}
+.ci-bar {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap;
+  padding-bottom: 8px; border-bottom: 1px solid var(--ds-hairline, var(--border));
+}
+.ci-sections.pbk-rule-opts { flex: 0 1 auto; }
+.ci-bar-tools { display: flex; align-items: center; gap: 10px; }
+.ci-note { font-size: 11.5px; color: var(--text-muted); font-variant-numeric: tabular-nums; margin: 0; }
+.ci-tool {
+  display: grid; place-items: center; width: var(--ds-control-h, 24px); height: var(--ds-control-h, 24px);
+  border: 1px solid var(--ds-hairline, var(--border)); border-radius: var(--ds-control-radius, 6px);
+  background: var(--ds-control-tint, transparent); color: var(--text-secondary); cursor: pointer;
+}
+.ci-tool:hover { background: color-mix(in srgb, var(--text-primary) 6%, transparent); color: var(--text-primary); }
+
+.ci-body { display: flex; flex-direction: column; min-width: 0; }
+.ci-section { display: flex; flex-direction: column; max-width: 980px; }
+
+/* Empty / start states: the gallery's empty state. */
+.ci-empty {
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px;
+  text-align: center; padding: 48px 24px;
+}
+.ci-mark { width: 44px; height: 44px; color: var(--text-muted); margin-bottom: 6px; }
+.ci-empty-title { margin: 0; font-family: var(--font-display); font-size: 17px; font-weight: 600; color: var(--text-primary); }
+.ci-empty-sub { margin: 0; max-width: 60ch; font-size: 13px; line-height: 1.5; color: var(--text-muted); }
+.ci-spin {
+  display: inline-block; flex: none; width: 12px; height: 12px; border-radius: 50%;
+  border: 1.6px solid color-mix(in srgb, var(--accent) 25%, transparent); border-top-color: var(--accent);
+  animation: ci-spin 0.8s linear infinite; vertical-align: -2px;
+}
+@keyframes ci-spin { to { transform: rotate(360deg); } }
+
+/* A section's head. */
+.ci-head {
+  display: flex; align-items: flex-start; justify-content: space-between; gap: 16px;
+  padding: 14px 0 10px;
+}
+.ci-head + .ci-head { padding-top: 0; }
+.ci-section > .ci-head:not(:first-child) { margin-top: 18px; border-top: 1px solid var(--ds-hairline, var(--border)); padding-top: 18px; }
+.ci-head-text { min-width: 0; }
+.ci-title { margin: 0; font-family: var(--font-display); font-size: 16px; font-weight: 600; color: var(--text-primary); }
+.ci-sub { margin: 4px 0 0; max-width: 78ch; font-size: 12.5px; line-height: 1.5; color: var(--text-secondary); }
+.ci-head-tools { flex: none; display: flex; gap: 8px; }
+.ci-subhead, .ci-label {
+  font-size: var(--ds-label-size, 10.4px); font-weight: 700; letter-spacing: var(--ds-label-tracking, 0.06em);
+  text-transform: uppercase; color: var(--text-muted);
+}
+.ci-subhead { padding: 14px 0 4px; }
+
+/* Buttons — the gallery's recipe. */
+.ci-btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  height: 28px; padding: 0 12px; white-space: nowrap;
+  border: 1px solid var(--ds-hairline, var(--border)); border-radius: var(--ds-control-radius, 6px);
+  background: var(--ds-control-tint, transparent); color: var(--text-primary);
+  font: inherit; font-size: 12.5px; font-weight: 600; cursor: pointer;
+}
+.ci-btn:hover:not(:disabled) { background: color-mix(in srgb, var(--text-primary) 6%, transparent); }
+.ci-btn:disabled { opacity: 0.55; cursor: default; }
+.ci-btn.is-primary { background: var(--accent); border-color: var(--accent); color: var(--text-on-accent); }
+.ci-btn.is-primary:hover:not(:disabled) { background: var(--accent-hover); }
+.ci-btn.is-primary .ci-spin { border-color: color-mix(in srgb, var(--text-on-accent) 30%, transparent); border-top-color: var(--text-on-accent); }
+.ci-btn.is-small { height: 22px; padding: 0 8px; font-size: 11.5px; }
+
+/* A finding: a row on the page ground, a hairline under it. */
+.ci-row {
+  --ci-tone: var(--text-muted);
+  display: flex; gap: 10px; padding: 11px 2px;
+  border-bottom: 1px solid var(--ds-hairline, var(--border));
+}
+.ci-row.is-error { --ci-tone: var(--danger); }
+.ci-row.is-warn { --ci-tone: var(--warning); }
+.ci-row.is-ok { --ci-tone: var(--success); }
+.ci-row.is-idle { --ci-tone: var(--text-muted); }
+.ci-dot { flex: none; width: 8px; height: 8px; margin-top: 5px; border-radius: 50%; background: var(--ci-tone, var(--text-muted)); }
+.ci-dot.is-ok { --ci-tone: var(--success); }
+.ci-row-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 6px; }
+.ci-row-title { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 13.5px; font-weight: 600; color: var(--text-primary); overflow-wrap: anywhere; }
+.ci-pill {
+  --ci-tone: var(--text-muted);
+  display: inline-flex; align-items: center; height: var(--ds-pill-h, 20px); padding: 0 var(--ds-pill-pad, 8px);
+  border-radius: var(--ds-pill-radius, 999px); font-size: var(--ds-tag-size, 10.4px); font-weight: var(--ds-pill-weight, 600);
+  color: var(--ci-tone); background: color-mix(in srgb, var(--ci-tone) 11%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--ci-tone) 28%, transparent);
+}
+.ci-pill.is-error { --ci-tone: var(--danger); }
+.ci-pill.is-warn { --ci-tone: var(--warning); }
+.ci-pill.is-ok { --ci-tone: var(--success); }
+.ci-row-detail, .ci-row-note { margin: 0; font-size: 12.5px; line-height: 1.5; color: var(--text-secondary); }
+.ci-row-note { color: var(--text-muted); font-style: italic; }
+.ci-row-note.is-error { color: var(--danger-text, var(--danger)); font-style: normal; padding: 6px 0; }
+.ci-rowtools { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.ci-nothing { display: flex; align-items: center; gap: 10px; margin: 0; padding: 12px 2px; font-size: 13px; color: var(--text-secondary); }
+.ci-nothing .ci-dot { margin-top: 0; }
+
+/* The values that disagree, each with the files saying it. */
+.ci-values { display: flex; flex-direction: column; gap: 4px; }
+.ci-value {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  padding: 4px 0 4px 10px; border-left: 2px solid color-mix(in srgb, var(--ci-tone) 55%, transparent);
+}
+.ci-value-text { font-size: 13px; color: var(--text-primary); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.ci-value.is-outlier .ci-value-text { color: var(--text-secondary); font-size: 12.5px; }
+.ci-evidence { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 3px; }
+.ci-evidence li { font-size: 12px; line-height: 1.45; color: var(--text-secondary); padding: 2px 8px; border-left: 2px solid color-mix(in srgb, var(--ci-tone) 45%, transparent); }
+.ci-mrz {
+  margin: 0; padding: 6px 8px; overflow-x: auto;
+  font-family: ui-monospace, 'Cascadia Mono', Consolas, monospace; font-size: 11.5px; line-height: 1.5; letter-spacing: 0.06em;
+  color: var(--text-secondary); border: 1px solid var(--ds-hairline, var(--border)); border-radius: var(--ds-row-radius, 8px);
+}
+.ci-plate {
+  display: inline-block; padding: 1px 8px; border-radius: 4px;
+  font-family: ui-monospace, 'Cascadia Mono', Consolas, monospace; letter-spacing: 0.08em;
+  box-shadow: inset 0 0 0 1.5px var(--text-primary);
+}
+
+/* File chips. */
+.ci-chips { display: inline-flex; flex-wrap: wrap; gap: 4px; min-width: 0; }
+.ci-chip {
+  display: inline-flex; align-items: center; gap: 6px; max-width: 280px; height: 24px; padding: 0 8px 0 5px;
+  border: 1px solid var(--ds-hairline, var(--border)); border-radius: var(--ds-row-radius, 8px);
+  background: transparent; color: var(--text-primary); font: inherit; font-size: 12px; cursor: pointer;
+}
+.ci-chip:hover:not(:disabled) { background: color-mix(in srgb, var(--text-primary) 6%, transparent); }
+.ci-chip:disabled { cursor: default; opacity: 0.7; }
+.ci-chip.is-dim { color: var(--text-secondary); }
+.ci-chip-glyph { flex: none; width: 15px; height: 15px; display: grid; place-items: center; }
+.ci-chip-glyph svg { width: 15px; height: 15px; }
+.ci-chip-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* Progress of a longer check. */
+.ci-progress { display: flex; align-items: center; gap: 10px; padding: 8px 0; }
+.ci-progress-bar { flex: 0 0 180px; height: 4px; border-radius: 99px; background: color-mix(in srgb, var(--text-primary) 10%, transparent); overflow: hidden; }
+.ci-progress-bar > span { display: block; height: 100%; border-radius: inherit; background: var(--accent); transition: width 200ms ease; }
+.ci-progress-step { min-width: 0; font-size: 12px; color: var(--text-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* Missing documents. */
+.ci-cases.pbk-rule-opts { align-self: flex-start; margin-bottom: 6px; }
+
+/* Signatures. */
+.ci-marks { display: flex; flex-direction: column; gap: 4px; }
+.ci-markrow { display: flex; align-items: flex-start; gap: 10px; padding: 3px 0; }
+.ci-markrow .ci-chips { flex: none; }
+.ci-markdesc { font-size: 12px; line-height: 1.45; color: var(--text-secondary); }
+.ci-fold { padding: 10px 2px; }
+.ci-fold > summary { cursor: pointer; font-size: 12.5px; color: var(--text-secondary); }
+.ci-fold[open] > summary { margin-bottom: 6px; }
+
+:root[data-reduce-motion='true'] .ci-spin { animation-duration: 1.6s; }
+
+/* The Files toolbar's view switch now also offers Insights; the file-grid
+   controls have nothing to act on there either (FileGraph.css's rule). */
+
+/* Identical files: which copy to keep, and Merge. */
+.ci-keep { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.ci-keep-opts.pbk-rule-opts { flex: 0 1 auto; max-width: 100%; }
+.ci-btn.is-danger { color: var(--danger-text, var(--danger)); border-color: color-mix(in srgb, var(--danger) 45%, transparent); background: color-mix(in srgb, var(--danger) 8%, transparent); }
+.ci-btn.is-danger:hover:not(:disabled) { background: color-mix(in srgb, var(--danger) 14%, transparent); }
+
+/* Legal history: the land-measure converter in the section head. */
+.ci-convert { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; font-size: 12.5px; color: var(--text-secondary); }
+.ci-convert-num, .ci-convert-sel {
+  height: 28px; padding: 0 8px; border: 1px solid var(--ds-hairline, var(--border)); border-radius: var(--ds-control-radius, 6px);
+  background: var(--ds-control-tint, transparent); color: var(--text-primary); font: inherit; font-size: 12.5px;
+}
+.ci-convert-num { width: 64px; font-variant-numeric: tabular-nums; }
+.ci-convert-out { font-variant-numeric: tabular-nums; }
+.ci-convert-out b { color: var(--text-primary); }
+
+/* Resolving a contradiction: a pick per value, the row's own actions. */
+.ci-pick { align-self: flex-start; margin-top: 2px; }
+.ci-resolve { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.ci-advice { display: flex; flex-direction: column; gap: 4px; padding: 6px 0 0 10px; border-left: 2px solid color-mix(in srgb, var(--accent) 40%, transparent); }
+
+/* A contradiction's versions side by side: each a hairline card — what it
+   says (the difference marked), which files say it and how. */
+.ci-compare { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 8px; }
+.ci-version {
+  display: flex; flex-direction: column; gap: 6px; min-width: 0;
+  padding: 9px 11px; border: 1px solid var(--ds-hairline, var(--border)); border-radius: var(--ds-row-radius, 8px);
+}
+.ci-version-value { font-size: 15px; font-weight: 600; color: var(--text-primary); font-variant-numeric: tabular-nums; letter-spacing: 0.01em; overflow-wrap: anywhere; }
+.ci-diff { background: color-mix(in srgb, var(--danger) 18%, transparent); color: var(--danger-text, var(--danger)); border-radius: 2px; padding: 0 1px; }
+.ci-said { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 4px; }
+.ci-said li { display: flex; flex-direction: column; gap: 2px; }
+.ci-said-text { margin: 0; font-size: 12px; line-height: 1.45; color: var(--text-secondary); }
+.ci-said-text b { color: var(--text-primary); font-weight: 600; }
+
+.ci-official { align-self: flex-start; }
