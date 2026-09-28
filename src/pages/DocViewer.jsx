@@ -22,7 +22,7 @@ import { toLayoutPx, createWheelZoom, zoomFactorOf, ZOOM_SETTLE_MS } from '../li
 import { recognizeCanvas, OCR_MAX_EDGE } from '../lib/ocr';
 import { loadOcrHistory, saveOcrHistory } from '../lib/extractionHistory';
 import { loadCaptions, saveCaptions, clearCaptions } from '../lib/captionsHistory';
-import { useNotifications } from '../context/NotificationsContext';
+import { useNotify } from '../context/NotificationsContext';
 import { loadEnvelope, saveEnvelope } from '../lib/audioEnvelopeCache';
 import { loadCaptionSettings, saveCaptionSettings } from '../lib/captionPosition';
 import { transcribeAudio } from '../lib/transcribe';
@@ -3652,9 +3652,52 @@ function patchVersionParagraph(src, before, after) {
 
 const MultitoolAdvisorContext = React.createContext(null);
 function useMultitoolAdvisor() { return useContext(MultitoolAdvisorContext); }
+// What changes on every keystroke or streamed chunk — the composer's text, the
+// answer as it streams, the blank being pointed at — lives in its OWN context.
+// In the main one it re-rendered every pane reading the advisor (the Word
+// preview, the PDF, the picture panes) on each key press and each chunk.
+const MultitoolLiveContext = React.createContext(null);
+function useMultitoolLive() { return useContext(MultitoolLiveContext); }
+
+// Save `value` under `key` once it has stopped changing for `ms` — flushed at
+// once when the key changes (another file) or the component unmounts, so
+// nothing is lost. The OCR history was written on every change, and each write
+// woke every listener of the file's data.
+function useDebouncedSave(save, key, value, ms = 400) {
+  const pending = useRef(null);
+  const saveRef = useRef(save);
+  saveRef.current = save;
+  const flush = useCallback(() => {
+    const p = pending.current;
+    if (!p) return;
+    clearTimeout(p.timer);
+    pending.current = null;
+    saveRef.current(p.key, p.value);
+  }, []);
+  useEffect(() => {
+    if (pending.current && pending.current.key !== key) flush();
+    if (pending.current) clearTimeout(pending.current.timer);
+    pending.current = { key, value, timer: setTimeout(flush, ms) };
+  }, [key, value, ms, flush]);
+  useEffect(() => flush, [flush]);
+}
+
+// For drags: run `fn` with the LATEST arguments at most once per animation
+// frame. A mouse sends several moves per frame and each used to set React
+// state — re-rendering a large pane several times for one painted frame.
+// `flush()` runs a pending call now (on mouseup, so the drop lands exactly).
+function perFrame(fn) {
+  let raf = 0;
+  let args = null;
+  const run = () => { raf = 0; const a = args; args = null; if (a) fn(...a); };
+  return {
+    call: (...a) => { args = a; if (!raf) raf = requestAnimationFrame(run); },
+    flush: () => { if (raf) { cancelAnimationFrame(raf); run(); } },
+  };
+}
 
 function MultitoolAdvisorProvider({ file, footSlot = null, quickSlot = null, generateMode = false, onDocWritten, onRenameFile, completing = false, setCompleting, focusMode = false, toggleFocus = null, children }) {
-  const { notify } = useNotifications();
+  const { notify } = useNotify();
   const { session } = useAuth();
   const { selectedProject } = useSelectedProject();
   const [messages, setMessagesState] = useState([]); // [{ role, content } | { role:'artifact', version, instructions }]
@@ -5072,10 +5115,18 @@ function MultitoolAdvisorProvider({ file, footSlot = null, quickSlot = null, gen
   }, [addUsage, model, selectedProject?.id]);
 
   const value = useMemo(
-    () => ({ messages, input, setInput, busy, switching, error, setError, send, stop, regenerate, branchFrom, branches, activeBranchId, switchBranch, fileName: file?.name, footSlot, quickSlot, genMode, versions, activeVersion, selectVersion, openVersion, questions, submitQuestions, skipQuestions, options, chooseOption, engine, setEngine, model, setModel, aiSettings, streamText, projectName: selectedProject?.name || '', tokens, busyScope, showTokenUsage: appPrefs.showTokenUsage, pendingAsk, resolveAsk, debugAsk, setDebugAsk, selection, addSelection, clearSelection, applyManualEdit, saveConstructorVersion, rewritePiece, completing, setCompleting, focusMode, toggleFocus, docTools, setDocTools, paraPicked, setParaPicked, paraText, setParaText, setParaSrc, paraKey, setParaKey, paraScope, threadScope, switchScope, paraSlot, setParaSlot, ctorSlot, setCtorSlot, hoverField, setHoverField, loadIdentities, fields, allFields, fieldsSig, registerFieldsApi, publishFields, setFieldValue, focusField, applyFields, previewFields, endFieldPreview, dropFields, applyGender, applyLocality, clearPick, getDocumentText, fieldSuggestions, ensureFieldSuggestions }),
-    [messages, input, busy, switching, error, send, stop, regenerate, branchFrom, branches, activeBranchId, switchBranch, file?.name, footSlot, quickSlot, genMode, versions, activeVersion, selectVersion, openVersion, questions, submitQuestions, skipQuestions, options, chooseOption, engine, setEngine, model, setModel, aiSettings, streamText, selectedProject?.name, tokens, busyScope, appPrefs.showTokenUsage, pendingAsk, resolveAsk, debugAsk, selection, addSelection, clearSelection, applyManualEdit, saveConstructorVersion, rewritePiece, completing, setCompleting, focusMode, toggleFocus, docTools, paraPicked, paraText, paraKey, paraScope, threadScope, switchScope, paraSlot, ctorSlot, hoverField, loadIdentities, fields, allFields, fieldsSig, registerFieldsApi, publishFields, setFieldValue, focusField, applyFields, previewFields, endFieldPreview, dropFields, applyGender, applyLocality, clearPick, getDocumentText, fieldSuggestions, ensureFieldSuggestions],
+    () => ({ messages, setInput, busy, switching, error, setError, send, stop, regenerate, branchFrom, branches, activeBranchId, switchBranch, fileName: file?.name, footSlot, quickSlot, genMode, versions, activeVersion, selectVersion, openVersion, questions, submitQuestions, skipQuestions, options, chooseOption, engine, setEngine, model, setModel, aiSettings, projectName: selectedProject?.name || '', tokens, busyScope, showTokenUsage: appPrefs.showTokenUsage, pendingAsk, resolveAsk, debugAsk, setDebugAsk, selection, addSelection, clearSelection, applyManualEdit, saveConstructorVersion, rewritePiece, completing, setCompleting, focusMode, toggleFocus, docTools, setDocTools, paraPicked, setParaPicked, paraText, setParaText, setParaSrc, paraKey, setParaKey, paraScope, threadScope, switchScope, paraSlot, setParaSlot, ctorSlot, setCtorSlot, setHoverField, loadIdentities, fields, allFields, fieldsSig, registerFieldsApi, publishFields, setFieldValue, focusField, applyFields, previewFields, endFieldPreview, dropFields, applyGender, applyLocality, clearPick, getDocumentText, fieldSuggestions, ensureFieldSuggestions }),
+    [messages, busy, switching, error, send, stop, regenerate, branchFrom, branches, activeBranchId, switchBranch, file?.name, footSlot, quickSlot, genMode, versions, activeVersion, selectVersion, openVersion, questions, submitQuestions, skipQuestions, options, chooseOption, engine, setEngine, model, setModel, aiSettings, selectedProject?.name, tokens, busyScope, appPrefs.showTokenUsage, pendingAsk, resolveAsk, debugAsk, selection, addSelection, clearSelection, applyManualEdit, saveConstructorVersion, rewritePiece, completing, setCompleting, focusMode, toggleFocus, docTools, paraPicked, paraText, paraKey, paraScope, threadScope, switchScope, paraSlot, ctorSlot, loadIdentities, fields, allFields, fieldsSig, registerFieldsApi, publishFields, setFieldValue, focusField, applyFields, previewFields, endFieldPreview, dropFields, applyGender, applyLocality, clearPick, getDocumentText, fieldSuggestions, ensureFieldSuggestions],
   );
-  return <MultitoolAdvisorContext.Provider value={value}>{children}</MultitoolAdvisorContext.Provider>;
+  const live = useMemo(
+    () => ({ input, setInput, streamText, hoverField, setHoverField }),
+    [input, setInput, streamText, hoverField, setHoverField],
+  );
+  return (
+    <MultitoolAdvisorContext.Provider value={value}>
+      <MultitoolLiveContext.Provider value={live}>{children}</MultitoolLiveContext.Provider>
+    </MultitoolAdvisorContext.Provider>
+  );
 }
 
 // Portal helper: render a tab's footer action into the single shared Multitool
@@ -5172,7 +5223,8 @@ function MultitoolComposer() {
   // A state ref, not useRef, so the effects below run when the textarea
   // actually mounts (this component returns null until the advisor exists).
   const [areaEl, setAreaEl] = useState(null);
-  const advInput = adv?.input;
+  const live = useMultitoolLive();
+  const advInput = live?.input;
   const fitArea = useCallback(() => {
     if (!areaEl) return;
     const composer = areaEl.closest('.dv-advisor-composer');
@@ -5200,8 +5252,9 @@ function MultitoolComposer() {
     return () => ro.disconnect();
   }, [areaEl, fitArea]);
   if (!adv) return null;
+  const { input } = live || {};
   const {
-    input, setInput, busy, send, stop, genMode, options = [], chooseOption,
+    setInput, busy, send, stop, genMode, options = [], chooseOption,
     questions = [], submitQuestions, skipQuestions, pendingAsk, resolveAsk, debugAsk, setDebugAsk,
   } = adv;
   // genMode clarifying questions, shaped for the shared AskUserPanel (free-text).
@@ -5776,7 +5829,8 @@ function AdvisorPanel({ file }) {
   }, [messages, scrollToBottom]);
   useEffect(() => { scrollToBottom(false); }, [busy, scrollToBottom]);
   // A streaming answer keeps the thread at its foot as it grows.
-  useEffect(() => { if (adv?.streamText) scrollToBottom(false); }, [adv?.streamText, scrollToBottom]);
+  const streamText = useMultitoolLive()?.streamText;
+  useEffect(() => { if (streamText) scrollToBottom(false); }, [streamText, scrollToBottom]);
 
   const copyMessage = async (text, index) => {
     try { await navigator.clipboard.writeText(text || ''); } catch { /* clipboard blocked */ }
@@ -6011,8 +6065,8 @@ function AdvisorPanel({ file }) {
                 <div className="bubble">
                   <div className="bubble-c">
                     <div className="bubble-msg">
-                      {adv?.streamText
-                        ? <AiAnswer text={adv.streamText} streaming revealKey={`dv:${file?.path || ''}`} onTick={() => scrollToBottom(false)} onRef={openAnswerRef} />
+                      {streamText
+                        ? <AiAnswer text={streamText} streaming revealKey={`dv:${file?.path || ''}`} onTick={() => scrollToBottom(false)} onRef={openAnswerRef} />
                         : <AdvThinkingStatus query={lastUserText} />}
                     </div>
                   </div>
@@ -6376,7 +6430,7 @@ function LivePhotoLayer({ live, mode, muted, imgRef, transform, transition, vide
 }
 
 function MediaOcrPane({ file, url, kind, sidePanelSlot = null, sideTabsSlot = null }) {
-  const { notify } = useNotifications();
+  const { notify } = useNotify();
   // ── Photo editing (images only) ─────────────────────────────────────────
   // "Edit photo" in the Quick actions card swaps this pane for the editor
   // (`components/PhotoEditor`: rotate, straighten, rectangle or four-point
@@ -6810,13 +6864,31 @@ function MediaOcrPane({ file, url, kind, sidePanelSlot = null, sideTabsSlot = nu
       return regionToStageShape(entry.region, toStage, scale);
     };
 
-    // rAF loop keeps the outline glued through zoom/pan/resize.
+    // rAF loop keeps the outline glued through zoom/pan/resize. It STOPS once
+    // the outline has held still for a few frames (it used to measure two
+    // rects and stringify the shape every frame for as long as a highlight
+    // was shown); anything that can move the picture wakes it again.
+    let still = 0;
     const tick = () => {
+      raf = 0;
       if (dead) return;
       const shape = computeShape();
       const key = JSON.stringify(shape);
-      if (key !== prevKey) { prevKey = key; setHighlightShape(shape); }
-      raf = requestAnimationFrame(tick);
+      if (key !== prevKey) { prevKey = key; setHighlightShape(shape); still = 0; } else still += 1;
+      if (still < 20) raf = requestAnimationFrame(tick);
+    };
+    const wake = () => { still = 0; if (!raf && !dead) raf = requestAnimationFrame(tick); };
+    const ro = typeof ResizeObserver === 'function' ? new ResizeObserver(wake) : null;
+    ro?.observe(stage); ro?.observe(el);
+    // Zoom and pan are written as style/class changes inside the stage.
+    const mo = new MutationObserver(wake);
+    mo.observe(stage, { attributes: true, attributeFilter: ['style', 'class'], subtree: true });
+    stage.addEventListener('transitionrun', wake, true);
+    window.addEventListener('resize', wake);
+    const stopWatching = () => {
+      ro?.disconnect(); mo.disconnect();
+      stage.removeEventListener('transitionrun', wake, true);
+      window.removeEventListener('resize', wake);
     };
 
     if (kind === 'video' && typeof entry.videoTime === 'number') {
@@ -6856,7 +6928,7 @@ function MediaOcrPane({ file, url, kind, sidePanelSlot = null, sideTabsSlot = nu
           const shape = computeShape();
           prevKey = JSON.stringify(shape);
           setHighlightShape(shape);
-          raf = requestAnimationFrame(tick);
+          wake();
         };
         snapSeekListener = onSeeked;
         el.addEventListener('seeked', snapSeekListener, { once: true });
@@ -6869,11 +6941,12 @@ function MediaOcrPane({ file, url, kind, sidePanelSlot = null, sideTabsSlot = nu
           setSeekLoading(false);
           setFrameSnapOverlay(null);
           setHighlightShape(computeShape());
-          raf = requestAnimationFrame(tick);
+          wake();
         }
         return () => {
           dead = true;
           cancelAnimationFrame(raf);
+          stopWatching();
           if (snapSeekListener) el.removeEventListener('seeked', snapSeekListener);
         };
       }
@@ -6885,11 +6958,12 @@ function MediaOcrPane({ file, url, kind, sidePanelSlot = null, sideTabsSlot = nu
 
     // Start the rAF loop after the initial sync set.
     prevKey = JSON.stringify(computeShape());
-    raf = requestAnimationFrame(tick);
+    wake();
 
     return () => {
       dead = true;
       cancelAnimationFrame(raf);
+      stopWatching();
       if (snapSeekListener) el.removeEventListener('seeked', snapSeekListener);
     };
   }, [highlightId, history, kind]);
@@ -6986,7 +7060,14 @@ function MediaOcrPane({ file, url, kind, sidePanelSlot = null, sideTabsSlot = nu
   // seeded from the per-file cache) so the line at the current time can show as
   // a subtitle over the decibel line. null until captions exist.
   const [captions, setCaptions] = useState(() => captionsFromCache(file.storage_path));
-  useEffect(() => { setCaptions(captionsFromCache(file.storage_path)); }, [file.storage_path]);
+  // The initial state already read it: re-read only for ANOTHER file (a whole
+  // transcript was parsed twice on every open, with an extra render).
+  const captionsReadFor = useRef(file.storage_path);
+  useEffect(() => {
+    if (captionsReadFor.current === file.storage_path) return;
+    captionsReadFor.current = file.storage_path;
+    setCaptions(captionsFromCache(file.storage_path));
+  }, [file.storage_path]);
   const activeCaption = useMemo(() => {
     if (kind !== 'video' || captions?.state !== 'done') return null;
     const seg = captions.segments.find((s) => currentTime >= s.start && currentTime < s.end);
@@ -7109,16 +7190,21 @@ function MediaOcrPane({ file, url, kind, sidePanelSlot = null, sideTabsSlot = nu
         if (d < bestDist) { bestDist = d; best = a; }
       }
       let align;
-      if (best) { cx = best.x; cy = best.y; align = best.align; setActiveSnap(best.id); }
-      else { align = cx / sr.width <= 0.34 ? 'left' : cx / sr.width >= 0.66 ? 'right' : 'center'; setActiveSnap(null); }
+      if (best) { cx = best.x; cy = best.y; align = best.align; }
+      else { align = cx / sr.width <= 0.34 ? 'left' : cx / sr.width >= 0.66 ? 'right' : 'center'; }
       // Store the alignment-relevant EDGE (left edge for left, right edge for
       // right, centre for centre) so the caption pins to that side: text-align
       // reads naturally and the box stays put as the line length changes.
       const anchorX = align === 'left' ? cx - halfW : align === 'right' ? cx + halfW : cx;
       latest = { x: (anchorX / sr.width) * 100, y: (cy / sr.height) * 100, align };
-      setCaptionSettings((s) => ({ ...s, ...latest }));
+      paint.call(best ? best.id : null, latest);
     };
+    const paint = perFrame((snapId, pos) => {
+      setActiveSnap(snapId);
+      setCaptionSettings((s) => ({ ...s, ...pos }));
+    });
     const onUp = () => {
+      paint.flush();
       setDraggingCaption(false);
       setSnapAnchors(null);
       setActiveSnap(null);
@@ -7330,10 +7416,14 @@ function MediaOcrPane({ file, url, kind, sidePanelSlot = null, sideTabsSlot = nu
       moved = true;
       if (!middle) return;
       document.body.classList.add('dv-media-panning');
-      setPanX(startPanX + dx);
-      setPanY(startPanY + dy);
+      panTo = [startPanX + dx, startPanY + dy];
+      // One pane re-render per frame, not per mouse event.
+      if (!panRaf) panRaf = requestAnimationFrame(() => { panRaf = 0; setPanX(panTo[0]); setPanY(panTo[1]); });
     };
+    let panRaf = 0;
+    let panTo = null;
     const onUp = (ev) => {
+      if (panRaf) { cancelAnimationFrame(panRaf); panRaf = 0; setPanX(panTo[0]); setPanY(panTo[1]); }
       window.removeEventListener('mousemove', onMove);
       window.removeEventListener('mouseup', onUp);
       document.body.classList.remove('dv-media-panning');
@@ -7368,7 +7458,7 @@ function MediaOcrPane({ file, url, kind, sidePanelSlot = null, sideTabsSlot = nu
   }, [zoomIn, zoomOut, zoomReset]);
 
   // Reopening the file restores its history; edits to the list persist back.
-  useEffect(() => { saveOcrHistory(file.path, history); }, [file.path, history]);
+  useDebouncedSave(saveOcrHistory, file.path, history);
 
   // Esc cancels the tool and any in-flight selection/error.
   useEffect(() => {
@@ -7587,22 +7677,27 @@ function MediaOcrPane({ file, url, kind, sidePanelSlot = null, sideTabsSlot = nu
     const start = { x: e.clientX - stageRect0.left, y: e.clientY - stageRect0.top };
     setErrorMsg(null);
     setDrag({ tool, start, points: [start] });
+    // Every point is kept (a lasso needs its whole outline), but the pane is
+    // re-rendered once a frame with all of them, not once per mouse event.
+    const freehand = tool === 'highlight' || tool === 'lasso';
+    let pts = [start];
+    const paint = perFrame((p) => {
+      setCursorPos(p);
+      const points = freehand ? pts.slice() : [start, p];
+      setDrag((d) => (d ? { ...d, points } : d));
+    });
     const onMove = (ev) => {
       const r = stageEl.getBoundingClientRect();
       const p = { x: ev.clientX - r.left, y: ev.clientY - r.top };
-      setCursorPos(p);
-      setDrag((d) => {
-        if (!d) return d;
-        if (d.tool === 'highlight' || d.tool === 'lasso') {
-          const last = d.points[d.points.length - 1];
-          const minDist = d.tool === 'highlight' ? Math.max(4, brushRadiusRef.current * 0.35) : 3;
-          if (Math.hypot(p.x - last.x, p.y - last.y) < minDist) return d;
-          return { ...d, points: [...d.points, p] };
-        }
-        return { ...d, points: [d.start, p] };
-      });
+      if (freehand) {
+        const last = pts[pts.length - 1];
+        const minDist = tool === 'highlight' ? Math.max(4, brushRadiusRef.current * 0.35) : 3;
+        if (Math.hypot(p.x - last.x, p.y - last.y) >= minDist) pts.push(p);
+      }
+      paint.call(p);
     };
     const onUp = () => {
+      paint.flush();
       window.removeEventListener('mousemove', onMove);
       window.removeEventListener('mouseup', onUp);
       const r = stageEl.getBoundingClientRect();
@@ -7623,11 +7718,13 @@ function MediaOcrPane({ file, url, kind, sidePanelSlot = null, sideTabsSlot = nu
     const startX = e.clientX;
     const startW = historyWidth;
     document.body.classList.add('dv-ocr-resizing');
+    const paint = perFrame(setHistoryWidth);
     const onMove = (ev) => {
       const delta = toLayoutPx(startX - ev.clientX);
-      setHistoryWidth(Math.min(HISTORY_MAX_WIDTH, Math.max(HISTORY_MIN_WIDTH, startW + delta)));
+      paint.call(Math.min(HISTORY_MAX_WIDTH, Math.max(HISTORY_MIN_WIDTH, startW + delta)));
     };
     const onUp = () => {
+      paint.flush();
       window.removeEventListener('mousemove', onMove);
       window.removeEventListener('mouseup', onUp);
       document.body.classList.remove('dv-ocr-resizing');
@@ -8330,7 +8427,7 @@ function CaptionEditor({ value, onChange, ariaLabel, onCommit, onCancel }) {
 // panel). `onCaptionsChange` (optional) lets a parent mirror the transcript —
 // the audio pane uses it to drive its now-playing karaoke lyrics.
 function CaptionsPanel({ file, url, currentTime, onSeek, onCaptionsChange }) {
-  const { notify } = useNotifications();
+  const { notify } = useNotify();
   const [captions, setCaptions] = useState(() => captionsFromCache(file.storage_path));
   const [copied, setCopied] = useState(false);
   // Index of the caption currently being edited inline (null = none) — each
@@ -8340,7 +8437,10 @@ function CaptionsPanel({ file, url, currentTime, onSeek, onCaptionsChange }) {
   const editStartTextRef = useRef('');
   const listRef = useRef(null);
 
+  // Skips its first run: the initial state has just read the transcript.
+  const captionsMounted = useRef(false);
   useEffect(() => {
+    if (!captionsMounted.current) { captionsMounted.current = true; return; }
     setCaptions(captionsFromCache(file.storage_path));
     setCopied(false);
     setEditingIdx(null);
@@ -8395,15 +8495,32 @@ function CaptionsPanel({ file, url, currentTime, onSeek, onCaptionsChange }) {
   // Persist on every change so an edit survives reopening the file, just like a
   // freshly generated transcript. The onCaptionsChange effect mirrors edits to
   // the now-playing lyrics.
+  // Saving is DEBOUNCED: typing in a caption used to write the whole
+  // transcript (twice over, with its original) on every keystroke, and each
+  // write woke every listener of the file's data. The pending save is flushed
+  // when the file changes or the pane closes.
+  const captionSaveRef = useRef(null); // { path, data, timer }
+  const flushCaptionSave = useCallback(() => {
+    const p = captionSaveRef.current;
+    if (!p) return;
+    clearTimeout(p.timer);
+    captionSaveRef.current = null;
+    saveCaptions(p.path, p.data);
+  }, []);
+  useEffect(() => flushCaptionSave, [file.storage_path, flushCaptionSave]);
   const persistCaptions = useCallback((next) => {
     setCaptions(next);
     if (next?.state === 'done') {
-      saveCaptions(file.storage_path, {
+      const data = {
         text: next.text, segments: next.segments, language: next.language, createdAt: next.createdAt,
         original: next.original || null,
-      });
+      };
+      const prev = captionSaveRef.current;
+      if (prev && prev.path !== file.storage_path) flushCaptionSave();
+      if (captionSaveRef.current) clearTimeout(captionSaveRef.current.timer);
+      captionSaveRef.current = { path: file.storage_path, data, timer: setTimeout(flushCaptionSave, 500) };
     }
-  }, [file.storage_path]);
+  }, [file.storage_path, flushCaptionSave]);
 
   const editSegment = (i, value) => {
     if (captions?.state !== 'done') return;
@@ -8883,13 +9000,16 @@ function AudioPlayerPane({ file, url, sidePanelSlot = null, sideTabsSlot = null 
   // Transcript mirrored from the side CaptionsPanel — drives the now-playing
   // karaoke lyrics over the controls. null until generated.
   const [lyrics, setLyrics] = useState(() => captionsFromCache(file.storage_path));
+  const lyricsMounted = useRef(false);
 
   useEffect(() => {
     setFailed(false);
     setPlaying(false);
     setCur(0);
     setDur(0);
-    setLyrics(captionsFromCache(file.storage_path));
+    // The initial state has just read the transcript on the first run.
+    if (lyricsMounted.current) setLyrics(captionsFromCache(file.storage_path));
+    lyricsMounted.current = true;
     cancelAnimationFrame(scopeRafRef.current);
     scopeRafRef.current = 0;
   }, [url, file.storage_path]);
@@ -9011,11 +9131,13 @@ function AudioPlayerPane({ file, url, sidePanelSlot = null, sideTabsSlot = null 
     const startX = e.clientX;
     const startW = captionsWidth;
     document.body.classList.add('dv-ocr-resizing');
+    const paint = perFrame(setCaptionsWidth);
     const onMove = (ev) => {
       const delta = startX - ev.clientX;
-      setCaptionsWidth(Math.min(CAPTIONS_MAX_WIDTH, Math.max(CAPTIONS_MIN_WIDTH, startW + delta)));
+      paint.call(Math.min(CAPTIONS_MAX_WIDTH, Math.max(CAPTIONS_MIN_WIDTH, startW + delta)));
     };
     const onUp = () => {
+      paint.flush();
       window.removeEventListener('mousemove', onMove);
       window.removeEventListener('mouseup', onUp);
       document.body.classList.remove('dv-ocr-resizing');
@@ -9437,7 +9559,7 @@ function SpreadsheetPane({ file, url, onExportPdf, onOpenNative }) {
 // (lib/extractFileText, or the main-process parser for legacy .doc) saved into
 // the SAME per-file history store — so every file type has a consistent panel.
 function DocExtractPanel({ file, url, kind, width, fill = false, sideTabsSlot = null }) {
-  const { notify } = useNotifications();
+  const { notify } = useNotify();
   const [history, setHistory] = useState(() => loadOcrHistory(file.storage_path));
   const [working, setWorking] = useState(false);
   const [errorMsg, setErrorMsg] = useState(null);
@@ -9503,7 +9625,7 @@ function DocExtractPanel({ file, url, kind, width, fill = false, sideTabsSlot = 
   }, [docTools]);
 
   useEffect(() => { setHistory(loadOcrHistory(file.storage_path)); }, [file.storage_path]);
-  useEffect(() => { saveOcrHistory(file.storage_path, history); }, [file.storage_path, history]);
+  useDebouncedSave(saveOcrHistory, file.storage_path, history);
 
   const extractable = kind !== 'other';
 
@@ -10616,10 +10738,14 @@ function usePageScrollCounter(scrollRef, pageSelector, deps = []) {
     const sc = scrollRef.current;
     if (!sc) return undefined;
     recompute();
-    sc.addEventListener('scroll', recompute, { passive: true });
+    // Once a frame at most: every scroll event queried every slide and read
+    // its rect.
+    let raf = 0;
+    const onScroll = () => { if (!raf) raf = requestAnimationFrame(() => { raf = 0; recompute(); }); };
+    sc.addEventListener('scroll', onScroll, { passive: true });
     let ro;
-    if (typeof ResizeObserver !== 'undefined') { ro = new ResizeObserver(recompute); ro.observe(sc); }
-    return () => { sc.removeEventListener('scroll', recompute); ro?.disconnect(); };
+    if (typeof ResizeObserver !== 'undefined') { ro = new ResizeObserver(onScroll); ro.observe(sc); }
+    return () => { sc.removeEventListener('scroll', onScroll); ro?.disconnect(); cancelAnimationFrame(raf); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [recompute, ...deps]);
   return info;
@@ -11255,11 +11381,14 @@ function DocParaPill({ hostRef, onOpen, onToggleFold }) {
     // document is zoomed in on a paragraph (the veil makes that state modal),
     // not the picked paragraph's own preview copy, not the
     // picked paragraph itself, and not text-less blocks (spacers).
+    // A LIVE collection: checking it is a length read, where querySelector
+    // searched the whole document on every mouse move.
+    const picked = host.getElementsByClassName('dv-docx-para is-selected');
     const blockUnder = (e) => {
       if (host.parentElement?.classList.contains('is-zoom-live')) return null;
       // While a paragraph is PICKED no other paragraph is detected: no hover
       // pill, no hover dim, no menu — a click outside it only dismisses it.
-      if (host.querySelector('.dv-docx-para.is-selected')) return null;
+      if (picked.length) return null;
       if (e.target.closest?.('.dv-docx-livecard')) return null;
       const el = e.target.closest?.(PARA_BLOCKS);
       if (!el || !host.contains(el) || el.classList.contains('is-selected')) return null;
@@ -13244,7 +13373,7 @@ function DocxRenderPane({ url, regenTick = 0, ctor = null, restyle = null, docNa
   // up — and re-rendered everything reading the advisor context on every
   // mouse-over.) `hoverField` is still honoured when something else sets it —
   // a fields card pointing at its gap.
-  const hoverField = adv?.hoverField || null;
+  const hoverField = useMultitoolLive()?.hoverField || null;
   useEffect(() => {
     const host = hostRef.current;
     if (!host) return undefined;
@@ -14938,7 +15067,7 @@ function DocxWorkspace({ file, url, regenTick = 0, onExportPdf, onOpenNative, on
   //     Everything Word carries — styles, numbering, tables, headers, images —
   //     comes through untouched, because only the changed paragraphs are
   //     rewritten. There is no undo on this path, which is what the dialog says.
-  const { notify } = useNotifications();
+  const { notify } = useNotify();
   const [restyleBusy, setRestyleBusy] = useState(false);
   const [restyleStep, setRestyleStep] = useState(null);
   const restyleModel = adv?.model;
@@ -16706,7 +16835,7 @@ const PdfFormatGlyph = ToPdfGlyph;
 const PDF_CONVERT_FROM = { label: 'PDF', icon: PdfFormatGlyph };
 
 function DocPane({ file, onWhatsAppDetected, onRenamed, sidePanelSlot = null, sideTabsSlot = null, regenTick = 0, startInBuilder = false }) {
-  const { notify } = useNotifications();
+  const { notify } = useNotify();
   const { kind: baseKind, mime } = useMemo(
     () => classify(file.mime, file.name, file.path),
     [file.mime, file.name, file.path],
@@ -17220,7 +17349,9 @@ function SidebarScrollbar({ scrollRef, refreshKey }) {
   useEffect(() => {
     const el = scrollRef.current;
     if (!el) return undefined;
-    el.addEventListener('scroll', recompute, { passive: true });
+    let raf = 0;
+    const onScroll = () => { if (!raf) raf = requestAnimationFrame(() => { raf = 0; recompute(); }); };
+    el.addEventListener('scroll', onScroll, { passive: true });
     let ro;
     if (typeof ResizeObserver !== 'undefined') {
       ro = new ResizeObserver(recompute);
@@ -17230,7 +17361,7 @@ function SidebarScrollbar({ scrollRef, refreshKey }) {
       // the scroller's own box size doesn't change.
       if (el.firstElementChild) ro.observe(el.firstElementChild);
     }
-    return () => { el.removeEventListener('scroll', recompute); ro?.disconnect(); };
+    return () => { el.removeEventListener('scroll', onScroll); ro?.disconnect(); cancelAnimationFrame(raf); };
   }, [recompute, scrollRef]);
 
   // Drag the thumb → scroll proportionally (thumb travel maps to scroll range).
@@ -17359,7 +17490,7 @@ function DocFieldsPanel() {
   // to be clicked to see where a field lands, and nothing stays marked
   // afterwards.
   const setHoverField = adv?.setHoverField;
-  const hoverField = adv?.hoverField || null;
+  const hoverField = useMultitoolLive()?.hoverField || null;
   const hoverCard = useCallback((id) => { setHoverField?.(id); }, [setHoverField]);
   // Leaving the panel entirely (or the panel unmounting) must not leave a gap
   // lit in the document with nothing pointing at it.
@@ -18222,12 +18353,16 @@ export default function DocViewer() {
     const startW = advisorW;
     let lastW = startW;
     document.body.classList.add('dv-ocr-resizing');
+    // One re-render of the whole viewer per FRAME, not per mouse event.
+    let raf = 0;
     const onMove = (ev) => {
       // Panel sits on the LEFT — dragging the gutter rightward widens it.
       lastW = Math.min(ADVISOR_MAX, Math.max(ADVISOR_MIN, startW + toLayoutPx(ev.clientX - startX)));
-      setAdvisorW(lastW);
+      if (!raf) raf = requestAnimationFrame(() => { raf = 0; setAdvisorW(lastW); });
     };
     const onUp = () => {
+      cancelAnimationFrame(raf);
+      setAdvisorW(lastW);
       window.removeEventListener('mousemove', onMove);
       window.removeEventListener('mouseup', onUp);
       document.body.classList.remove('dv-ocr-resizing');

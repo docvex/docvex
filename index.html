@@ -11,9 +11,25 @@
     <!-- Google Fonts: Inter (body) + Plus Jakarta Sans (headings). Loaded
          once at app start; cached by the OS DNS / browser. Preconnect
          halves the latency for the actual font fetch. -->
+    <!-- Startup indicator: the window can now be shown before the app's code
+         has loaded (preload.js reports a saved session at once), so it has
+         something to show meanwhile. React replaces #root's content on mount.
+         Neutral grey on the window's own themed background, no theme needed. -->
+    <style>
+      /* Fades in only if the app is still loading after 350ms, so windows
+         that mount quickly (the tray menu, a warm viewer) never show it. */
+      .boot { position: fixed; inset: 0; display: grid; place-items: center; pointer-events: none;
+        opacity: 0; animation: boot-in 0.2s ease-out 0.35s forwards; }
+      @keyframes boot-in { to { opacity: 1; } }
+      .boot-ring { width: 28px; height: 28px; border-radius: 50%;
+        border: 2.5px solid rgba(128, 128, 128, 0.22); border-top-color: rgba(128, 128, 128, 0.7);
+        animation: boot-spin 0.9s linear infinite; }
+      @keyframes boot-spin { to { transform: rotate(360deg); } }
+      @media (prefers-reduced-motion: reduce) { .boot-ring { animation-duration: 2.4s; } }
+    </style>
   </head>
   <body>
-    <div id="root"></div>
+    <div id="root"><div class="boot" aria-hidden="true"><div class="boot-ring"></div></div></div>
     <script type="module" src="/src/renderer.jsx"></script>
   </body>
 </html>

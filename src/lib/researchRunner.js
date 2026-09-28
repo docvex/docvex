@@ -26,6 +26,16 @@ function set(next) {
 
 export const subscribeRunner = (fn) => { listeners.add(fn); return () => listeners.delete(fn); };
 export const runnerState = () => state;
+// Only what says whether something RUNS (busy + summarizing), as a snapshot
+// that keeps its identity while the streamed text grows: the Sidebar reads it
+// and used to re-render on every chunk of an answer (~16 times a second).
+let activity = { busy: state.busy, summarizing: state.summarizing };
+export const runnerActivity = () => {
+  if (activity.busy !== state.busy || activity.summarizing !== state.summarizing) {
+    activity = { busy: state.busy, summarizing: state.summarizing };
+  }
+  return activity;
+};
 
 /** A turn in `tid` has started, or moved to a new phase; `null` = it ended. */
 export function setTurn(tid, v) {

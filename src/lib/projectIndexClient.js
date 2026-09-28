@@ -715,14 +715,20 @@ export function migrateLegacy({ dir = null, onlyPath = null, projectId = null } 
 // Which files localStorage still holds anything for — so hydrating one file
 // (which happens per file, often hundreds at a time) doesn't parse every key.
 // Re-read at most every few seconds: the stores add keys only when a put fails.
+// Kept for as long as the SET OF KEYS is unchanged (it was rebuilt every 5s,
+// parsing every legacy blob each time while files hydrated); a minute at most,
+// in case a key's content changed under the same name.
 let legacyPaths = null;
 let legacyAt = 0;
+let legacySig = '';
 function legacyPathSet(keys) {
-  if (legacyPaths && Date.now() - legacyAt < 5000) return legacyPaths;
+  const sig = keys.join('\n');
+  if (legacyPaths && sig === legacySig && Date.now() - legacyAt < 60_000) return legacyPaths;
   const set = new Set();
   for (const item of collectLegacy(keys, lsRead)) set.add(normPath(item.path));
   legacyPaths = set;
   legacyAt = Date.now();
+  legacySig = sig;
   return set;
 }
 async function migrateNow({ dir, onlyPath }) {

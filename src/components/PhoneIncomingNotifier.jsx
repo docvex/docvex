@@ -10,14 +10,14 @@
 // once per window, which brings every project's kept address back.
 
 import { useEffect } from 'react';
-import { useNotifications } from '../context/NotificationsContext';
+import { useNotify } from '../context/NotificationsContext';
 import { useAuth } from '../context/AuthContext';
 import { startIncoming, setIncomingOwner, onIncomingArrived, fmtBytes } from '../lib/phoneUploadIncoming';
 
 const IMAGE = /\.(jpe?g|png|gif|webp|heic|heif|bmp|tiff?)$/i;
 
 export default function PhoneIncomingNotifier() {
-  const { notify } = useNotifications();
+  const { notify } = useNotify();
   const { session } = useAuth();
   const userId = session?.user?.id || null;
   // The waiting files and kept addresses are the SIGNED-IN account's.

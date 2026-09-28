@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
-import { useNotifications } from '../../context/NotificationsContext';
+import { useNotify } from '../../context/NotificationsContext';
 import { acceptInvite } from '../../lib/projects';
 import './InviteAccept.css';
 
@@ -30,7 +30,7 @@ function classifyError(err) {
 export default function InviteAccept() {
   const { token } = useParams();
   const { session, loading: authLoading, signOut } = useAuth();
-  const { notify } = useNotifications();
+  const { notify } = useNotify();
   const navigate = useNavigate();
 
   const [accepting, setAccepting] = useState(false);

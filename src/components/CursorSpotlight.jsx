@@ -5,6 +5,7 @@ import React, { useEffect, useRef } from 'react';
 // (layout-px) tile offsets.
 import { toLayoutPx } from '../lib/appZoom';
 import { subscribePointer } from '../lib/pointer';
+import { usePerfAllows } from '../lib/usePerf';
 import './CursorSpotlight.css';
 
 // A cursor-following "spotlight" that brightens the ambient dot grid in a soft
@@ -35,8 +36,12 @@ import './CursorSpotlight.css';
 //   follow    — false keeps the light where it is (centred) instead of tracking
 //               the pointer: the graphics presets below High (lib/perf) keep the
 //               look but drop the per-move work.
-export default function CursorSpotlight({ className = 'cursor-spotlight', contain = false, follow = true }) {
+export default function CursorSpotlight({ className = 'cursor-spotlight', contain = false, follow: wantFollow = true }) {
   const ref = useRef(null);
+  // The graphics preset is honoured HERE, so every spotlight obeys it — the
+  // Doc Viewer's and the sign-in screen's never got the flag and followed the
+  // pointer on every preset, reading a rect on every move.
+  const follow = usePerfAllows('spotlight') && wantFollow;
 
   useEffect(() => {
     const el = ref.current;

@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useSelectedProject } from '../../context/SelectedProjectContext';
-import { useNotifications } from '../../context/NotificationsContext';
+import { useNotify } from '../../context/NotificationsContext';
 import { useAuth } from '../../context/AuthContext';
 import FilesWorkspace from '../../components/FilesWorkspace';
 import { useUndoRedo } from '../../components/useUndoRedo';
@@ -268,11 +268,15 @@ function fmtNames(names, max = 3) {
 // picks on their computer ("My drafts"); deleting a file moves it into a
 // hidden `.docvex-trash` recycle bin ("Recently deleted") that auto-purges
 // after 30 days.
+
+// Listing entry → the item fields that depend only on it (see toDraftItem).
+const DRAFT_FIXED = new WeakMap();
+
 export default function ProjectFiles({ embedded = false } = {}) {
   const { selectedProject, loading: projLoading } = useSelectedProject();
   const navigate = useNavigate();
   const projectId = selectedProject?.id || null;
-  const { notify } = useNotifications();
+  const { notify } = useNotify();
   const { session } = useAuth();
   const userId = session?.user?.id || null;
 
@@ -2205,18 +2209,32 @@ export default function ProjectFiles({ embedded = false } = {}) {
     modifiedLabel: projectCreatedLabel,
   };
   const toDraftItem = (lf) => {
-    // A Data collection wears its own glyph (extCategory 'collection').
-    const isDvc = isCollectionFile(lf.name);
+    // The parts that depend only on the listed file itself are worked out once
+    // per listing entry (the page re-renders on every scan tick and
+    // notification, and rebuilt these for every file in the folder each time).
+    let fixed = DRAFT_FIXED.get(lf);
+    if (!fixed) {
+      // A Data collection wears its own glyph (extCategory 'collection').
+      const isDvc = isCollectionFile(lf.name);
+      fixed = {
+        ext: fileExtOf(lf.name),
+        sizeLabel: lf.sizeBytes != null ? formatBytes(lf.sizeBytes) : '',
+        modifiedLabel: formatDate(lf.mtimeIso),
+        sortTime: lf.mtimeIso ? Date.parse(lf.mtimeIso) || 0 : 0,
+        descriptor: isDvc ? null : describeLocalFile({ localFile: lf }),
+      };
+      DRAFT_FIXED.set(lf, fixed);
+    }
     return {
       // The index Row's portable id (survives rename / move); the path for a
       // file the index hasn't reached yet, or without the index.
       id: lf.id || lf.path || lf.name,
       kind: 'file',
       name: lf.name,
-      ext: fileExtOf(lf.name),
-      sizeLabel: lf.sizeBytes != null ? formatBytes(lf.sizeBytes) : '',
-      modifiedLabel: formatDate(lf.mtimeIso),
-      sortTime: lf.mtimeIso ? Date.parse(lf.mtimeIso) || 0 : 0,
+      ext: fixed.ext,
+      sizeLabel: fixed.sizeLabel,
+      modifiedLabel: fixed.modifiedLabel,
+      sortTime: fixed.sortTime,
       sortSize: Number(lf.sizeBytes) || 0,
       author: 'You',
       status: 'synced',
@@ -2224,7 +2242,7 @@ export default function ProjectFiles({ embedded = false } = {}) {
       // (true/false once resolved; undefined while pending / for other types →
       // FilesWorkspace falls back to its name heuristic until the probe lands).
       isWhatsApp: lf.path ? waByPath[lf.path] : undefined,
-      descriptor: isDvc ? null : describeLocalFile({ localFile: lf }),
+      descriptor: fixed.descriptor,
       scanTagged: !!localFolder && isScanTagged(scanTags, scanRel(localFolder, lf.path || lf.name)),
       hasText: !!lf.path && hasTextOf.has(lf.path),
       pending: !!lf._pending || busyPaths.has(normPath(lf.path)),

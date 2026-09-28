@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { useNotifications } from '../context/NotificationsContext';
+import { useNotify } from '../context/NotificationsContext';
 import { PLAN } from '../lib/plan';
 import { supabase } from '../lib/supabaseClient';
 import '../components/ConfirmModal.css'; // modal-* classes for the password modal
@@ -88,7 +88,7 @@ export default function Account() {
       if (!res.ok) notify?.({ category: 'system', variant: 'error', title: 'Could not export your data', body: String(res.error || ''), dedupeKey: 'account-export' });
     } finally { setExporting(false); }
   };
-  const { notify } = useNotifications();
+  const { notify } = useNotify();
   // The Legal Newsfeed e-mail: opted into at sign-up, withdrawn (or given)
   // here at any time — GDPR Art. 7(3). Kept in user_metadata.
   const [newsPending, setNewsPending] = useState(null);

@@ -68,11 +68,21 @@ function Dial({ goal, running, state = null, label, sub, tone }) {
   goalRef.current = goal;
   const runRef = useRef(running);
   runRef.current = running;
+  const kickRef = useRef(() => {});
   useEffect(() => {
     let raf = 0;
     let last = performance.now();
     let shown = clamp01(goalRef.current(Date.now()));
     let lastPct = -1;
+    // The loop STOPS once the needle has landed and no scan is running (it
+    // used to run every frame for as long as the dial was on screen, and even
+    // without motion); a new goal or a scan starting kicks it again.
+    const kick = () => {
+      if (raf) return;
+      last = performance.now();
+      raf = requestAnimationFrame(frame);
+    };
+    kickRef.current = kick;
     const write = (v, wobble) => {
       valueRef.current?.style.setProperty('stroke-dashoffset', String(len * (1 - v)));
       needleRef.current?.setAttribute('transform', `rotate(${(START + SWEEP * v + wobble).toFixed(2)} ${cx} ${cy})`);
@@ -82,7 +92,10 @@ function Dial({ goal, running, state = null, label, sub, tone }) {
     const frame = (t) => {
       const dt = Math.min(100, t - last); last = t;
       const target = clamp01(goalRef.current(Date.now()));
-      if (!liveMotion()) { shown = target; write(shown, 0); raf = requestAnimationFrame(frame); return; }
+      raf = 0;
+      // No motion: the needle is simply set. The card re-renders while a scan
+      // runs, and each render kicks one more frame, so it still follows.
+      if (!liveMotion()) { shown = target; write(shown, 0); return; }
       // FPS-independent easing: quick to rise, quicker to fall back (a file
       // done → the next one starts at 0: the needle drops, then climbs).
       // Quick enough to show the 0.8s burst and a completion's snap.
@@ -93,12 +106,14 @@ function Dial({ goal, running, state = null, label, sub, tone }) {
       const amp = runRef.current ? 0.55 + Math.min(3.2, speed * 900) : 0;   // degrees
       const wobble = amp * (0.55 * Math.sin(t / 31) + 0.3 * Math.sin(t / 17 + 1.7) + 0.35 * (Math.random() - 0.5));
       write(shown, wobble);
-      raf = requestAnimationFrame(frame);
+      if (runRef.current || Math.abs(target - shown) > 0.0005) raf = requestAnimationFrame(frame);
+      else write(target, 0);
     };
     write(shown, 0);
-    raf = requestAnimationFrame(frame);
-    return () => cancelAnimationFrame(raf);
+    kick();
+    return () => { cancelAnimationFrame(raf); raf = 0; kickRef.current = () => {}; };
   }, [len]);
+  useEffect(() => { kickRef.current(); });
   const ticks = Array.from({ length: 9 }, (_, i) => {
     const deg = START + (SWEEP * i) / 8;
     const [a, b] = polar(cx, cy, r - 9, deg);
@@ -233,12 +248,15 @@ const OUTCOME = {
 
 export function ScanGaugeCard({ scan, bare = false }) {
   const [now, setNow] = useState(Date.now());
+  const running = !!scan && !scan.finished;
+  // Ticks only while a scan runs: a finished or idle card has nothing that
+  // moves with time, and re-rendered four times a second for nothing.
   useEffect(() => {
+    if (!running) return undefined;
     const t = window.setInterval(() => setNow(Date.now()), 250);
     return () => window.clearInterval(t);
-  }, []);
+  }, [running]);
   const { fileGoal, overallGoal, fileState } = useScanDrive(scan);
-  const running = !!scan && !scan.finished;
   const outcome = scan?.finished ? OUTCOME[scan.finished] || OUTCOME.error : null;
   const fileNow = fileState(now);
   // The readouts follow the needle's whole-scan value too, so the time left

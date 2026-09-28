@@ -3,13 +3,13 @@
 // in the Files tab's AI scan card (components/ScanGauges).
 import { useEffect } from 'react';
 import { useSelectedProject } from '../context/SelectedProjectContext';
-import { useNotifications } from '../context/NotificationsContext';
+import { useNotify } from '../context/NotificationsContext';
 import { projectIndexApi } from '../lib/localFolder';
 import { startLiveNetwork } from '../lib/liveNetwork';
 
 export default function LiveNetworkRunner() {
   const { selectedProjectId, selectedProject } = useSelectedProject();
-  const { notify } = useNotifications();
+  const { notify } = useNotify();
   const name = selectedProject?.name;
   useEffect(() => {
     if (!selectedProjectId || !projectIndexApi?.locate) return undefined;

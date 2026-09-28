@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { setMemberRole } from '../lib/customRoles';
-import { useNotifications } from '../context/NotificationsContext';
+import { useNotify } from '../context/NotificationsContext';
 import { builtInLabel } from './RoleBadge';
 // Reuse InviteMemberModal's styles — same role-picker shape (label, select,
 // hint paragraph, inline error) so the two flows feel consistent.
@@ -57,7 +57,7 @@ export default function ChangeMemberRoleModal({
   onSaved,
   onFailed,
 }) {
-  const { notify } = useNotifications();
+  const { notify } = useNotify();
   const [roleKey, setRoleKey] = useState('member');
   const [pending, setPending] = useState(false);
   const [error, setError] = useState(null);

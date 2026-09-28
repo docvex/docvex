@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom';
 import { useProject } from '../../context/ProjectContext';
 import { useSelectedProject } from '../../context/SelectedProjectContext';
-import { useNotifications } from '../../context/NotificationsContext';
+import { useNotify } from '../../context/NotificationsContext';
 import { useAuth } from '../../context/AuthContext';
 import {
   deleteProject,
@@ -307,7 +307,7 @@ export default function ProjectOverview() {
   const canRemove     = useHasCapability('members.remove');
   const canChangeRole = useHasCapability('members.change_role');
   const { clearSelection, patchSelectedProject } = useSelectedProject();
-  const { notify } = useNotifications();
+  const { notify } = useNotify();
   const { session } = useAuth();
   const navigate = useNavigate();
   // The caller's auth id, used to flag their row in the Members list with a

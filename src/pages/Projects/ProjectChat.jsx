@@ -10,7 +10,7 @@ import MiniHeaderFade from '../../components/MiniHeaderFade';
 import { useSelectedProject } from '../../context/SelectedProjectContext';
 import { usePaneChromeSlot, usePaneChromePortalEl, usePaneChromeFooterEl } from '../../context/PaneChromeContext';
 import { useAuth } from '../../context/AuthContext';
-import { useNotifications } from '../../context/NotificationsContext';
+import { useNotify } from '../../context/NotificationsContext';
 import { useChatUnread } from '../../context/ChatUnreadContext';
 import { listMembers } from '../../lib/projects';
 import { supabase } from '../../lib/supabaseClient';
@@ -752,7 +752,7 @@ export default function ProjectChat() {
   }, [projectId]);
   const { session } = useAuth();
   const viewerId = session?.user?.id || null;
-  const { notify } = useNotifications();
+  const { notify } = useNotify();
   const { markRead: markChatRead } = useChatUnread();
 
   const [tab, setTab] = useState('team');

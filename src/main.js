@@ -1,4 +1,4 @@
-import { app, BrowserWindow, Menu, Tray, ipcMain, shell, autoUpdater, dialog, protocol, nativeImage, screen, session, desktopCapturer, safeStorage } from 'electron';
+import { app, BrowserWindow, Menu, Tray, ipcMain, shell, autoUpdater, dialog, protocol, nativeImage, screen, session, desktopCapturer, safeStorage, utilityProcess } from 'electron';
 import path from 'node:path';
 import fs from 'node:fs';
 import fsp from 'node:fs/promises';
@@ -460,15 +460,35 @@ function isUsableRect(s) {
   return !!s && Number.isFinite(s.width) && Number.isFinite(s.height);
 }
 
+// Read ONCE and kept in memory: every move / resize / theme settle used to
+// re-read and re-write the file synchronously on the main thread. Writes go
+// out asynchronously and are serialised; only quit flushes synchronously.
+let windowStateCache = null;
 function readWindowStateFile() {
+  if (windowStateCache) return windowStateCache;
+  windowStateCache = {};
   try {
     const s = JSON.parse(fs.readFileSync(windowStateFile(), 'utf8'));
-    if (!s || typeof s !== 'object') return {};
-    // Legacy flat shape → treat it as the main window's state.
-    if (isUsableRect(s) && !s.main && !s.docViewer) return { main: s, backgroundColor: s.backgroundColor };
-    return s;
+    if (s && typeof s === 'object') {
+      // Legacy flat shape → treat it as the main window's state.
+      windowStateCache = isUsableRect(s) && !s.main && !s.docViewer
+        ? { main: s, backgroundColor: s.backgroundColor }
+        : s;
+    }
   } catch { /* no/invalid state — fall back to defaults */ }
-  return {};
+  return windowStateCache;
+}
+let windowStateWrite = Promise.resolve();
+function writeWindowStateFile({ sync = false } = {}) {
+  if (sync) {
+    try { fs.writeFileSync(windowStateFile(), JSON.stringify(readWindowStateFile())); } catch { /* best-effort */ }
+    return;
+  }
+  // Serialised at WRITE time, not call time, so a queued write can never put
+  // back an older state over a newer one (including the quit-time flush).
+  windowStateWrite = windowStateWrite
+    .then(() => fsp.writeFile(windowStateFile(), JSON.stringify(readWindowStateFile())))
+    .catch(() => { /* best-effort */ });
 }
 
 // ── The window's own background colour ────────────────────────────────────
@@ -494,7 +514,7 @@ function rememberWindowBackground(color) {
     const all = readWindowStateFile();
     if (all.backgroundColor === color) return;
     all.backgroundColor = color;
-    fs.writeFileSync(windowStateFile(), JSON.stringify(all));
+    writeWindowStateFile();
   } catch { /* best-effort */ }
 }
 
@@ -503,7 +523,7 @@ function readWindowState(role = 'main') {
   return isUsableRect(state) ? state : null;
 }
 
-function saveWindowState(win, role = 'main') {
+function saveWindowState(win, role = 'main', { sync = false } = {}) {
   if (!win || win.isDestroyed()) return;
   // A window standing at presentation size on Windows is not at a size anybody
   // chose — `getNormalBounds()` reports the whole monitor there, because the
@@ -528,7 +548,7 @@ function saveWindowState(win, role = 'main') {
         maximized: win.isMaximized(), fullscreen: win.isFullScreen(),
         minimized,
       };
-    fs.writeFileSync(windowStateFile(), JSON.stringify(all));
+    writeWindowStateFile({ sync });
   } catch { /* best-effort */ }
 }
 
@@ -547,7 +567,7 @@ function trackWindowState(win, role) {
   win.on('unmaximize', schedule);
   win.on('minimize', schedule);
   win.on('restore', schedule);
-  win.on('close', () => { clearTimeout(saveTimer); saveWindowState(win, role); });
+  win.on('close', () => { clearTimeout(saveTimer); saveWindowState(win, role, { sync: true }); });
 }
 
 // Put a freshly-created window into the maximized / fullscreen / minimized mode
@@ -822,6 +842,9 @@ function revealMainWindow() {
   clearTimeout(mainRevealTimer);
   mainRevealTimer = null;
   if (!mainWindow || mainWindow.isDestroyed()) return;
+  // Already revealed (the early reveal beat the renderer's own report): don't
+  // pull focus back from wherever the user has gone since.
+  if (pendingMainReveal === null && mainWindow.isVisible()) return;
   const mode = pendingMainReveal;
   pendingMainReveal = null;
   // Order matters: maximize() shows the window on Windows, so it goes first;
@@ -847,6 +870,12 @@ const createWindow = () => {
   pendingMainReveal = saved;
   clearTimeout(mainRevealTimer);
   mainRevealTimer = setTimeout(revealMainWindow, MAIN_REVEAL_FALLBACK_MS);
+  mainShellPainted = false;
+  earlyRevealWanted = false;
+  mainWindow.once('ready-to-show', () => {
+    mainShellPainted = true;
+    if (earlyRevealWanted) revealMainWindow();
+  });
   // Persist size + position (i.e. which monitor) for next launch.
   trackWindowState(mainWindow, 'main');
   // Once the app itself is up and idle, pre-boot the doc-viewer window so the
@@ -934,6 +963,19 @@ function closeAuthWindow() {
 // The app window's renderer resolved its session.
 //   'app-ready' → signed in: reveal the app window, dismiss any sign-in window.
 //   'required'  → signed out: hide the app window and put the sign-in window up.
+// A session is saved on this machine (preload.js): show the window as soon as
+// its shell has painted — the startup indicator is on it — rather than after
+// the app has loaded. If the session turns out to be revoked, 'auth:required'
+// hides it again and raises the sign-in window, as before.
+let mainShellPainted = false;
+let earlyRevealWanted = false;
+ipcMain.on('auth:early-reveal', (e) => {
+  const w = BrowserWindow.fromWebContents(e.sender);
+  if (w !== mainWindow || pendingMainReveal === null) return;
+  earlyRevealWanted = true;
+  if (mainShellPainted) revealMainWindow();
+});
+
 ipcMain.on('auth:app-ready', (e) => {
   const w = BrowserWindow.fromWebContents(e.sender);
   if (w !== mainWindow) return;
@@ -1837,7 +1879,12 @@ ipcMain.handle('app:wipe-local-data', async () => {
   const userData = app.getPath('userData');
   const removed = [];
   const failed = [];
-  closeProjectIndex();
+  // The index lives in the background helper: let it flush and close its
+  // databases, then end it so the next use starts afresh on empty folders.
+  await closeProjectIndex();
+  if (backgroundHelper) { try { backgroundHelper.child.kill(); } catch { /* already gone */ } }
+  // Its key goes too (index-key.bin below); a new one is made on next use.
+  indexKeyLoaded = false; indexKey = null; setIndexKey(null);
   const rm = async (target) => {
     try {
       await fsp.rm(target, { recursive: true, force: true, maxRetries: 3 });
@@ -1957,6 +2004,10 @@ ipcMain.handle('app:write-temp-file', async (_e, { name, bytes } = {}) => {
 
 ipcMain.handle('doc:extract-text', async (_e, filePath) => {
   if (typeof filePath !== 'string' || !filePath) return { error: 'no_path' };
+  // Parsed in the background helper: a large .doc froze every window while
+  // word-extractor worked through it on this process.
+  const viaHelper = callBackground('extractDoc', { path: filePath });
+  if (viaHelper) return viaHelper;
   try {
     const { default: WordExtractor } = await import('word-extractor');
     const doc = await new WordExtractor().extract(filePath);
@@ -2272,7 +2323,6 @@ function registerOpenWithDocVexVerb() {
 // lives in the index and, portably, under `.docvex/` in the case folder.
 // The service is created on first use — nothing here runs on the startup
 // path before the first window.
-let projectIndex = null;
 function broadcastToAllWindows(channel, payload) {
   for (const w of BrowserWindow.getAllWindows()) {
     try { if (!w.isDestroyed()) w.webContents.send(channel, payload); } catch { /* closing */ }
@@ -2303,16 +2353,88 @@ function loadIndexKey() {
     return null;
   }
 }
+// Loaded once (after ready — safeStorage needs it); main keeps it for the
+// thumbnail cache and hands it to the background helper for the index.
 let indexKeyLoaded = false;
+let indexKey = null;
 function ensureIndexKey() {
-  if (indexKeyLoaded || !app.isReady()) return;
+  if (indexKeyLoaded || !app.isReady()) return indexKey;
   indexKeyLoaded = true;
-  setIndexKey(loadIndexKey());
+  indexKey = loadIndexKey();
+  setIndexKey(indexKey);
+  return indexKey;
 }
-function projectIndexService() {
-  if (!projectIndex) {
+
+// The index runs in the BACKGROUND HELPER (src/backgroundWorker.js, an Electron
+// utility process): its SQLite is synchronous and a reconcile walks and hashes
+// whole folders, which on the main process froze every window of the app.
+// `projectIndexService()` hands back an object with the service's own methods,
+// each forwarded to the helper. Should the helper not start (a build without
+// it), the service runs in-process as before.
+const PROJECT_INDEX_METHODS = [
+  'projectOpen', 'projectLocate', 'projectFiles', 'projectReconcile', 'projectFileId', 'projectPathForId',
+  'knowledgeGet', 'knowledgePut', 'knowledgeClear', 'knowledgeList', 'settingsGet', 'settingsPut',
+  'privateGet', 'privatePut', 'privateList', 'registerProjectFile', 'projectIdOfFolder',
+];
+let backgroundHelper = null; // { child, pending: Map, nextId, closing: Promise|null } | false once it failed
+function startBackgroundHelper() {
+  if (backgroundHelper !== null) return backgroundHelper || null;
+  const modulePath = path.join(__dirname, 'backgroundWorker.js');
+  try {
+    if (!fs.existsSync(modulePath)) throw new Error('backgroundWorker.js not built');
+    const child = utilityProcess.fork(modulePath, [], { serviceName: 'DocVex background' });
+    const helper = { child, pending: new Map(), nextId: 1, closing: null, closed: null };
+    child.on('message', (msg) => {
+      if (!msg || typeof msg !== 'object') return;
+      if (msg.type === 'result') {
+        const done = helper.pending.get(msg.id);
+        if (done) { helper.pending.delete(msg.id); done(msg.result); }
+      } else if (msg.type === 'broadcast') {
+        broadcastToAllWindows(msg.channel, msg.payload);
+      } else if (msg.type === 'projectDir') {
+        // As in-process: a project's folder is trusted for reads, writes and
+        // (if it is a network share) the network guard.
+        trustNetworkRoot(msg.dir); trustWriteRoot(msg.dir); registerLocalfileRoot(msg.dir);
+      } else if (msg.type === 'closed') {
+        helper.closed?.();
+      }
+    });
+    child.on('exit', () => {
+      // Crashed or killed: answer everything waiting, and start afresh on the
+      // next call (the index reopens its projects from disk).
+      for (const done of helper.pending.values()) done({ ok: false, error: 'background_helper_exited' });
+      helper.pending.clear();
+      helper.closed?.();
+      if (backgroundHelper === helper) backgroundHelper = null;
+    });
+    const key = ensureIndexKey();
+    child.postMessage({ type: 'init', userDataDir: app.getPath('userData'), key: key ? key.toString('base64') : null });
+    backgroundHelper = helper;
+    return helper;
+  } catch (err) {
+    console.warn('[background] helper unavailable, running in-process:', err?.message || err);
+    backgroundHelper = false;
+    return null;
+  }
+}
+function callBackground(method, arg) {
+  const helper = startBackgroundHelper();
+  if (!helper) return null;
+  return new Promise((resolve) => {
+    const id = helper.nextId++;
+    helper.pending.set(id, resolve);
+    try { helper.child.postMessage({ type: 'call', id, method, arg: arg ?? null }); } catch (err) {
+      helper.pending.delete(id);
+      resolve({ ok: false, error: err?.message || String(err) });
+    }
+  });
+}
+
+let inProcessIndex = null;
+function inProcessIndexService() {
+  if (!inProcessIndex) {
     ensureIndexKey();
-    projectIndex = createProjectIndexService({
+    inProcessIndex = createProjectIndexService({
       userDataDir: app.getPath('userData'),
       broadcast: broadcastToAllWindows,
       // A project's folder is the user's own case folder: serve it over
@@ -2320,12 +2442,34 @@ function projectIndexService() {
       onProjectDir: (dir) => { trustNetworkRoot(dir); trustWriteRoot(dir); registerLocalfileRoot(dir); },
     });
   }
-  return projectIndex;
+  return inProcessIndex;
 }
-function closeProjectIndex() {
-  if (!projectIndex) return;
-  try { projectIndex.close(); } catch { /* quitting anyway */ }
-  projectIndex = null;
+let projectIndexProxy = null;
+function projectIndexService() {
+  if (!startBackgroundHelper()) return inProcessIndexService();
+  if (!projectIndexProxy) {
+    projectIndexProxy = {};
+    for (const m of PROJECT_INDEX_METHODS) projectIndexProxy[m] = (arg) => callBackground(m, arg);
+  }
+  return projectIndexProxy;
+}
+// Flush and stop the index. Resolves once the helper says it has written
+// what it holds (ids.json etc.), or after `timeoutMs`.
+function closeProjectIndex({ timeoutMs = 1500 } = {}) {
+  if (inProcessIndex) {
+    try { inProcessIndex.close(); } catch { /* quitting anyway */ }
+    inProcessIndex = null;
+  }
+  const helper = backgroundHelper || null;
+  if (!helper) return Promise.resolve();
+  if (!helper.closing) {
+    helper.closing = new Promise((resolve) => {
+      const t = setTimeout(resolve, timeoutMs);
+      helper.closed = () => { clearTimeout(t); resolve(); };
+      try { helper.child.postMessage({ type: 'close' }); } catch { resolve(); }
+    });
+  }
+  return helper.closing;
 }
 
 // The contract's calls, one channel each. The service answers
@@ -3408,19 +3552,33 @@ ipcMain.handle('local-folder:project-dir', async (_, arg) => {
 // Files tab is flat by design, and recursing could surface a project's
 // node_modules. Each entry carries size + mtime so the card meta line
 // can show the same "size · date" pair the cloud cards use.
+// Run `fn` over `items` with at most `limit` in flight. A folder listing used to
+// stat its entries strictly one after another — a folder of a few thousand
+// files took seconds to show, one libuv round-trip at a time.
+async function mapLimit(items, limit, fn) {
+  const out = new Array(items.length);
+  let next = 0;
+  const worker = async () => {
+    while (next < items.length) {
+      const i = next++;
+      out[i] = await fn(items[i], i);
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+  return out;
+}
+
 ipcMain.handle('local-folder:list', async (_, dir) => {
   if (!dir) return { files: [], dirs: [], error: 'No directory specified' };
   registerLocalfileRoot(dir); // the user is viewing this folder → its files are serveable
   try {
     const entries = await fsp.readdir(dir, { withFileTypes: true });
-    const files = [];
-    const dirs = [];
-    for (const entry of entries) {
+    const listed = await mapLimit(entries, 16, async (entry) => {
       if (entry.isDirectory()) {
         // Hide dotfolders (.git, .vscode, …) — same "show only the
         // project's stuff" spirit as the file-noise filter. Visible
         // folders are what the user organises with.
-        if (entry.name.startsWith('.')) continue;
+        if (entry.name.startsWith('.')) return null;
         try {
           const full = path.join(dir, entry.name);
           const stat = await fsp.stat(full);
@@ -3435,26 +3593,33 @@ ipcMain.handle('local-folder:list', async (_, dir) => {
                 : (c.isFile() && !isIgnoredLocalFilename(c.name))
             ));
           } catch { /* unreadable → treat as empty */ }
-          dirs.push({ name: entry.name, path: full, mtimeIso: stat.mtime.toISOString(), empty });
-        } catch { /* skip dirs we can't stat */ }
-        continue;
+          return { dir: { name: entry.name, path: full, mtimeIso: stat.mtime.toISOString(), empty } };
+        } catch { return null; /* skip dirs we can't stat */ }
       }
-      if (!entry.isFile()) continue;
+      if (!entry.isFile()) return null;
       // Drop OS / editor / lockfile noise so the local pane reads
       // as "your project's documents" only. See isIgnoredLocalFilename
       // for the exact pattern set and the rationale per pattern.
-      if (isIgnoredLocalFilename(entry.name)) continue;
+      if (isIgnoredLocalFilename(entry.name)) return null;
       try {
         const full = path.join(dir, entry.name);
         const stat = await fsp.stat(full);
-        files.push({
-          name: entry.name,
-          path: full,
-          sizeBytes: stat.size,
-          mtimeIso: stat.mtime.toISOString(),
-          mimeType: guessMimeFromName(entry.name),
-        });
-      } catch { /* skip files we can't stat (permission, symlink to gone target) */ }
+        return {
+          file: {
+            name: entry.name,
+            path: full,
+            sizeBytes: stat.size,
+            mtimeIso: stat.mtime.toISOString(),
+            mimeType: guessMimeFromName(entry.name),
+          },
+        };
+      } catch { return null; /* skip files we can't stat (permission, symlink to gone target) */ }
+    });
+    const files = [];
+    const dirs = [];
+    for (const r of listed) {
+      if (r?.file) files.push(r.file);
+      else if (r?.dir) dirs.push(r.dir);
     }
     // Newest first — matches the cloud list's `uploaded_at DESC` order.
     files.sort((a, b) => (a.mtimeIso < b.mtimeIso ? 1 : -1));
@@ -3787,6 +3952,19 @@ function registerLocalfileFile(filePath) {
 // Is `filePath` inside an allowed root? Resolves symlinks first (fs.realpath) so
 // a symlink planted inside an allowed folder can't point out of it and leak an
 // external file (defends the zip-symlink vector too).
+// A root's real path is resolved once and kept (it was resolved again for
+// every root on every request — a grid of tiles × dozens of roots queued tens
+// of thousands of realpath calls on the libuv pool, starving thumbnail reads).
+// Kept for a minute, so a root later swapped for a symlink is still re-checked.
+const realRootCache = new Map(); // root → { at, real: Promise<string> }
+const REAL_ROOT_TTL_MS = 60_000;
+function realRootOf(root) {
+  const hit = realRootCache.get(root);
+  if (hit && Date.now() - hit.at < REAL_ROOT_TTL_MS) return hit.real;
+  const real = fsp.realpath(root).catch(() => root);
+  realRootCache.set(root, { at: Date.now(), real });
+  return real;
+}
 async function isLocalfileAllowed(filePath) {
   if (!localfileRoots.size) return false;
   // Before ANY filesystem call: resolving a UNC path opens an SMB connection,
@@ -3796,8 +3974,7 @@ async function isLocalfileAllowed(filePath) {
   try { real = await fsp.realpath(filePath); }
   catch { real = path.resolve(filePath); } // not-yet-existing → check resolved
   for (const root of localfileRoots) {
-    let realRoot;
-    try { realRoot = await fsp.realpath(root); } catch { realRoot = root; }
+    const realRoot = await realRootOf(root);
     if (real === realRoot || isInsideDir(realRoot, real, { allowRoot: true })) return true;
   }
   return false;
@@ -4299,16 +4476,31 @@ ipcMain.handle('local-folder:watch', (_, dir) => {
     // recursive so changes inside synced subfolders are noticed too
     // (Windows + macOS support recursive fs.watch; on platforms that
     // don't, it degrades to top-level only).
-    watcher = fs.watch(dir, { persistent: false, recursive: true }, () => {
+    let firstEventAt = 0;
+    const notify = () => {
+      watcherDebounce = null;
+      firstEventAt = 0;
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('local-folder:changed', dir);
+      }
+    };
+    watcher = fs.watch(dir, { persistent: false, recursive: true }, (_type, filename) => {
+      // Changes the Files tab never shows don't make it re-list: the app's
+      // own bookkeeping (.docvex/, .docvex.json, .docvex-trash/), Office
+      // ~$ lockfiles, editor swap files. Without this every sidecar or index
+      // write re-listed the folder, and the re-list could cause another write.
+      if (filename) {
+        const parts = String(filename).split(/[\\/]/);
+        if (parts.some((p) => p.startsWith('.')) || isIgnoredLocalFilename(parts[parts.length - 1])) return;
+      }
       // Debounce: collapse a burst of events (rename + change pairs
-      // during a save) into a single notification.
+      // during a save) into a single notification — but never hold it
+      // more than 1s, so a long copy or sync still shows progress.
+      const now = Date.now();
+      if (!firstEventAt) firstEventAt = now;
       if (watcherDebounce) clearTimeout(watcherDebounce);
-      watcherDebounce = setTimeout(() => {
-        watcherDebounce = null;
-        if (mainWindow && !mainWindow.isDestroyed()) {
-          mainWindow.webContents.send('local-folder:changed', dir);
-        }
-      }, 200);
+      if (now - firstEventAt >= 1000) { notify(); return; }
+      watcherDebounce = setTimeout(notify, 200);
     });
     watcher.on('error', () => stopWatcher());
     watchedDir = dir;
@@ -4751,7 +4943,26 @@ const stopPurgeTimer = () => {
 };
 
 // Tear the watcher + purge timer down on quit so we don't leave handles dangling.
-app.on('before-quit', () => { stopWatcher(); stopPurgeTimer(); closeProjectIndex(); });
+// The background helper holds the index's unwritten state (ids.json …): quit
+// waits for it to flush — once, and never more than 1.5s. An update install
+// quits on its own terms, so there it is only asked to flush.
+let quitAfterIndexFlush = false;
+let quittingForUpdate = false;
+try { autoUpdater.on('before-quit-for-update', () => { quittingForUpdate = true; }); } catch { /* no updater on this platform */ }
+app.on('before-quit', (e) => {
+  stopWatcher();
+  stopPurgeTimer();
+  if (quitAfterIndexFlush || quittingForUpdate || !backgroundHelper) {
+    closeProjectIndex();
+    return;
+  }
+  e.preventDefault();
+  quitAfterIndexFlush = true;
+  closeProjectIndex().finally(() => {
+    try { backgroundHelper?.child?.kill(); } catch { /* already gone */ }
+    app.quit();
+  });
+});
 // --------------------------------------------------------------------------
 
 app.whenReady().then(() => {
@@ -4969,7 +5180,13 @@ app.whenReady().then(() => {
   async function thumbnailFor(filePath, mtimeMs, width, mime) {
     const key = `${filePath}:${mtimeMs}:${width}`;
     const hit = thumbMemCache.get(key);
-    if (hit !== undefined) return hit;
+    if (hit !== undefined) {
+      // Least-recently-USED eviction: a hit moves to the back of the Map, so
+      // the tiles on screen aren't the ones pushed out by a scroll elsewhere.
+      thumbMemCache.delete(key);
+      thumbMemCache.set(key, hit);
+      return hit;
+    }
     const inflight = thumbInflight.get(key);
     if (inflight) return inflight;
 
@@ -5005,8 +5222,9 @@ app.whenReady().then(() => {
   }
 
   // One sweep per launch so a cache grown large in a previous session gets
-  // trimmed even if this one writes little.
-  sweepThumbCache();
+  // trimmed even if this one writes little. Deferred: it stats every cached
+  // thumbnail (thousands of files), which competed with the first paint.
+  setTimeout(() => sweepThumbCache(), 20_000);
 
   // The app's own bundle over docvex-app:// (packaged builds; see "The app origin").
   registerAppOrigin();
@@ -5107,7 +5325,9 @@ app.whenReady().then(() => {
           // but Chromium logs nothing — a 4xx here painted the console red
           // with one line per Office/PDF file in the folder for what is the
           // normal outcome on a PC with no shell provider for that format.
-          return new Response(null, { status: 204, headers: cors });
+          // Cacheable like a thumbnail: without it the renderer asked again
+          // on every repaint and paid the whole realpath + stat chain each time.
+          return new Response(null, { status: 204, headers: { ...cors, 'cache-control': 'max-age=3600' } });
         }
       }
       // Honour HTTP Range requests so <audio>/<video> can seek and read

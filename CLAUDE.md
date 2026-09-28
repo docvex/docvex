@@ -129,6 +129,8 @@ No linter (`npm run lint` is a stub). Tests: `npm test` runs the `node:test` sui
 
 `forge.config.js` runs three Vite configs (main, preload, renderer). The Vite plugin injects `MAIN_WINDOW_VITE_DEV_SERVER_URL` / `MAIN_WINDOW_VITE_NAME` globals into the main process — `src/main.js` reads them to decide dev-server vs file-loaded bundle.
 
+**Background helper (`src/backgroundWorker.js`).** A third Forge build entry, forked by main.js as an Electron utility process on first use. The project index (`src/projectIndex/`: synchronous SQLite, reconciles, file hashing) and legacy `.doc` parsing (`doc:extract-text`) run there, so they can't freeze the windows. main.js's `projectIndexService()` returns a proxy with the service's methods (`PROJECT_INDEX_METHODS`), each forwarded over the parent port; index events come back as `broadcast` messages and project folders as `projectDir` (→ `registerLocalfileRoot`), in order on the same port. If the helper can't start the index runs in-process as before; quitting waits ≤1.5s for it to flush. A new index method must be added to `PROJECT_INDEX_METHODS`.
+
 `src/renderer.jsx` is the (only) entry. The provider stack is:
 
 ```
@@ -197,7 +199,7 @@ Critical dev-mode detail: when `process.defaultApp` is true (under `electron-for
 
 `AuthContext` listens for `oauth:callback-url` and calls `supabase.auth.exchangeCodeForSession(code)` itself.
 
-`eraseData()` (distinct from `signOut()`) calls `signOut({ scope: 'global' })` to revoke refresh tokens server-side across all devices, then wipes this computer's copy (`lib/localWipe.js` → main's `app:wipe-local-data`: project index databases, vaults, thumbnails, the index key, Chromium storage; plus every `docvex*` / `sb-*` / `supabase.*` localStorage key). The index's private / knowledge / settings columns and the thumbnail cache are sealed at rest (`src/projectIndex/seal.js`, AES-256-GCM, key in `userData/index-key.bin` wrapped by safeStorage). `deleteAccount()` calls the `delete-user` Edge Function with the user's JWT.
+`eraseData()` (distinct from `signOut()`) calls `signOut({ scope: 'global' })` to revoke refresh tokens server-side across all devices, then wipes this computer's copy (`lib/localWipe.js` → main's `app:wipe-local-data`: project index databases, vaults, thumbnails, the index key, Chromium storage; plus every `docvex*` / `sb-*` / `supabase.*` localStorage key). The index's private / knowledge / settings columns and the thumbnail cache are sealed at rest (`src/projectIndex/seal.js`, AES-256-GCM, key in `userData/index-key.bin` wrapped by safeStorage; main loads it and hands it to the background helper in its `init` message, since safeStorage exists only in the main process). Erase data awaits the helper's close, ends it and forgets the key. `deleteAccount()` calls the `delete-user` Edge Function with the user's JWT.
 
 ### Custom `localfile://` protocol
 
