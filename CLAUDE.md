@@ -123,7 +123,7 @@ No linter (`npm run lint` is a stub). Tests: `npm test` runs the `node:test` sui
 - **Document generation/export** (lazy-imported): **docx** + **pptxgenjs** + **xlsx** (SheetJS) + **jspdf** build real Office files in `lib/documentGen.js` (the AI "Generate" feature — Anthropic Skills sandbox path with a local-builder fallback); **jspdf + html2canvas** power `lib/exportPdf.js` (the office-preview "Convert to PDF"). **word-extractor** (main process) reads legacy `.doc`.
 - **react-markdown + remark-gfm** for rendered release notes
 - **update-electron-app** → `update.electronjs.org` feed for packaged auto-updates
-- **`doc-ai` Edge Function** — Claude (OCR) + OpenAI Whisper (audio transcription) powering the Doc Viewer's "Extract text" and captions tools
+- **`doc-ai` Edge Function** — Claude (OCR) powering the Doc Viewer's "Extract text" (audio transcription was OpenAI's and was removed with it, 2026-09-28)
 
 ## High-level architecture
 
@@ -316,7 +316,7 @@ All under `src/context/`. Every hook returns plain objects; no Redux / Zustand. 
 | `plan.js` | `PLAN = { tier: 'Free', features: [...] }` placeholder — read in Account page AND Sidebar footer pill; update both when wiring real plans. |
 | `platform.js` | Electron / web adapter: `isElectron`, `getAppVersion`, `isPackaged`, `showInFolder`, `openPath`, `onDeepLink`, `onAccountSwitch`, `openOAuthUrl`, `checkForUpdates`, `installUpdate`, `onUpdateStatus`, `showOSNotification`. Web stubs out anything that can't work in a browser. |
 | `legalFeed.js` | Legal Newsfeed (Newsletter) data layer. `listLegalUpdates()` (embeds the user's `legal_update_states`), `setUpdateRead`/`setUpdatePinned`/`setUpdateSaved`, `getWeeklyDigest()` (invokes `legal-ai`'s `digest` action, cached 1 h in `sessionStorage`). |
-| `ocr.js` / `transcribe.js` | Doc Viewer "Extract text" (Claude OCR) and audio/video captions (Whisper) — both call the `doc-ai` Edge Function. `transcribe.js` ships only the audio: for **video** it extracts the audio track in-renderer (Web Audio `decodeAudioData` → downmix + resample to 16 kHz mono → 16-bit PCM WAV; **no ffmpeg dep**) so the upload stays under Whisper's 25 MB cap (~13 min of speech). |
+| `ocr.js` | Doc Viewer "Extract text" (Claude OCR) via the `doc-ai` Edge Function. (`transcribe.js` — audio/video captions through OpenAI Whisper — was DELETED with OpenAI on 2026-09-28: nothing in the app transcribes any more; captions saved before then are still shown and editable.) |
 | `extractionHistory.js` | Per-file localStorage history of OCR snippets for the Doc Viewer (a *list* per file). |
 | `captionsHistory.js` | Per-file localStorage cache of the audio pane's AI transcript — *one* result per file (text + timed segments + language), so reopening a file restores captions instantly instead of re-paying for Whisper. Key prefix `docvex:doc-viewer:captions:`. |
 
@@ -452,11 +452,10 @@ which terms. The full list of third parties that ever see user content:
 
 | Endpoint | Reached from | Sees | Training posture |
 | --- | --- | --- | --- |
-| `api.anthropic.com/v1/messages` | `project-ai`, `doc-ai`, `legal-ai`, `legal-assist` | document text, chat, OCR images, AI-search file stills | Commercial API terms: inputs/outputs **not** used for training. ~30-day retention for trust & safety; ZDR negotiable. |
+| `api.anthropic.com/v1/messages` (or Claude in Amazon Bedrock, below) | `project-ai`, `doc-ai`, `legal-ai`, `legal-feed-sync`, `legal-assist` | document text, chat, OCR images, AI-search file stills | Commercial API terms: inputs/outputs **not** used for training. ~30-day retention for trust & safety; ZDR negotiable. |
 | `api.anthropic.com/v1/files` + code-execution container | `project-ai` `office` action | generated Office files | Same commercial terms. |
-| `api.openai.com/v1/audio/transcriptions` | `doc-ai` `transcribe` | recorded audio / video audio tracks | API traffic **not** used for training by default (since 2023-03); 30-day retention. |
 
-**EU route for `project-ai` (2026-09-28, switched OFF by default).** `supabase/functions/_shared/claudeTransport.ts` is the one place `project-ai` (index.ts + fileGraph.ts) reaches Claude. Secret `CLAUDE_PROVIDER=bedrock` sends every call to Claude in Amazon Bedrock — `https://bedrock-mantle.<BEDROCK_REGION>.api.aws/anthropic/v1/messages`, the same Messages API body and SSE stream, AWS-operated (Anthropic has no access to that infrastructure), SigV4-signed with `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` (service `bedrock-mantle`; or `BEDROCK_API_KEY` as x-api-key). `BEDROCK_REGION` defaults to `eu-west-1` (Ireland): on that endpoint only Ireland and Stockholm serve a request in-region; Frankfurt offers only global / EU-profile routing. Model ids are mapped (`anthropic.` prefix; Sonnet 4.6 → Sonnet 5, the Haiku date suffix dropped). Not on Bedrock: code execution, Skills, Files API — the `office` action answers `office_unavailable` and the app builds the file locally. The signer is checked against AWS's SigV4 test vectors (get-vanilla / post-vanilla). `doc-ai`, `legal-ai` and `legal-feed-sync` still call api.anthropic.com directly (they also use structured outputs, which that Bedrock endpoint lacks), and transcription still goes to OpenAI. NOT verified against a real AWS account.
+**EU route (2026-09-28, switched OFF by default) — every Claude call of `project-ai`, `doc-ai`, `legal-ai` and `legal-feed-sync`.** `supabase/functions/_shared/claudeTransport.ts` is the one place they reach Claude (`claudeMessages`, `claudeConfigured`, `claudeProvider`). Secret `CLAUDE_PROVIDER=bedrock` sends every call to Claude in Amazon Bedrock — `https://bedrock-mantle.<BEDROCK_REGION>.api.aws/anthropic/v1/messages`, the same Messages API body and SSE stream, AWS-operated (Anthropic has no access to that infrastructure), SigV4-signed with `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` (service `bedrock-mantle`; or `BEDROCK_API_KEY` as x-api-key). `BEDROCK_REGION` defaults to `eu-west-1` (Ireland): on that endpoint only Ireland and Stockholm serve a request in-region; Frankfurt offers only global / EU-profile routing. Model ids are mapped (`anthropic.` prefix; Sonnet 4.6 → Sonnet 5, the Haiku date suffix dropped). Bedrock has NO structured outputs: the transport rewrites an `output_config.format` JSON schema into a `respond` tool with that schema (offered with `tool_choice: auto` + a system line saying to call it — a forced tool is refused alongside the thinking the newer models run by default), and turns the tool's input back into the reply's text (`asToolAnswer` / `fromToolAnswer`), so `doc-ai` review, `legal-ai` ingest and `legal-feed-sync`'s triage / summaries parse the same JSON on both routes (not streamable). `legal-feed-sync` adds server-side `fallbacks` only on Anthropic's API (on Bedrock a refused act is retried next run). Not on Bedrock: code execution, Skills, Files API — `project-ai`'s `office` action answers `office_unavailable` and the app builds the file locally. The signer is checked against AWS's SigV4 test vectors; both routes checked with the network stubbed. NOT verified against a real AWS account. `legal-assist` (deployed-only, the Word add-in) still calls api.anthropic.com.
 
 Rules for anything added later:
 
@@ -472,8 +471,12 @@ Rules for anything added later:
 - **New provider ⇒ check its default, not its marketing.** If the default is
   "we may train unless you opt out", don't use it (Deepgram was removed for
   exactly this), and add a row to the table above and to the DPA's sub-processor list.
-- Zero-Data-Retention is the remaining upgrade for Anthropic + OpenAI: both
-  keep API payloads ~30 days for abuse monitoring unless a ZDR agreement is in
+- **OpenAI was removed (2026-09-28)** — its one use, Whisper transcription
+  (`doc-ai` `transcribe`), went with it; `OPENAI_API_KEY` /
+  `DOC_AI_TRANSCRIBE_MODEL` no longer do anything and can be deleted from the
+  secrets. Anthropic (directly or through Bedrock) is the only AI provider.
+- Zero-Data-Retention is the remaining upgrade for Anthropic: it
+  keeps API payloads ~30 days for abuse monitoring unless a ZDR agreement is in
   place. Not the same thing as training, but it's the next thing a firm's
   security review will ask about.
 
@@ -485,7 +488,7 @@ Rules for anything added later:
 
 `legal-ai` — Claude-powered Legal Newsfeed AI. Raw REST to the Anthropic Messages API, model `claude-opus-4-7` (override via `LEGAL_AI_MODEL`). `{ action: 'digest' }` returns a weekly briefing (`{ ok, summary, highImpactCount, total, generatedAt }`, or `{ ok:false, error:'ai_not_configured' }` at 200 so the client falls back); `{ action: 'ingest', items: [...] }` classifies + summarises raw legal text into `legal_updates` (service role, gated on `x-ingest-secret` matching `LEGAL_INGEST_SECRET`). Needs `ANTHROPIC_API_KEY`.
 
-`doc-ai` — Doc Viewer AI. Actions: `ask / summary / risks / romanian / draft / review` (Claude, `claude-opus-4-7`, override `DOC_AI_MODEL`), `ocr` (Claude, `claude-haiku-4-5`, `lib/ocr.js`), `transcribe` (OpenAI `whisper-1`, `lib/transcribe.js`; no speaker diarization — Deepgram was removed). Needs `ANTHROPIC_API_KEY` (+ `OPENAI_API_KEY` for transcribe).
+`doc-ai` — Doc Viewer AI. Actions: `ask / summary / risks / romanian / draft / review` (Claude, `claude-opus-4-7`, override `DOC_AI_MODEL`), `ocr` (Claude, `claude-haiku-4-5`, `lib/ocr.js`). (`transcribe` — OpenAI Whisper — was removed with OpenAI, 2026-09-28; an old client asking for it gets `unknown_task`.) Needs `ANTHROPIC_API_KEY`, or the Bedrock secrets (see the EU route above).
 
 `mail-sync` / `mail-callback` — Gmail/Outlook OAuth sync for the Mail tab. `mail-sync` (JWT-gated) proxies the OAuth exchange and encrypts tokens at rest (`MAIL_TOKEN_KEY`); `mail-callback` is **public** (`verify_jwt = false`) — it bridges the provider redirect back to `docvex://` (or web `/mail`) via the `state` nonce. Needs `GOOGLE_CLIENT_ID/SECRET` and/or `MS_CLIENT_ID/SECRET`.
 
@@ -645,7 +648,7 @@ Dismissal: Escape, scroll (capture), outside `mousedown`, or mouseleave on the m
 - `.env` — `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY` (Vite inlines at build time). Gitignored.
 - **Supabase project `pntxlvhkqfryyyxlqytr`** (eu-west-1, organization `docvex.ro`). Modify schema via `claude_ai_Supabase` MCP tools.
 - **Supabase dashboard, not in code:** Google OAuth provider config (client id / secret), `docvex://auth/callback` and the web origin registered as redirect URLs, the SMTP for email Edge Functions.
-- **Edge Function secrets (Supabase dashboard → Edge Functions → Secrets), not in code:** `RESEND_API_KEY` (email functions); `ANTHROPIC_API_KEY` (`legal-ai` + `doc-ai` OCR — without it the Newsletter AI line falls back to a computed line, ingest 500s, and OCR fails); `OPENAI_API_KEY` (`doc-ai` Whisper transcription — set since 2026-06-18); `LEGAL_INGEST_SECRET` (optional — guards `legal-ai`'s `ingest` action; while unset, ingest returns 403); `LEGAL_AI_MODEL` (optional — overrides the default `claude-opus-4-7`, e.g. `claude-haiku-4-5` to cut digest cost).
+- **Edge Function secrets (Supabase dashboard → Edge Functions → Secrets), not in code:** `RESEND_API_KEY` (email functions); `ANTHROPIC_API_KEY` (`legal-ai` + `doc-ai` OCR — without it the Newsletter AI line falls back to a computed line, ingest 500s, and OCR fails); `LEGAL_INGEST_SECRET` (optional — guards `legal-ai`'s `ingest` action; while unset, ingest returns 403); `LEGAL_AI_MODEL` (optional — overrides the default `claude-opus-4-7`, e.g. `claude-haiku-4-5` to cut digest cost).
 - **Google Cloud Console:** OAuth consent screen must be User Type **External** (Internal blocks `@gmail.com` testers with `org_internal` 403). Authorized redirect URI = `https://pntxlvhkqfryyyxlqytr.supabase.co/auth/v1/callback`.
 - **macOS signing env (release-time, not in code):** `APPLE_SIGNING_IDENTITY`
   (a `Developer ID Application: … (TEAMID)` cert in the login keychain) enables

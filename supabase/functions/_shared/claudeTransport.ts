@@ -23,8 +23,13 @@
 // NOT on Bedrock: code execution, Agent Skills and the Files API — the
 // project-ai `office` action answers office_unavailable there and the app
 // builds the file with its local builders, as it already does when that
-// path fails. Everything else project-ai does (ask, stream, tools, caching,
-// images, effort) is supported.
+// path fails. Structured outputs (`output_config.format`) aren't there
+// either: a JSON-schema answer is asked for through a `respond` tool with
+// that schema instead, and the tool's input is handed back as the reply's
+// text — so a caller that JSON.parses the text works on both providers
+// (`asToolAnswer` / `fromToolAnswer`). Everything else (ask, stream, tools,
+// caching, images, effort) is supported. Server-side `fallbacks` is
+// Anthropic-only too; a caller adds it only when claudeProvider() says so.
 
 export type ClaudeProvider = "anthropic" | "bedrock";
 
@@ -74,6 +79,19 @@ export async function claudeMessages(payload: Record<string, unknown>, opts: { b
     return fetch("https://api.anthropic.com/v1/messages", { method: "POST", headers, body });
   }
 
+  const asTool = asToolAnswer(payload);
+  if (asTool) {
+    const resp = await bedrockFetch(JSON.stringify({ ...asTool, model: providerModel(String(payload.model ?? ""), provider) }), headers);
+    if (!resp.ok) return resp;
+    return new Response(JSON.stringify(fromToolAnswer(await resp.json())), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+  }
+  return bedrockFetch(body, headers);
+}
+
+async function bedrockFetch(body: string, headers: Record<string, string>): Promise<Response> {
   const region = env("BEDROCK_REGION") || "eu-west-1";
   const url = `https://bedrock-mantle.${region}.api.aws/anthropic/v1/messages`;
   const apiKey = env("BEDROCK_API_KEY");
@@ -92,6 +110,54 @@ export async function claudeMessages(payload: Record<string, unknown>, opts: { b
     }));
   }
   return fetch(url, { method: "POST", headers, body });
+}
+
+// ── Structured answers without structured outputs ──
+const RESPOND = "respond";
+
+// A payload asking for a JSON-schema answer, rewritten to ask for it through
+// a tool; null when it asks for no such thing. The tool is offered, not
+// forced (`auto`): forcing a tool is refused alongside thinking, which the
+// newer models run by default — the system block says to call it instead.
+export function asToolAnswer(payload: Record<string, unknown>): Record<string, unknown> | null {
+  const oc = payload.output_config as Record<string, unknown> | undefined;
+  const format = oc?.format as { type?: string; schema?: unknown } | undefined;
+  if (!format || format.type !== "json_schema" || !format.schema) return null;
+  if (payload.stream) throw new Error("structured answers can't be streamed on this provider");
+  const { format: _drop, ...restConfig } = oc as Record<string, unknown>;
+  const system = Array.isArray(payload.system)
+    ? [...payload.system]
+    : payload.system ? [{ type: "text", text: String(payload.system) }] : [];
+  system.push({
+    type: "text",
+    text: `Give your answer by calling the ${RESPOND} tool exactly once, with the whole answer as its input. Write nothing else.`,
+  });
+  const out: Record<string, unknown> = {
+    ...payload,
+    system,
+    tools: [...((payload.tools as unknown[]) ?? []), {
+      name: RESPOND,
+      description: "Deliver the final answer in the required structure.",
+      input_schema: format.schema,
+    }],
+    tool_choice: { type: "auto" },
+  };
+  if (Object.keys(restConfig).length) out.output_config = restConfig;
+  else delete out.output_config;
+  return out;
+}
+
+// The response to an asToolAnswer request, reshaped into what a structured
+// output returns: the tool's input as the one text block, the turn ended
+// normally. A model that answered in plain text instead is left as it is.
+export function fromToolAnswer(data: Record<string, any>): Record<string, any> {
+  const call = (data?.content ?? []).find((b: any) => b?.type === "tool_use" && b?.name === RESPOND);
+  if (!call) return data;
+  return {
+    ...data,
+    content: [{ type: "text", text: JSON.stringify(call.input ?? {}) }],
+    stop_reason: data.stop_reason === "tool_use" ? "end_turn" : data.stop_reason,
+  };
 }
 
 // ── AWS Signature Version 4 (WebCrypto; no AWS SDK in the Edge runtime) ──

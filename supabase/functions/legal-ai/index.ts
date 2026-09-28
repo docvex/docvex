@@ -18,16 +18,17 @@
 //     LEGAL_INGEST_SECRET so the global feed can't be polluted by any
 //     signed-in user. Disabled (403) when the secret env var is unset.
 //
-// Claude is called over raw REST (x-api-key) — same shape as the Resend
-// calls in the other functions, no SDK to bundle into the Deno runtime.
-// Model defaults to claude-opus-4-7 and is overridable via LEGAL_AI_MODEL.
+// Claude is called over raw REST through ../_shared/claudeTransport.ts (no
+// SDK to bundle into the Deno runtime). Model defaults to claude-opus-4-7 and is overridable via LEGAL_AI_MODEL.
 //
 // Required Edge Function secrets:
-//   ANTHROPIC_API_KEY      — Claude API key (digest + ingest)
+//   ANTHROPIC_API_KEY      — Claude API key (digest + ingest), or with
+//                            CLAUDE_PROVIDER=bedrock the AWS ones (../_shared/claudeTransport.ts)
 //   LEGAL_INGEST_SECRET    — shared secret guarding the ingest action
 //   SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY — set automatically
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { claudeConfigured, claudeMessages } from "../_shared/claudeTransport.ts";
 
 const corsHeaders: Record<string, string> = {
   "Access-Control-Allow-Origin": "*",
@@ -47,7 +48,6 @@ function jsonResponse(body: unknown, status = 200): Response {
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-const ANTHROPIC_API_KEY = Deno.env.get("ANTHROPIC_API_KEY") ?? "";
 const LEGAL_INGEST_SECRET = Deno.env.get("LEGAL_INGEST_SECRET") ?? "";
 // Default to the most capable model; operators can switch to a cheaper
 // one (e.g. claude-haiku-4-5) via env without a redeploy of logic.
@@ -90,15 +90,7 @@ async function callClaude(opts: {
     };
   }
 
-  const resp = await fetch("https://api.anthropic.com/v1/messages", {
-    method: "POST",
-    headers: {
-      "x-api-key": ANTHROPIC_API_KEY,
-      "anthropic-version": "2023-06-01",
-      "content-type": "application/json",
-    },
-    body: JSON.stringify(body),
-  });
+  const resp = await claudeMessages(body);
 
   if (!resp.ok) {
     const detail = (await resp.text()).slice(0, 400);
@@ -115,7 +107,7 @@ async function callClaude(opts: {
 
 // ── digest ──────────────────────────────────────────────────────────
 async function handleDigest(): Promise<Response> {
-  if (!ANTHROPIC_API_KEY) {
+  if (!claudeConfigured()) {
     // 200 + ok:false so the client falls back to a computed line instead
     // of treating it as a hard error.
     return jsonResponse({ ok: false, error: "ai_not_configured" });
@@ -219,7 +211,7 @@ async function handleIngest(req: Request, items: IngestItem[]): Promise<Response
   if (req.headers.get("x-ingest-secret") !== LEGAL_INGEST_SECRET) {
     return jsonResponse({ ok: false, error: "forbidden" }, 403);
   }
-  if (!ANTHROPIC_API_KEY) {
+  if (!claudeConfigured()) {
     return jsonResponse({ ok: false, error: "ai_not_configured" }, 500);
   }
   if (!Array.isArray(items) || items.length === 0) {
