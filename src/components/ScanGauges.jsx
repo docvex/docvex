@@ -385,12 +385,12 @@ function LiveSection({ dir }) {
         <li>
           <Toggle on={on} onChange={(v) => setLiveSettings(dir, { on: v, ...(v ? { paused: false } : {}) })} label="Understand new files automatically" />
           <span className="sg-feat-note">
-            Every file added to this project from now on (imported, sent from a phone, dropped into the folder or synced) is read on this computer within seconds and linked into the network \u2014 no AI, nothing leaves the machine. Files already here are read when you tag them — a tagged folder: everything in it, and whatever is added to it later. This device only.
+            Every file added to this project from now on (imported, sent from a phone, dropped into the folder or synced) is read on this computer within seconds and linked into the network — no AI, nothing leaves the machine. Files already here are read when you tag them — a tagged folder: everything in it, and whatever is added to it later. This device only.
           </span>
         </li>
         <li className={on ? '' : 'is-off'}>
           <Toggle on={on && recordings} onChange={(v) => on && setLiveSettings(dir, { recordings: v })} label="Include audio & video" />
-          <span className="sg-feat-note">A recording is read from the captions already made for it (Doc Viewer \u2192 Generate captions); one without captions is skipped.</span>
+          <span className="sg-feat-note">A recording is read from the captions already made for it (Doc Viewer → Generate captions); one without captions is skipped.</span>
         </li>
         <li>
           <Toggle on={!paused} onChange={(v) => setLiveSettings(dir, { paused: !v })} label={paused ? 'Paused' : 'Running'} />
@@ -483,42 +483,53 @@ function ScanCard({ scan, taggedCount, onScan, onErase, close, dir }) {
   const running = !!scan && !scan.finished;
   return (
     <div className="sg-menu" onClick={(e) => e.stopPropagation()}>
-      {/* The gauge cluster heads the card — live while a scan runs, at rest
-          (0%, Ready) before one. */}
-      <ScanGaugeCard scan={scan} bare />
-      <div className="dv-refpill is-full sg-menu-head" style={{ '--refpill-tone': 'var(--accent)' }}>
-        <span className="dv-refpill-kind">AI scan</span>
-        <span className="dv-refpill-head">
-          {running ? `${scan.live ? 'Live \u00b7 ' : ''}${STAGE_NAMES[scan.stage] || 'Scanning'}` : taggedCount ? `${taggedCount} item${taggedCount === 1 ? '' : 's'} tagged` : 'Nothing tagged yet'}
-        </span>
-        <span className="dv-refpill-line">
-          {running
-            ? 'Stop keeps what was read \u2014 the next scan picks up from there.'
-            : taggedCount
-              ? 'Reads the tagged files and connects them into Data collections. Only new or changed files are read again.'
-              : 'Right-click a file or folder \u2192 Tag for AI scan.'}
-        </span>
-      </div>
-      <LiveSection dir={dir} />
-      <CloudMediaSection />
-      {!running && (
-        <>
-          <div className="sg-menu-label">What the scan does</div>
-          <ul className="sg-feats">
-            {SCAN_FEATURES.map((f) => (
-              <li key={f.id}>
-                <Toggle on={!!features[f.id]} onChange={(on) => set(f.id, on)} label={f.label} />
-                <span className="sg-feat-note">{f.note}</span>
+      {/* A wide card laid out as a GRID, so it fits the screen's height:
+          the gauges and what the scan is doing, what it reads, then the live
+          network and privacy — side by side, the actions across the foot. */}
+      <div className="sg-grid">
+        <section className="sg-sec sg-sec-status">
+          {/* The gauge cluster heads the card — live while a scan runs, at
+              rest (0%, Ready) before one. */}
+          <ScanGaugeCard scan={scan} bare />
+          <div className="dv-refpill is-full sg-menu-head" style={{ '--refpill-tone': 'var(--accent)' }}>
+            <span className="dv-refpill-kind">AI scan</span>
+            <span className="dv-refpill-head">
+              {running ? `${scan.live ? 'Live \u00b7 ' : ''}${STAGE_NAMES[scan.stage] || 'Scanning'}` : taggedCount ? `${taggedCount} item${taggedCount === 1 ? '' : 's'} tagged` : 'Nothing tagged yet'}
+            </span>
+            <span className="dv-refpill-line">
+              {running
+                ? 'Stop keeps what was read \u2014 the next scan picks up from there.'
+                : taggedCount
+                  ? 'Reads the tagged files and connects them into Data collections. Only new or changed files are read again.'
+                  : 'Right-click a file or folder \u2192 Tag for AI scan.'}
+            </span>
+          </div>
+        </section>
+        {!running && (
+          <section className="sg-sec">
+            <div className="sg-menu-label">What the scan does</div>
+            <ul className="sg-feats">
+              {SCAN_FEATURES.map((f) => (
+                <li key={f.id}>
+                  <Toggle on={!!features[f.id]} onChange={(on) => set(f.id, on)} label={f.label} />
+                  <span className="sg-feat-note">{f.note}</span>
+                </li>
+              ))}
+              <li className="is-once">
+                <Toggle on={force} onChange={setForce} label="Read everything again" />
+                <span className="sg-feat-note">This scan only: every file read and understood anew</span>
               </li>
-            ))}
-            <li className="is-once">
-              <Toggle on={force} onChange={setForce} label="Read everything again" />
-              <span className="sg-feat-note">This scan only: every file read and understood anew (costs tokens)</span>
-            </li>
-          </ul>
-          {!reads && <p className="sg-menu-warn">Switch on at least one kind of file to read.</p>}
-        </>
-      )}
+            </ul>
+            {!reads && <p className="sg-menu-warn">Switch on at least one kind of file to read.</p>}
+          </section>
+        )}
+        <section className="sg-sec">
+          <LiveSection dir={dir} />
+        </section>
+        <section className="sg-sec">
+          <CloudMediaSection />
+        </section>
+      </div>
       <div className="sg-menu-actions">
         {onErase && (
           <button
