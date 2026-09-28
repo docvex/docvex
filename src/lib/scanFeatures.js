@@ -7,7 +7,7 @@
 export const SCAN_FEATURES = [
   { id: 'documents', label: 'Documents', note: 'PDFs, Word, spreadsheets and text files' },
   { id: 'pictures', label: 'Pictures\u2019 text', note: 'Read on this computer, as Extract text reads them' },
-  { id: 'recordings', label: 'Audio & video', note: 'Transcribed into captions by the AI (slow for long recordings)' },
+  { id: 'recordings', label: 'Audio & video', note: 'Read from the captions already saved for them \u2014 nothing is transcribed' },
   { id: 'faces', label: 'Facial recognition', note: 'Faces in pictures matched with identity documents \u2014 on this computer' },
   { id: 'links', label: 'Cross-reference', note: 'Typed links between files: amends, contradicts, same party\u2026' },
 ];

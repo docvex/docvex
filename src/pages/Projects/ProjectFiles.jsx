@@ -2753,7 +2753,7 @@ export default function ProjectFiles({ embedded = false } = {}) {
         },
       });
       const WHY = {
-        timed_out: 'took too long \u2014 tried again next scan', no_speech: 'no speech in it', no_text: 'no text in it', too_large: 'too large to transcribe here', decode_failed: 'the picture couldn\u2019t be opened',
+        timed_out: 'took too long \u2014 tried again next scan', no_speech: 'no speech in it', no_text: 'no text in it', too_large: 'too large', no_captions: 'no captions saved for it', decode_failed: 'the picture couldn\u2019t be opened',
         unsupported: 'this file type can\u2019t be read', ocr_failed: 'the AI service couldn\u2019t be reached', ai_failed: 'the AI couldn\u2019t understand it',
       };
       const skippedNote = res.skipped?.length

@@ -363,11 +363,11 @@ export function ScanHover({ scan, idle, children }) {
 // everything again, the Scan button (Stop while scanning) and Erase memory.
 // THE LIVE NEURAL NETWORK's controls (lib/liveNetwork): the CONSENT to send
 // new files to the AI as they arrive (per project, on this device, off by
-// default), the second consent for recordings, and PAUSE / RESUME.
+// default) and PAUSE / RESUME.
 function LiveSection({ dir }) {
   const live = useLiveNetwork(dir);
   if (!dir || !live) return null;
-  const { on, recordings, paused } = live.settings;
+  const { on, paused } = live.settings;
   const status = paused
     ? (live.pending ? `Paused \u2014 ${live.pending} file${live.pending === 1 ? '' : 's'} waiting.` : on ? 'Paused \u2014 new files are tagged and wait.' : 'Paused.')
     : live.working
@@ -387,10 +387,6 @@ function LiveSection({ dir }) {
             Every file added to this project from now on (imported, sent from a phone, dropped into the folder or synced) is read and sent to the AI (Anthropic, not used for training) within seconds, then linked into the network. Files already here are read when you tag them — a tagged folder: everything in it, and whatever is added to it later. This device only.
           </span>
         </li>
-        <li className={on ? '' : 'is-off'}>
-          <Toggle on={on && recordings} onChange={(v) => on && setLiveSettings(dir, { recordings: v })} label="Include audio & video" />
-          <span className="sg-feat-note">Recordings are transcribed by OpenAI: slower, and paid per minute.</span>
-        </li>
         <li>
           <Toggle on={!paused} onChange={(v) => setLiveSettings(dir, { paused: !v })} label={paused ? 'Paused' : 'Running'} />
           <span className={`sg-feat-note sg-live-status${!paused && (live.working || live.pending) ? ' is-busy' : ''}`}>{status}</span>
@@ -400,8 +396,8 @@ function LiveSection({ dir }) {
   );
 }
 
-// CLOUD READING OF IMAGES AND AUDIO (lib/cloudMedia): off, pictures and
-// scans are read on this computer and recordings are not transcribed.
+// CLOUD READING OF IMAGES (lib/cloudMedia): off, pictures and scans are
+// read on this computer.
 function CloudMediaSection() {
   const { selectedProjectId } = useSelectedProject();
   const on = useSyncExternalStore(subscribeCloudMedia, () => isCloudMediaAllowed(selectedProjectId), () => false);
@@ -413,11 +409,11 @@ function CloudMediaSection() {
       <div className="sg-menu-label">Privacy</div>
       <ul className="sg-feats">
         <li>
-          <Toggle on={on} onChange={(v) => setCloudMediaAllowed(selectedProjectId, v)} label="Cloud reading of images & audio" />
+          <Toggle on={on} onChange={(v) => setCloudMediaAllowed(selectedProjectId, v)} label="Cloud reading of images" />
           <span className="sg-feat-note">
             {on
-              ? 'Pictures and scanned pages may be sent to Anthropic for reading, and recordings to OpenAI for captions.'
-              : 'Pictures and scanned pages are read on this computer; recordings are not transcribed. Nothing visual or audio leaves this computer.'}
+              ? 'Pictures and scanned pages may be sent to Anthropic for reading.'
+              : 'Pictures and scanned pages are read on this computer. Nothing visual leaves this computer.'}
             {' '}This project, this device.
           </span>
         </li>

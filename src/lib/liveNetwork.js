@@ -12,8 +12,8 @@
 //
 // CONSENT is per project and per device, OFF by default: switching it on
 // (the scan card, components/ScanGauges) is what allows files to go to the AI
-// as they arrive. Recordings need a second switch (they are transcribed by
-// another provider, slowly and at a cost). Files already in the project are
+// as they arrive. A recording is read from the captions already saved for it
+// (nothing is transcribed), so it follows the same rule. Files already in the project are
 // NOT swept up — only what arrives from then on. PAUSE holds the work (a pass
 // under way stops at the next file; what was done is kept) and RESUME picks up
 // what arrived meanwhile.
@@ -68,7 +68,9 @@ function readable(name, features) {
 const norm = (dir) => String(dir || '').replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase();
 
 // ── Settings (consent + pause), per project folder, on this device ─────────
-export const LIVE_DEFAULTS = { on: false, recordings: false, paused: false };
+// (Settings saved when recordings had a consent of their own carry a
+// `recordings` key — read along and ignored.)
+export const LIVE_DEFAULTS = { on: false, paused: false };
 export function loadLiveSettings(dir) {
   try { return { ...LIVE_DEFAULTS, ...(JSON.parse(localStorage.getItem(KEY + norm(dir)) || 'null') || {}) }; } catch { return { ...LIVE_DEFAULTS }; }
 }
@@ -197,7 +199,7 @@ export function startLiveNetwork({ projectId, dir, projectName, notify }) {
       // A real arrival — taken only with consent and a kind switched on.
       if (!settings.on) continue;
       const kind = liveKindOf(row.name || rel);
-      if (!kind || !features[kind] || (kind === 'recordings' && !settings.recordings)) continue;
+      if (!kind || !features[kind]) continue;
       tagNow.push(rel); pending.add(rel); touched = true;
     }
     for (const rel of d.removed || []) if (isScanTagged(tags, rel)) touched = true;
@@ -256,8 +258,7 @@ export function startLiveNetwork({ projectId, dir, projectName, notify }) {
     let outcome = null;
     try {
       const { scanProjectFiles } = await import('./dataCollections');
-      // Recordings were only queued when allowed (arrivals: the live
-      // recordings switch; tags: the scan's own Audio & video switch).
+      // Only kinds switched on were queued (the scan's own switches).
       const features = { ...loadScanFeatures() };
       let shown = false;
       const res = await scanProjectFiles(dir, {
