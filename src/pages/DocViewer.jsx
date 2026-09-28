@@ -3659,6 +3659,43 @@ function useMultitoolAdvisor() { return useContext(MultitoolAdvisorContext); }
 const MultitoolLiveContext = React.createContext(null);
 function useMultitoolLive() { return useContext(MultitoolLiveContext); }
 
+// Save `value` under `key` once it has stopped changing for `ms` — flushed at
+// once when the key changes (another file) or the component unmounts, so
+// nothing is lost. The OCR history was written on every change, and each write
+// woke every listener of the file's data.
+function useDebouncedSave(save, key, value, ms = 400) {
+  const pending = useRef(null);
+  const saveRef = useRef(save);
+  saveRef.current = save;
+  const flush = useCallback(() => {
+    const p = pending.current;
+    if (!p) return;
+    clearTimeout(p.timer);
+    pending.current = null;
+    saveRef.current(p.key, p.value);
+  }, []);
+  useEffect(() => {
+    if (pending.current && pending.current.key !== key) flush();
+    if (pending.current) clearTimeout(pending.current.timer);
+    pending.current = { key, value, timer: setTimeout(flush, ms) };
+  }, [key, value, ms, flush]);
+  useEffect(() => flush, [flush]);
+}
+
+// For drags: run `fn` with the LATEST arguments at most once per animation
+// frame. A mouse sends several moves per frame and each used to set React
+// state — re-rendering a large pane several times for one painted frame.
+// `flush()` runs a pending call now (on mouseup, so the drop lands exactly).
+function perFrame(fn) {
+  let raf = 0;
+  let args = null;
+  const run = () => { raf = 0; const a = args; args = null; if (a) fn(...a); };
+  return {
+    call: (...a) => { args = a; if (!raf) raf = requestAnimationFrame(run); },
+    flush: () => { if (raf) { cancelAnimationFrame(raf); run(); } },
+  };
+}
+
 function MultitoolAdvisorProvider({ file, footSlot = null, quickSlot = null, generateMode = false, onDocWritten, onRenameFile, completing = false, setCompleting, focusMode = false, toggleFocus = null, children }) {
   const { notify } = useNotify();
   const { session } = useAuth();
@@ -7023,7 +7060,14 @@ function MediaOcrPane({ file, url, kind, sidePanelSlot = null, sideTabsSlot = nu
   // seeded from the per-file cache) so the line at the current time can show as
   // a subtitle over the decibel line. null until captions exist.
   const [captions, setCaptions] = useState(() => captionsFromCache(file.storage_path));
-  useEffect(() => { setCaptions(captionsFromCache(file.storage_path)); }, [file.storage_path]);
+  // The initial state already read it: re-read only for ANOTHER file (a whole
+  // transcript was parsed twice on every open, with an extra render).
+  const captionsReadFor = useRef(file.storage_path);
+  useEffect(() => {
+    if (captionsReadFor.current === file.storage_path) return;
+    captionsReadFor.current = file.storage_path;
+    setCaptions(captionsFromCache(file.storage_path));
+  }, [file.storage_path]);
   const activeCaption = useMemo(() => {
     if (kind !== 'video' || captions?.state !== 'done') return null;
     const seg = captions.segments.find((s) => currentTime >= s.start && currentTime < s.end);
@@ -7146,16 +7190,21 @@ function MediaOcrPane({ file, url, kind, sidePanelSlot = null, sideTabsSlot = nu
         if (d < bestDist) { bestDist = d; best = a; }
       }
       let align;
-      if (best) { cx = best.x; cy = best.y; align = best.align; setActiveSnap(best.id); }
-      else { align = cx / sr.width <= 0.34 ? 'left' : cx / sr.width >= 0.66 ? 'right' : 'center'; setActiveSnap(null); }
+      if (best) { cx = best.x; cy = best.y; align = best.align; }
+      else { align = cx / sr.width <= 0.34 ? 'left' : cx / sr.width >= 0.66 ? 'right' : 'center'; }
       // Store the alignment-relevant EDGE (left edge for left, right edge for
       // right, centre for centre) so the caption pins to that side: text-align
       // reads naturally and the box stays put as the line length changes.
       const anchorX = align === 'left' ? cx - halfW : align === 'right' ? cx + halfW : cx;
       latest = { x: (anchorX / sr.width) * 100, y: (cy / sr.height) * 100, align };
-      setCaptionSettings((s) => ({ ...s, ...latest }));
+      paint.call(best ? best.id : null, latest);
     };
+    const paint = perFrame((snapId, pos) => {
+      setActiveSnap(snapId);
+      setCaptionSettings((s) => ({ ...s, ...pos }));
+    });
     const onUp = () => {
+      paint.flush();
       setDraggingCaption(false);
       setSnapAnchors(null);
       setActiveSnap(null);
@@ -7409,7 +7458,7 @@ function MediaOcrPane({ file, url, kind, sidePanelSlot = null, sideTabsSlot = nu
   }, [zoomIn, zoomOut, zoomReset]);
 
   // Reopening the file restores its history; edits to the list persist back.
-  useEffect(() => { saveOcrHistory(file.path, history); }, [file.path, history]);
+  useDebouncedSave(saveOcrHistory, file.path, history);
 
   // Esc cancels the tool and any in-flight selection/error.
   useEffect(() => {
@@ -7628,22 +7677,27 @@ function MediaOcrPane({ file, url, kind, sidePanelSlot = null, sideTabsSlot = nu
     const start = { x: e.clientX - stageRect0.left, y: e.clientY - stageRect0.top };
     setErrorMsg(null);
     setDrag({ tool, start, points: [start] });
+    // Every point is kept (a lasso needs its whole outline), but the pane is
+    // re-rendered once a frame with all of them, not once per mouse event.
+    const freehand = tool === 'highlight' || tool === 'lasso';
+    let pts = [start];
+    const paint = perFrame((p) => {
+      setCursorPos(p);
+      const points = freehand ? pts.slice() : [start, p];
+      setDrag((d) => (d ? { ...d, points } : d));
+    });
     const onMove = (ev) => {
       const r = stageEl.getBoundingClientRect();
       const p = { x: ev.clientX - r.left, y: ev.clientY - r.top };
-      setCursorPos(p);
-      setDrag((d) => {
-        if (!d) return d;
-        if (d.tool === 'highlight' || d.tool === 'lasso') {
-          const last = d.points[d.points.length - 1];
-          const minDist = d.tool === 'highlight' ? Math.max(4, brushRadiusRef.current * 0.35) : 3;
-          if (Math.hypot(p.x - last.x, p.y - last.y) < minDist) return d;
-          return { ...d, points: [...d.points, p] };
-        }
-        return { ...d, points: [d.start, p] };
-      });
+      if (freehand) {
+        const last = pts[pts.length - 1];
+        const minDist = tool === 'highlight' ? Math.max(4, brushRadiusRef.current * 0.35) : 3;
+        if (Math.hypot(p.x - last.x, p.y - last.y) >= minDist) pts.push(p);
+      }
+      paint.call(p);
     };
     const onUp = () => {
+      paint.flush();
       window.removeEventListener('mousemove', onMove);
       window.removeEventListener('mouseup', onUp);
       const r = stageEl.getBoundingClientRect();
@@ -7664,11 +7718,13 @@ function MediaOcrPane({ file, url, kind, sidePanelSlot = null, sideTabsSlot = nu
     const startX = e.clientX;
     const startW = historyWidth;
     document.body.classList.add('dv-ocr-resizing');
+    const paint = perFrame(setHistoryWidth);
     const onMove = (ev) => {
       const delta = toLayoutPx(startX - ev.clientX);
-      setHistoryWidth(Math.min(HISTORY_MAX_WIDTH, Math.max(HISTORY_MIN_WIDTH, startW + delta)));
+      paint.call(Math.min(HISTORY_MAX_WIDTH, Math.max(HISTORY_MIN_WIDTH, startW + delta)));
     };
     const onUp = () => {
+      paint.flush();
       window.removeEventListener('mousemove', onMove);
       window.removeEventListener('mouseup', onUp);
       document.body.classList.remove('dv-ocr-resizing');
@@ -8381,7 +8437,10 @@ function CaptionsPanel({ file, url, currentTime, onSeek, onCaptionsChange }) {
   const editStartTextRef = useRef('');
   const listRef = useRef(null);
 
+  // Skips its first run: the initial state has just read the transcript.
+  const captionsMounted = useRef(false);
   useEffect(() => {
+    if (!captionsMounted.current) { captionsMounted.current = true; return; }
     setCaptions(captionsFromCache(file.storage_path));
     setCopied(false);
     setEditingIdx(null);
@@ -8941,13 +9000,16 @@ function AudioPlayerPane({ file, url, sidePanelSlot = null, sideTabsSlot = null 
   // Transcript mirrored from the side CaptionsPanel — drives the now-playing
   // karaoke lyrics over the controls. null until generated.
   const [lyrics, setLyrics] = useState(() => captionsFromCache(file.storage_path));
+  const lyricsMounted = useRef(false);
 
   useEffect(() => {
     setFailed(false);
     setPlaying(false);
     setCur(0);
     setDur(0);
-    setLyrics(captionsFromCache(file.storage_path));
+    // The initial state has just read the transcript on the first run.
+    if (lyricsMounted.current) setLyrics(captionsFromCache(file.storage_path));
+    lyricsMounted.current = true;
     cancelAnimationFrame(scopeRafRef.current);
     scopeRafRef.current = 0;
   }, [url, file.storage_path]);
@@ -9069,11 +9131,13 @@ function AudioPlayerPane({ file, url, sidePanelSlot = null, sideTabsSlot = null 
     const startX = e.clientX;
     const startW = captionsWidth;
     document.body.classList.add('dv-ocr-resizing');
+    const paint = perFrame(setCaptionsWidth);
     const onMove = (ev) => {
       const delta = startX - ev.clientX;
-      setCaptionsWidth(Math.min(CAPTIONS_MAX_WIDTH, Math.max(CAPTIONS_MIN_WIDTH, startW + delta)));
+      paint.call(Math.min(CAPTIONS_MAX_WIDTH, Math.max(CAPTIONS_MIN_WIDTH, startW + delta)));
     };
     const onUp = () => {
+      paint.flush();
       window.removeEventListener('mousemove', onMove);
       window.removeEventListener('mouseup', onUp);
       document.body.classList.remove('dv-ocr-resizing');
@@ -9561,7 +9625,7 @@ function DocExtractPanel({ file, url, kind, width, fill = false, sideTabsSlot = 
   }, [docTools]);
 
   useEffect(() => { setHistory(loadOcrHistory(file.storage_path)); }, [file.storage_path]);
-  useEffect(() => { saveOcrHistory(file.storage_path, history); }, [file.storage_path, history]);
+  useDebouncedSave(saveOcrHistory, file.storage_path, history);
 
   const extractable = kind !== 'other';
 
