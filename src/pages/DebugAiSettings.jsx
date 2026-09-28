@@ -88,12 +88,6 @@ function useOtherPrompts(on) {
       };
       await add(() => import('../lib/aiFileEdits'), (m) => [{ title: 'File viewer — edit rule', where: 'lib/aiFileEdits EDIT_RULE', text: m.EDIT_RULE }]);
       await add(() => import('../lib/docAuthority'), (m) => [{ title: 'Official documents win', where: 'lib/docAuthority AUTHORITY_RULE', text: m.AUTHORITY_RULE }]);
-      await add(() => import('../lib/dataCollections'), (m) => [
-        { title: 'Files scan — understanding each file', where: 'lib/dataCollections UNDERSTAND_PROMPT', text: m.UNDERSTAND_PROMPT },
-        { title: 'Files scan — connecting files into collections', where: 'lib/dataCollections CONNECT_PROMPT', text: m.CONNECT_PROMPT },
-        { title: 'Files scan — adding new files to collections', where: 'lib/dataCollections INTEGRATE_PROMPT', text: m.INTEGRATE_PROMPT },
-        { title: 'Files scan — a person’s / company’s record', where: 'lib/dataCollections RECORD_RULE', text: m.RECORD_RULE },
-      ]);
       await add(() => import('../lib/roIdDocuments'), (m) => [
         { title: 'Identity documents — the MRZ strip', where: 'lib/roIdDocuments MRZ_PROMPT', text: m.MRZ_PROMPT },
         { title: 'Identity documents — reading a Romanian ID', where: 'lib/roIdDocuments RO_ID_PROMPT', text: m.RO_ID_PROMPT },

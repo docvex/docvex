@@ -25,7 +25,7 @@ const MODELS = [
   {
     name: 'Claude (Opus, Sonnet, Haiku)',
     by: 'Anthropic',
-    used: 'Research, the document advisor, drafting and editing, the AI scan of project files, building Word / PowerPoint / Excel files, the legal newsfeed',
+    used: 'Research, the document advisor, drafting and editing, building Word / PowerPoint / Excel files, the legal newsfeed',
     sees: 'Document text and your questions — with names, CNPs, IBANs, addresses and other identifiers replaced by placeholders on this computer first (on by default)',
   },
   {

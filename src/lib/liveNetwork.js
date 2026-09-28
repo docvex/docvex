@@ -6,14 +6,13 @@
 // (lib/scanTags — it wears the AI mark, and "Remove from AI scan" takes it
 // out again) and the scan is run INCREMENTALLY on it (`only` = the files that
 // arrived): files the network already knows cost nothing, an unchanged
-// project returns from the scan's fast path before reading anything, and a
-// new file is cross-referenced only against its likeliest matches
-// (dataCollections `deltaPlan`).
+// project returns from the scan's fast path before reading anything. The
+// network is built on this computer, with no AI (lib/localNetwork).
 //
 // CONSENT is per project and per device, OFF by default: switching it on
-// (the scan card, components/ScanGauges) is what allows files to go to the AI
-// as they arrive. Recordings need a second switch (they are transcribed by
-// another provider, slowly and at a cost). Files already in the project are
+// (the scan card, components/ScanGauges) is what lets files be read into the
+// network as they arrive. Recordings need a second switch (they are read from
+// the captions already made for them). Files already in the project are
 // NOT swept up — only what arrives from then on. PAUSE holds the work (a pass
 // under way stops at the next file; what was done is kept) and RESUME picks up
 // what arrived meanwhile.

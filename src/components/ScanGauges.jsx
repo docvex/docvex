@@ -361,9 +361,10 @@ export function ScanHover({ scan, idle, children }) {
 // into a CARD — the morph pill's menu state — holding a switch for each thing
 // the scan can do (lib/dataCollections SCAN_FEATURES, kept per device), Read
 // everything again, the Scan button (Stop while scanning) and Erase memory.
-// THE LIVE NEURAL NETWORK's controls (lib/liveNetwork): the CONSENT to send
-// new files to the AI as they arrive (per project, on this device, off by
-// default), the second consent for recordings, and PAUSE / RESUME.
+// THE LIVE NEURAL NETWORK's controls (lib/liveNetwork): whether new files are
+// read into the network as they arrive (per project, on this device, off by
+// default), whether recordings are included, and PAUSE / RESUME. The network
+// runs on this computer — no AI (lib/localNetwork).
 function LiveSection({ dir }) {
   const live = useLiveNetwork(dir);
   if (!dir || !live) return null;
@@ -384,12 +385,12 @@ function LiveSection({ dir }) {
         <li>
           <Toggle on={on} onChange={(v) => setLiveSettings(dir, { on: v, ...(v ? { paused: false } : {}) })} label="Understand new files automatically" />
           <span className="sg-feat-note">
-            Every file added to this project from now on (imported, sent from a phone, dropped into the folder or synced) is read and sent to the AI (Anthropic, not used for training) within seconds, then linked into the network. Files already here are read when you tag them — a tagged folder: everything in it, and whatever is added to it later. This device only.
+            Every file added to this project from now on (imported, sent from a phone, dropped into the folder or synced) is read on this computer within seconds and linked into the network \u2014 no AI, nothing leaves the machine. Files already here are read when you tag them — a tagged folder: everything in it, and whatever is added to it later. This device only.
           </span>
         </li>
         <li className={on ? '' : 'is-off'}>
           <Toggle on={on && recordings} onChange={(v) => on && setLiveSettings(dir, { recordings: v })} label="Include audio & video" />
-          <span className="sg-feat-note">Recordings are transcribed by OpenAI: slower, and paid per minute.</span>
+          <span className="sg-feat-note">A recording is read from the captions already made for it (Doc Viewer \u2192 Generate captions); one without captions is skipped.</span>
         </li>
         <li>
           <Toggle on={!paused} onChange={(v) => setLiveSettings(dir, { paused: !v })} label={paused ? 'Paused' : 'Running'} />
@@ -549,7 +550,7 @@ function ScanCard({ scan, taggedCount, onScan, onErase, close, dir }) {
         )}
       </div>
       {onErase && !running && (
-        <p className="sg-menu-foot">Erase memory deletes the Data collections (to the Trash), the links and what the AI understood. The text read out of the files is kept.</p>
+        <p className="sg-menu-foot">Erase memory deletes the Data collections (to the Trash), the links and what was understood of each file. The text read out of the files is kept.</p>
       )}
     </div>
   );

@@ -72,7 +72,6 @@ export const AI_FUNCTIONS = [
       { id: 'paragraph-edit', surface: 'doc-viewer', task: 'draft', what: 'Rewrites a picked paragraph (unified AI: paragraphFrame in lib/aiEngine), with the turn\'s data.' },
       { id: 'constructor-rewrite', surface: 'doc-viewer', task: 'draft', what: 'Rewrites a paragraph through the Constructor.' },
       { id: 'complete-data', surface: 'doc-viewer', task: 'extract', what: 'Fills in missing data.' },
-      { id: 'files-scan', surface: 'files', task: 'extract', model: 'claude-sonnet-5', what: 'Writes a short profile ("passport") of each file, cross-references the files, and builds the Data collections and the file graph.' },
       { id: 'insights-signatures', surface: 'insights', task: 'analyse', what: 'Compares signatures and stamps across documents.' },
       { id: 'insights-ask', surface: 'insights', task: 'analyse', what: 'The Contradictions section\'s "Suggest" asks which version is right.' },
       { id: 'brief-suggest', surface: 'doc-viewer', task: 'suggest', what: 'The "What do you want to make?" screen reads what the neural network understood of the files and suggests the documents the case needs next.' },
@@ -150,6 +149,7 @@ export const AI_LOCAL = [
   { name: 'face-api', what: 'Face matching. Face data never leaves the machine.' },
   { name: 'ZXing', what: 'Reads barcodes and QR codes.' },
   { name: 'The app\'s own code', what: 'Legal citations, CNP and CUI checks, and old land-measure conversions.' },
+  { name: 'The neural network (lib/localNetwork)', what: 'The Files scan: understands each file, links the files and builds the Data collections from the names, identifiers, dates and amounts they share — no AI model.' },
 ];
 
 export const AI_PRIVACY = 'Both services are called through their paid APIs, never through consumer apps like claude.ai or chatgpt.com. Anthropic and OpenAI don\'t train on API data but keep it about 30 days. (Deepgram, whose standard terms allow training, was removed.)';
