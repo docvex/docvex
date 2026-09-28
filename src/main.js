@@ -2282,7 +2282,7 @@ function projectIndexService() {
       broadcast: broadcastToAllWindows,
       // A project's folder is the user's own case folder: serve it over
       // localfile:// like any folder the Files tab lists.
-      onProjectDir: registerLocalfileRoot,
+      onProjectDir: (dir) => { trustNetworkRoot(dir); registerLocalfileRoot(dir); },
     });
   }
   return projectIndex;
@@ -3185,6 +3185,7 @@ ipcMain.handle('local-folder:pick', async () => {
   });
   if (result.canceled) return null;
   const picked = result.filePaths?.[0] || null;
+  trustNetworkRoot(picked);
   if (picked) registerLocalfileRoot(picked);
   return picked;
 });
@@ -3449,6 +3450,122 @@ function isSingleSegment(name) {
     && !s.includes('/') && !s.includes('\\') && !path.isAbsolute(s);
 }
 
+// ── Protected locations (GDPR Art. 32 / audit 2026-09-28) ──────────────────
+// The file IPC keeps an operation inside the folder its CALLER names, but
+// nothing stopped that folder being C:\Windows, the Startup folder or ~/.ssh —
+// so a script injected into the renderer could plant a program that runs at
+// login, or wipe a system folder. Every write / move / delete handler, and
+// the localfile:// allow-list, now refuse:
+//   - network (UNC) paths — merely resolving one sends the user's NTLM hash;
+//   - a filesystem or drive root itself;
+//   - system and program folders, the app's own install, the user's app data
+//     (Startup, other apps' profiles, DocVex's own index and vault), and the
+//     home folder's hidden entries (.ssh, .aws, .gnupg, .config…);
+//   - for DELETES, also the home folder and its Desktop / Documents /
+//     Downloads / Pictures / Music / Videos themselves.
+// The OS temp folder is always allowed (the app's own extraction folders).
+const IS_WIN = process.platform === 'win32';
+const caseFold = (p) => (IS_WIN || process.platform === 'darwin' ? p.toLowerCase() : p);
+function isNetworkPath(p) {
+  const s = String(p || '');
+  return /^[\\/]{2}/.test(s) || /^\\\\\?\\UNC\\/i.test(s);
+}
+// A firm's file server (\\server\cases) is fine once the USER chose it: a
+// folder picked in the native dialog, or a linked project's own folder. Any
+// other network path is refused before it is touched.
+const trustedNetworkRoots = new Set();
+function trustNetworkRoot(dir) {
+  if (dir && typeof dir === 'string' && isNetworkPath(dir)) {
+    try { trustedNetworkRoots.add(caseFold(path.resolve(dir))); } catch { /* bad path */ }
+  }
+}
+function isUntrustedNetworkPath(p) {
+  if (!isNetworkPath(p)) return false;
+  let f;
+  try { f = caseFold(path.resolve(p)); } catch { return true; }
+  for (const root of trustedNetworkRoots) if (isInsideDir(root, f, { allowRoot: true })) return false;
+  return true;
+}
+let protectedCache = null;
+function protectedRoots() {
+  if (protectedCache) return protectedCache;
+  const safe = (fn) => { try { const v = fn(); return v ? path.resolve(v) : null; } catch { return null; } };
+  const home = safe(() => app.getPath('home'));
+  const inside = [
+    safe(() => app.getPath('appData')),
+    safe(() => app.getPath('userData')),
+    safe(() => path.dirname(process.execPath)),
+    safe(() => process.resourcesPath),
+  ];
+  if (IS_WIN) {
+    inside.push(
+      safe(() => process.env.SystemRoot || process.env.windir),
+      safe(() => process.env.ProgramFiles),
+      safe(() => process.env['ProgramFiles(x86)']),
+      safe(() => process.env.ProgramW6432),
+      safe(() => process.env.ProgramData),
+      safe(() => process.env.LOCALAPPDATA),
+    );
+  } else {
+    for (const d of ['/System', '/Library', '/Applications', '/usr', '/bin', '/sbin', '/etc',
+      '/private', '/var', '/boot', '/lib', '/lib64', '/opt', '/root', '/sys', '/proc', '/dev']) inside.push(d);
+    if (home) inside.push(path.join(home, 'Library'));
+  }
+  const exact = [];
+  if (home) {
+    exact.push(home);
+    for (const k of ['desktop', 'documents', 'downloads', 'pictures', 'music', 'videos']) exact.push(safe(() => app.getPath(k)));
+  }
+  // Cloud-synced folders live under ~/Library on a Mac (iCloud Drive,
+  // OneDrive, Dropbox, Google Drive) — case folders there must keep working.
+  const allowInside = home && process.platform === 'darwin'
+    ? [path.join(home, 'Library', 'Mobile Documents'), path.join(home, 'Library', 'CloudStorage')]
+    : [];
+  protectedCache = {
+    home,
+    allowInside: allowInside.map(caseFold),
+    temp: safe(() => app.getPath('temp')),
+    inside: inside.filter(Boolean).map(caseFold),
+    exact: exact.filter(Boolean).map(caseFold),
+  };
+  return protectedCache;
+}
+/** Why `target` may not be written / deleted, or null when it may. */
+function protectedPathReason(target, { deleting = false } = {}) {
+  if (!target || typeof target !== 'string') return 'No path';
+  if (isUntrustedNetworkPath(target)) return 'Network paths are not allowed';
+  let abs;
+  try { abs = path.resolve(target); } catch { return 'Bad path'; }
+  if (isNetworkPath(abs)) return null; // a trusted file server: none of the local rules apply
+  const P = protectedRoots();
+  const f = caseFold(abs);
+  if (P.temp && isInsideDir(caseFold(P.temp), f, { allowRoot: true })) return null;
+  if (P.allowInside.some((r) => isInsideDir(r, f))) return null;
+  if (path.parse(abs).root === abs) return 'A drive or filesystem root is protected';
+  for (const root of P.inside) {
+    if (isInsideDir(root, f, { allowRoot: true })) return 'This location is protected';
+  }
+  if (P.home) {
+    const rel = path.relative(caseFold(P.home), f);
+    if (rel && !rel.startsWith('..') && !path.isAbsolute(rel) && rel.split(/[\\/]/)[0].startsWith('.')) {
+      return 'Hidden folders in your home folder are protected';
+    }
+  }
+  if (deleting && P.exact.includes(f)) return 'This folder cannot be deleted from DocVex';
+  return null;
+}
+const refusePath = (...checks) => {
+  for (const [p, opts] of checks) {
+    const why = protectedPathReason(p, opts);
+    if (why) return why;
+  }
+  return null;
+};
+
+// Files that RUN something when opened. Opening one from DocVex asks first —
+// a synced teammate file or a phone upload must not execute on a click.
+const RUNNABLE_EXT = /\.(exe|com|bat|cmd|msi|msp|scr|pif|cpl|ps1|psm1|vbs|vbe|js|jse|wsf|wsh|hta|lnk|url|reg|jar|app|command|sh|py|pl|dll|appx|msix|appref-ms|gadget|inf|iso|img|vhd|vhdx)$/i;
+
 // ── localfile:// read allow-list ──────────────────────────────────────────
 // The `localfile://` protocol streams file BYTES to the renderer. Without a
 // containment check it would read ANY absolute path the renderer names, turning
@@ -3460,12 +3577,16 @@ function isSingleSegment(name) {
 const localfileRoots = new Set();
 function registerLocalfileRoot(dir) {
   if (!dir || typeof dir !== 'string') return;
+  if (protectedPathReason(dir)) return; // never serve a system, app-data or network folder
+  const P = protectedRoots();
+  if (P.home && caseFold(path.resolve(dir)) === caseFold(P.home)) return; // not the whole home folder
   try { localfileRoots.add(path.resolve(dir)); } catch { /* ignore bad path */ }
 }
 // Permit a file by registering its containing directory (used when the renderer
 // is handed a single file path, e.g. a Doc Viewer / file window).
 function registerLocalfileFile(filePath) {
   if (!filePath || typeof filePath !== 'string') return;
+  if (isUntrustedNetworkPath(filePath)) return;
   try { localfileRoots.add(path.dirname(path.resolve(filePath))); } catch { /* ignore */ }
 }
 // Is `filePath` inside an allowed root? Resolves symlinks first (fs.realpath) so
@@ -3473,6 +3594,9 @@ function registerLocalfileFile(filePath) {
 // external file (defends the zip-symlink vector too).
 async function isLocalfileAllowed(filePath) {
   if (!localfileRoots.size) return false;
+  // Before ANY filesystem call: resolving a UNC path opens an SMB connection,
+  // which hands the user's NetNTLM hash to whoever named the host.
+  if (isUntrustedNetworkPath(filePath)) return false;
   let real;
   try { real = await fsp.realpath(filePath); }
   catch { real = path.resolve(filePath); } // not-yet-existing → check resolved
@@ -3512,6 +3636,8 @@ ipcMain.handle('local-folder:create-folder', async (_, payload) => {
     const normalizedDir = path.resolve(dir);
     const target = path.resolve(dir, name);
     if (!isInsideDir(normalizedDir, target)) return { error: 'Path outside branch folder' };
+    const why = refusePath([target]);
+    if (why) return { error: why };
     await fsp.mkdir(target); // non-recursive: throws EEXIST if it exists
     return { ok: true, name, path: target, error: null };
   } catch (err) {
@@ -3534,6 +3660,8 @@ ipcMain.handle('local-folder:delete-folder', async (_, payload) => {
     if (!isInsideDir(normalizedDir, target)) {
       return { error: 'Path outside branch folder' };
     }
+    const why = refusePath([target, { deleting: true }]);
+    if (why) return { error: why };
     await fsp.rm(target, { recursive: true, force: true });
     return { ok: true, error: null };
   } catch (err) {
@@ -3556,6 +3684,8 @@ ipcMain.handle('local-folder:move', async (_, payload) => {
       return { error: 'Path outside branch folder' };
     }
     if (from === to) return { ok: true, error: null };
+    const why = refusePath([from, { deleting: true }], [to]);
+    if (why) return { error: why };
     // Refuse to clobber an existing destination entry.
     try {
       await fsp.access(to);
@@ -3592,6 +3722,7 @@ ipcMain.handle('local-folder:download', async (_, payload) => {
   const dir = payload?.dir;
   const files = Array.isArray(payload?.files) ? payload.files : [];
   if (!dir) return { results: [], error: 'No directory specified' };
+  { const why = refusePath([dir]); if (why) return { results: [], error: why }; }
   try {
     await fsp.mkdir(dir, { recursive: true });
   } catch (err) {
@@ -3642,6 +3773,7 @@ ipcMain.handle('local-folder:write-files', async (_, payload) => {
   const dir = payload?.dir;
   const files = Array.isArray(payload?.files) ? payload.files : [];
   if (!dir) return { results: [], error: 'No directory specified' };
+  { const why = refusePath([dir]); if (why) return { results: [], error: why }; }
   try {
     await fsp.mkdir(dir, { recursive: true });
   } catch (err) {
@@ -3676,6 +3808,7 @@ ipcMain.handle('local-folder:write-tree', async (_, payload) => {
   const files = Array.isArray(payload?.files) ? payload.files : [];
   if (!dir) return { results: [], error: 'No directory specified' };
   const root = path.resolve(dir);
+  { const why = refusePath([root]); if (why) return { results: [], error: why }; }
   try {
     await fsp.mkdir(root, { recursive: true });
   } catch (err) {
@@ -3735,6 +3868,7 @@ ipcMain.handle('local-folder:remove-empty-dirs', async (_, payload) => {
   const dir = payload?.dir;
   const rels = Array.isArray(payload?.rels) ? payload.rels : [];
   if (!dir) return { removed: [], error: 'No directory specified' };
+  { const why = refusePath([dir]); if (why) return { removed: [], error: why }; }
   const root = path.resolve(dir);
   const removed = [];
   const sorted = [...rels].sort((a, b) => String(b).split('/').length - String(a).split('/').length);
@@ -3772,6 +3906,8 @@ ipcMain.handle('local-folder:rename-file', async (_, payload) => {
     if (!isInsideDir(normalizedDir, fromPath) || !isInsideDir(normalizedDir, toPath)) {
       return { error: 'Path outside branch folder' };
     }
+    const why = refusePath([fromPath, { deleting: true }], [toPath]);
+    if (why) return { error: why };
     await fsp.rename(fromPath, toPath);
     return { ok: true, error: null };
   } catch (err) {
@@ -3788,8 +3924,23 @@ ipcMain.handle('local-folder:rename-file', async (_, payload) => {
 // Open a local file (or its parent folder) in the OS file manager /
 // default app. Used for the card click handler on local files and the
 // "Open folder" button next to the local pane header.
-ipcMain.handle('local-folder:open-path', async (_, targetPath) => {
-  if (!targetPath) return '';
+ipcMain.handle('local-folder:open-path', async (e, targetPath) => {
+  if (!targetPath || typeof targetPath !== 'string') return '';
+  if (isUntrustedNetworkPath(targetPath)) return 'Network paths are not opened from DocVex';
+  // A file that runs something is opened only once the user says so.
+  if (RUNNABLE_EXT.test(targetPath)) {
+    const owner = BrowserWindow.fromWebContents(e.sender) || mainWindow;
+    const { response } = await dialog.showMessageBox(owner, {
+      type: 'warning',
+      buttons: ['Cancel', 'Open anyway'],
+      defaultId: 0,
+      cancelId: 0,
+      title: 'Open a program?',
+      message: `"${path.basename(targetPath)}" can run a program on this computer.`,
+      detail: 'Only open it if you trust where it came from. Files from a phone, a teammate or an e-mail can be harmful.',
+    });
+    if (response !== 1) return 'Cancelled';
+  }
   // shell.openPath returns an empty string on success, an error message
   // on failure. Pass it through so the renderer can surface failures.
   return shell.openPath(targetPath);
@@ -3835,6 +3986,7 @@ ipcMain.handle('local-folder:extract-archive', async (_, srcPath) => {
     const parent = path.dirname(srcPath);
     const baseName = path.basename(srcPath).replace(/\.zip$/i, '');
     const dest = path.join(parent, `${baseName} - unzipped`);
+    { const why = refusePath([dest]); if (why) return { ok: false, error: why }; }
     // Whether WE created the folder decides if the extract is undoable: when it
     // already existed we've merged into someone else's files, and undoing by
     // deleting the folder would take those with it.
@@ -3884,6 +4036,7 @@ ipcMain.handle('local-folder:delete-files', async (_, payload) => {
   } catch (err) {
     return { results: [], error: `Bad directory: ${err?.message || err}` };
   }
+  { const why = refusePath([normalizedDir]); if (why) return { results: [], error: why }; }
   for (const p of paths) {
     if (!p || typeof p !== 'string') {
       results.push({ path: p, ok: false, error: 'Invalid path' });
@@ -4004,6 +4157,7 @@ ipcMain.handle('local-folder:write-sidecar', async (_, payload) => {
   const json = payload?.json;
   if (!dir) return { ok: false, error: 'No directory specified' };
   if (!json || typeof json !== 'object') return { ok: false, error: 'Invalid payload' };
+  { const why = refusePath([dir]); if (why) return { ok: false, error: why }; }
   try {
     await fsp.mkdir(dir, { recursive: true });
     const target = path.join(dir, '.docvex.json');
@@ -4157,6 +4311,7 @@ ipcMain.handle('local-folder:trash-file', trashLocked(async (_, payload) => {
     if (!isInsideDir(normalizedDir, resolved)) {
       return { ok: false, error: 'Path is outside project folder' };
     }
+    { const why = refusePath([resolved, { deleting: true }]); if (why) return { ok: false, error: why }; }
     const originalName = path.basename(resolved);
     // Record the file's location relative to the project root so a restore
     // can put it back where it came from (subfolder included).
@@ -4199,6 +4354,7 @@ ipcMain.handle('local-folder:trash-folder', trashLocked(async (_, payload) => {
     if (!isInsideDir(normalizedDir, resolved)) {
       return { ok: false, error: 'Path is outside project folder' };
     }
+    { const why = refusePath([resolved, { deleting: true }]); if (why) return { ok: false, error: why }; }
     const tdir = trashDir(dir);
     await fsp.mkdir(tdir, { recursive: true });
     const meta = await readTrashMeta(dir);
@@ -4669,7 +4825,14 @@ app.whenReady().then(() => {
       // loads media with crossOrigin="anonymous" so it can draw the element
       // to a canvas and export the crop — without this header the CORS-mode
       // load fails outright, and without crossOrigin the canvas is tainted.
-      const cors = { 'access-control-allow-origin': '*' };
+      // Only the app's own pages (the app origin, the dev server, the file://
+      // fallback — which sends "null") may read the bytes cross-origin; a web
+      // page shown in a viewer window gets no CORS grant.
+      const reqOrigin = request.headers.get('origin');
+      const devOrigin = MAIN_WINDOW_VITE_DEV_SERVER_URL ? new URL(MAIN_WINDOW_VITE_DEV_SERVER_URL).origin : null;
+      const cors = reqOrigin && (reqOrigin === APP_ORIGIN || reqOrigin === devOrigin || reqOrigin === 'null')
+        ? { 'access-control-allow-origin': reqOrigin, vary: 'Origin' }
+        : (reqOrigin ? {} : { 'access-control-allow-origin': '*' });
       // `?thumb=N` — serve a downscaled thumbnail instead of the original
       // bytes. The WhatsApp reconstruction asks for these: painting 167
       // full-resolution camera photos into ~300px bubbles re-rasters tens of
