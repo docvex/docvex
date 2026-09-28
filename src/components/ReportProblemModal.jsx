@@ -250,6 +250,13 @@ export default function ReportProblemModal() {
 
           <div className="report-modal-field">
             <span className="report-modal-label">Attachments</span>
+            {/* The screenshot is of whatever was behind the modal — often a
+                client document. Say so before it is emailed to support. */}
+            {screenshot && (
+              <p className="report-modal-privacy">
+                The screenshot shows what was on your screen. If client documents or personal data are visible, remove it before sending.
+              </p>
+            )}
             <div className="report-modal-attachments">
               {/* Auto-captured screenshot — shown first so the user
                   notices it's there and can remove it before sending. */}

@@ -31,7 +31,7 @@
       <p class="lg-eyebrow">DocVex — Legal</p>
       <h1 class="lg-title">Data Processing Agreement</h1>
       <p class="lg-lead">The standard agreement under Article 28 GDPR between your organization (the controller) and DocVex (the processor), covering the personal data DocVex processes on your behalf.</p>
-      <p class="lg-updated">Last updated: 18 July 2026 · Version 1.0</p>
+      <p class="lg-updated">Last updated: 28 September 2026 · Version 1.1</p>
     </header>
 
     <div class="lg-layout">
@@ -95,9 +95,23 @@
             <li>third parties whose personal data appears in Customer Content (e.g. clients, counterparties, persons named in documents or messages).</li>
           </ul>
           <h3>Categories of personal data</h3>
-          <p>Identification and contact data, professional data, communication content, and any personal data the Customer's users include in Customer Content — which, given the legal domain, may include special categories of data (Art. 9 GDPR). The Customer is responsible for having a lawful basis for such data.</p>
+          <p>Identification and contact data, professional data, communication content, and any personal data the Customer's users include in Customer Content. Given the legal domain this regularly includes:</p>
+          <ul class="lg-list">
+            <li><strong>national identification numbers</strong> (CNP) and identity-document data — processed subject to Art. 87 GDPR and Art. 4 of Romanian Law no. 190/2018;</li>
+            <li><strong>data relating to criminal convictions and offences</strong> (Art. 10 GDPR), e.g. criminal case files; and</li>
+            <li>other <strong>special categories of data</strong> (Art. 9 GDPR) contained in documents.</li>
+          </ul>
+          <p>The Customer is responsible for having a lawful basis for such data and, where required (Art. 35), for carrying out a data-protection impact assessment; DocVex assists as described in Section 9.</p>
+          <h3>Biometric data (face matching)</h3>
+          <p>The optional face-matching feature derives face measurements (biometric data, Art. 9 GDPR) from pictures in a project. This processing runs <strong>only in the software on the Customer's own devices</strong>: face measurements are not transmitted to DocVex, to any Sub-processor or to account sync. The feature is off by default and is used only on the Customer's instruction (by switching it on).</p>
           <h3>Important scope note</h3>
-          <p>Project <strong>files are stored locally on the Customer's own devices</strong> and are not processed by DocVex at all unless a user invokes a feature (such as AI analysis) that transmits selected content for transient processing.</p>
+          <p>Project <strong>files are stored locally on the Customer's own devices</strong> and are not processed by DocVex at all unless a user invokes a feature (such as AI analysis) that transmits selected content for transient processing, or switches on one of the following per-project options:</p>
+          <ul class="lg-list">
+            <li><strong>Sync with account</strong> — a copy of the project's folder is stored in the EEA (Supabase, eu-west-1) for the Customer's own devices, until sync is switched off or the project is deleted;</li>
+            <li><strong>phone upload through the DocVex cloud</strong> — uploaded files are held in the EEA only until the Customer's device receives them;</li>
+            <li><strong>automatic understanding of new files</strong> — files added to the project are submitted to AI processing as they arrive.</li>
+          </ul>
+          <p>Content submitted to AI Sub-processors goes through their business APIs, whose terms exclude it from model training. DocVex offers pseudonymisation of identifiers before submission as an additional safeguard.</p>
         </section>
 
         <section class="lg-card" id="obligations">
@@ -148,7 +162,8 @@
             <li>Encryption of data in transit (TLS) and at rest; additional AES-256-GCM application-layer encryption for mailbox tokens.</li>
             <li>Database-enforced row-level security scoping every read/write to project membership; role- and capability-based authorisation evaluated server-side.</li>
             <li>PKCE-based authentication with rotating refresh tokens and global revocation.</li>
-            <li>Data minimisation by architecture: project files remain on Customer devices; AI processing is transient and user-initiated.</li>
+            <li>Data minimisation by architecture: project files remain on Customer devices; AI processing is transient and user-initiated; biometric processing never leaves the device.</li>
+            <li>Optional pseudonymisation: identifiers (names, CNP, CUI, IBAN, addresses, document numbers) can be replaced with placeholders before text reaches an AI Sub-processor, with the key kept encrypted on the Customer's device.</li>
             <li>Secrets held in a managed vault; production access restricted to the DocVex team on a need-to-use basis.</li>
             <li>Signed, verified application releases distributed only through official channels.</li>
           </ul>

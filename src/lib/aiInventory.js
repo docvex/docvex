@@ -29,14 +29,6 @@ export const AI_PROVIDERS = [
     privacy: 'API: not used for training by default; kept about 30 days.',
     warning: 'CLAUDE.md says OPENAI_API_KEY is not configured yet, so transcription will not work until it is added.',
   },
-  {
-    id: 'deepgram',
-    name: 'Deepgram',
-    role: 'Speaker diarization (optional)',
-    key: 'DEEPGRAM_API_KEY + DOC_AI_ALLOW_DEEPGRAM=1',
-    tone: 'var(--warning)',
-    privacy: 'The weak spot: standard terms allow training on your data — which is why it needs two switches to turn on.',
-  },
 ];
 
 // Where an AI use is reached from — the surfaces to unify later.
@@ -104,7 +96,7 @@ export const AI_FUNCTIONS = [
     id: 'doc-ai',
     provider: 'anthropic',
     title: 'Doc Viewer tools',
-    note: 'Ask, summary, risks, Romanian, draft and review on claude-opus-4-7; paid OCR on claude-haiku-4-5. Also carries the OpenAI and Deepgram calls below.',
+    note: 'Ask, summary, risks, Romanian, draft and review on claude-opus-4-7; paid OCR on claude-haiku-4-5. Also carries the OpenAI Whisper call below.',
     models: ['claude-opus-4-7', 'claude-haiku-4-5'],
     uses: [
       { id: 'ask / summary / risks / romanian / draft / review', surface: 'doc-viewer', task: 'chat', model: 'claude-opus-4-7', what: 'The Doc Viewer\'s quick AI tools on the open document.' },
@@ -150,14 +142,6 @@ export const AI_FUNCTIONS = [
       { id: 'transcribe', surface: 'doc-viewer', task: 'transcribe', model: 'whisper-1', what: 'Transcribes audio and video for captions.' },
     ],
   },
-  {
-    id: 'doc-ai · diarization',
-    provider: 'deepgram',
-    title: 'Speaker diarization',
-    uses: [
-      { id: 'diarize', surface: 'doc-viewer', task: 'transcribe', what: 'Identifies who is speaking in a recording. Runs only if both DEEPGRAM_API_KEY and DOC_AI_ALLOW_DEEPGRAM=1 are set.' },
-    ],
-  },
 ];
 
 // Features that use NO AI service — they run on the computer.
@@ -168,9 +152,9 @@ export const AI_LOCAL = [
   { name: 'The app\'s own code', what: 'Legal citations, CNP and CUI checks, and old land-measure conversions.' },
 ];
 
-export const AI_PRIVACY = 'All three services are called through their paid APIs, never through consumer apps like claude.ai or chatgpt.com. Anthropic and OpenAI don\'t train on API data but keep it about 30 days. Deepgram is the weak spot, which is why it needs two switches to turn on.';
+export const AI_PRIVACY = 'Both services are called through their paid APIs, never through consumer apps like claude.ai or chatgpt.com. Anthropic and OpenAI don\'t train on API data but keep it about 30 days. (Deepgram, whose standard terms allow training, was removed.)';
 
-export const AI_INTRO = 'DocVex uses three AI companies: Anthropic\'s Claude, OpenAI and Deepgram. The app never calls any of them directly. Every call goes through one of the Supabase Edge Functions, which hold the API keys (ANTHROPIC_API_KEY, OPENAI_API_KEY, DEEPGRAM_API_KEY).';
+export const AI_INTRO = 'DocVex uses two AI companies: Anthropic\'s Claude and OpenAI. The app never calls any of them directly. Every call goes through one of the Supabase Edge Functions, which hold the API keys (ANTHROPIC_API_KEY, OPENAI_API_KEY).';
 
 /** Every use, flattened, each carrying its function and provider. */
 export function allAiUses() {

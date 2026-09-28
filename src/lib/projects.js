@@ -336,6 +336,14 @@ export async function logProjectAiUsage({
 // Owner-only via RLS. Cascade clears project_members + project_invitations.
 // Fires PROJECTS_CHANGED_EVENT on success so picker caches invalidate.
 export async function deleteProject(projectId) {
+  // Remove the project's synced copy in the account first (lib/projectSync),
+  // while this user still holds the rights to delete it — once the row is
+  // gone nothing would ever know to erase those files. Best effort: a failure
+  // here must not block deleting the project.
+  try {
+    const { disableSync } = await import('./projectSync');
+    await disableSync(projectId);
+  } catch { /* nothing synced, offline, or no bucket */ }
   const { error } = await supabase.from('projects').delete().eq('id', projectId);
   if (!error) notifyProjectsChanged();
   return { data: null, error };

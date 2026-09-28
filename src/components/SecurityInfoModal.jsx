@@ -46,13 +46,6 @@ const MODELS = [
     used: 'Turning recordings into captions',
     sees: 'The audio you ask it to transcribe',
   },
-  {
-    name: 'Nova-2',
-    by: 'Deepgram',
-    used: 'Labelling who speaks when — off unless your administrator turns it on',
-    sees: 'The same audio, only if enabled',
-    optional: true,
-  },
 ];
 
 export default function SecurityInfoModal({ onClose }) {
@@ -84,6 +77,7 @@ export default function SecurityInfoModal({ onClose }) {
             <li>Deleting a file moves it to a local recycle bin for 30 days, on your disk.</li>
             <li>The app can only read the folders you opened. Paths are resolved through their real location, so a shortcut can’t be used to reach the rest of your drive.</li>
             <li>Links open in your normal browser, and only ever <code>http</code> / <code>https</code>.</li>
+            <li>Face matching (off by default) compares faces <strong>on this computer only</strong>. Face data is biometric data: it is never uploaded, never sent to an AI provider and never synced to your account.</li>
           </ul>
         </section>
 
@@ -94,6 +88,7 @@ export default function SecurityInfoModal({ onClose }) {
             <li>Access is enforced per row in the database, so one firm can never read another’s data.</li>
             <li>If you connect a mailbox, its access tokens are encrypted before being stored.</li>
             <li>You can erase your data or delete your account outright from the Account page. Signing out revokes the session on every device.</li>
+            <li>“Report a problem” sends a screenshot only if you keep it attached. Remove it before sending if client documents are on screen.</li>
           </ul>
         </section>
 

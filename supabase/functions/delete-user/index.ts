@@ -7,10 +7,11 @@
 //      not from a request parameter — that way a leaked token can't be
 //      misused to delete an unrelated account, and we don't need a
 //      separate same-user check on top.
-//   3. Service-role admin.auth.deleteUser(uid). FK cascades (project_members,
+//   3. The user's private sync bundle (project-sync/user-<uid>/) is erased.
+//   4. Service-role admin.auth.deleteUser(uid). FK cascades (project_members,
 //      notifications, …) and FK set-nulls (projects.created_by,
 //      project_invitations.invited_by) run as part of the delete.
-//   4. Return { ok: true }. The renderer is expected to call supabase.auth
+//   5. Return { ok: true }. The renderer is expected to call supabase.auth
 //      .signOut() and route to /auth right after — the deleted user's
 //      access token is invalid from this point on anyway.
 //
@@ -60,6 +61,20 @@ Deno.serve(async (req: Request) => {
   const admin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
     auth: { autoRefreshToken: false, persistSession: false },
   });
+
+  // Erase the user's PRIVATE sync bundle (project-sync/user-<uid>/, their own
+  // advisor threads and chats — lib/projectSyncData). Storage objects are not
+  // covered by the FK cascades, so without this they would outlive the account.
+  // Best effort: a storage failure must not block the account deletion.
+  try {
+    const folder = `user-${user.id}`;
+    for (;;) {
+      const { data: objs, error: listErr } = await admin.storage.from("project-sync").list(folder, { limit: 1000 });
+      if (listErr || !objs || objs.length === 0) break;
+      const { error: rmErr } = await admin.storage.from("project-sync").remove(objs.map((o) => `${folder}/${o.name}`));
+      if (rmErr || objs.length < 1000) break;
+    }
+  } catch (_) { /* keep going — the account still gets deleted */ }
 
   const { error: delErr } = await admin.auth.admin.deleteUser(user.id);
   if (delErr) {
