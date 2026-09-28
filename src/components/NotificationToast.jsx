@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { useNotifications } from '../context/NotificationsContext';
+import { useNotify } from '../context/NotificationsContext';
 import { useUpdates } from '../context/UpdatesContext';
 import { buildActions } from '../notifications/actionRegistry';
 import { DEFAULT_TOAST_DURATION } from '../lib/notifications';
@@ -21,7 +21,7 @@ function ToastThumb({ src, ext }) {
 }
 
 export default function NotificationToast({ notification }) {
-  const { dismissToast, notify } = useNotifications();
+  const { dismissToast, notify } = useNotify();
   const navigate = useNavigate();
   const { pathname } = useLocation();
   const { installUpdate } = useUpdates();

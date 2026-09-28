@@ -1,7 +1,7 @@
 ﻿import React, { useMemo, useState } from 'react';
 import { ItemGlyph, FolderOrBinGlyph } from '../components/FilesWorkspace';
 import { extCategory } from '../components/fileGlyph';
-import { useNotifications } from '../context/NotificationsContext';
+import { useNotify } from '../context/NotificationsContext';
 import { useUpdates } from '../context/UpdatesContext';
 import { clearThumbnailCache } from '../lib/thumbnailEngine';
 import { clearPdfCache } from '../lib/pdfCache';
@@ -603,7 +603,7 @@ function AiInventory() {
 }
 
 export default function Debug() {
-  const { notify } = useNotifications();
+  const { notify } = useNotify();
   const { session } = useAuth();
   const { selectedProject } = useSelectedProject();
   const { simulateUpdate, setSimulateUpdate, simulateKind, setSimulateKind, currentVersion, latestVersion } = useUpdates();

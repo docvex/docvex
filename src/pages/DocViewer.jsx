@@ -22,7 +22,7 @@ import { toLayoutPx, createWheelZoom, zoomFactorOf, ZOOM_SETTLE_MS } from '../li
 import { recognizeCanvas, OCR_MAX_EDGE } from '../lib/ocr';
 import { loadOcrHistory, saveOcrHistory } from '../lib/extractionHistory';
 import { loadCaptions, saveCaptions, clearCaptions } from '../lib/captionsHistory';
-import { useNotifications } from '../context/NotificationsContext';
+import { useNotify } from '../context/NotificationsContext';
 import { loadEnvelope, saveEnvelope } from '../lib/audioEnvelopeCache';
 import { loadCaptionSettings, saveCaptionSettings } from '../lib/captionPosition';
 import { transcribeAudio } from '../lib/transcribe';
@@ -3652,9 +3652,15 @@ function patchVersionParagraph(src, before, after) {
 
 const MultitoolAdvisorContext = React.createContext(null);
 function useMultitoolAdvisor() { return useContext(MultitoolAdvisorContext); }
+// What changes on every keystroke or streamed chunk — the composer's text, the
+// answer as it streams, the blank being pointed at — lives in its OWN context.
+// In the main one it re-rendered every pane reading the advisor (the Word
+// preview, the PDF, the picture panes) on each key press and each chunk.
+const MultitoolLiveContext = React.createContext(null);
+function useMultitoolLive() { return useContext(MultitoolLiveContext); }
 
 function MultitoolAdvisorProvider({ file, footSlot = null, quickSlot = null, generateMode = false, onDocWritten, onRenameFile, completing = false, setCompleting, focusMode = false, toggleFocus = null, children }) {
-  const { notify } = useNotifications();
+  const { notify } = useNotify();
   const { session } = useAuth();
   const { selectedProject } = useSelectedProject();
   const [messages, setMessagesState] = useState([]); // [{ role, content } | { role:'artifact', version, instructions }]
@@ -5072,10 +5078,18 @@ function MultitoolAdvisorProvider({ file, footSlot = null, quickSlot = null, gen
   }, [addUsage, model, selectedProject?.id]);
 
   const value = useMemo(
-    () => ({ messages, input, setInput, busy, switching, error, setError, send, stop, regenerate, branchFrom, branches, activeBranchId, switchBranch, fileName: file?.name, footSlot, quickSlot, genMode, versions, activeVersion, selectVersion, openVersion, questions, submitQuestions, skipQuestions, options, chooseOption, engine, setEngine, model, setModel, aiSettings, streamText, projectName: selectedProject?.name || '', tokens, busyScope, showTokenUsage: appPrefs.showTokenUsage, pendingAsk, resolveAsk, debugAsk, setDebugAsk, selection, addSelection, clearSelection, applyManualEdit, saveConstructorVersion, rewritePiece, completing, setCompleting, focusMode, toggleFocus, docTools, setDocTools, paraPicked, setParaPicked, paraText, setParaText, setParaSrc, paraKey, setParaKey, paraScope, threadScope, switchScope, paraSlot, setParaSlot, ctorSlot, setCtorSlot, hoverField, setHoverField, loadIdentities, fields, allFields, fieldsSig, registerFieldsApi, publishFields, setFieldValue, focusField, applyFields, previewFields, endFieldPreview, dropFields, applyGender, applyLocality, clearPick, getDocumentText, fieldSuggestions, ensureFieldSuggestions }),
-    [messages, input, busy, switching, error, send, stop, regenerate, branchFrom, branches, activeBranchId, switchBranch, file?.name, footSlot, quickSlot, genMode, versions, activeVersion, selectVersion, openVersion, questions, submitQuestions, skipQuestions, options, chooseOption, engine, setEngine, model, setModel, aiSettings, streamText, selectedProject?.name, tokens, busyScope, appPrefs.showTokenUsage, pendingAsk, resolveAsk, debugAsk, selection, addSelection, clearSelection, applyManualEdit, saveConstructorVersion, rewritePiece, completing, setCompleting, focusMode, toggleFocus, docTools, paraPicked, paraText, paraKey, paraScope, threadScope, switchScope, paraSlot, ctorSlot, hoverField, loadIdentities, fields, allFields, fieldsSig, registerFieldsApi, publishFields, setFieldValue, focusField, applyFields, previewFields, endFieldPreview, dropFields, applyGender, applyLocality, clearPick, getDocumentText, fieldSuggestions, ensureFieldSuggestions],
+    () => ({ messages, setInput, busy, switching, error, setError, send, stop, regenerate, branchFrom, branches, activeBranchId, switchBranch, fileName: file?.name, footSlot, quickSlot, genMode, versions, activeVersion, selectVersion, openVersion, questions, submitQuestions, skipQuestions, options, chooseOption, engine, setEngine, model, setModel, aiSettings, projectName: selectedProject?.name || '', tokens, busyScope, showTokenUsage: appPrefs.showTokenUsage, pendingAsk, resolveAsk, debugAsk, setDebugAsk, selection, addSelection, clearSelection, applyManualEdit, saveConstructorVersion, rewritePiece, completing, setCompleting, focusMode, toggleFocus, docTools, setDocTools, paraPicked, setParaPicked, paraText, setParaText, setParaSrc, paraKey, setParaKey, paraScope, threadScope, switchScope, paraSlot, setParaSlot, ctorSlot, setCtorSlot, setHoverField, loadIdentities, fields, allFields, fieldsSig, registerFieldsApi, publishFields, setFieldValue, focusField, applyFields, previewFields, endFieldPreview, dropFields, applyGender, applyLocality, clearPick, getDocumentText, fieldSuggestions, ensureFieldSuggestions }),
+    [messages, busy, switching, error, send, stop, regenerate, branchFrom, branches, activeBranchId, switchBranch, file?.name, footSlot, quickSlot, genMode, versions, activeVersion, selectVersion, openVersion, questions, submitQuestions, skipQuestions, options, chooseOption, engine, setEngine, model, setModel, aiSettings, selectedProject?.name, tokens, busyScope, appPrefs.showTokenUsage, pendingAsk, resolveAsk, debugAsk, selection, addSelection, clearSelection, applyManualEdit, saveConstructorVersion, rewritePiece, completing, setCompleting, focusMode, toggleFocus, docTools, paraPicked, paraText, paraKey, paraScope, threadScope, switchScope, paraSlot, ctorSlot, loadIdentities, fields, allFields, fieldsSig, registerFieldsApi, publishFields, setFieldValue, focusField, applyFields, previewFields, endFieldPreview, dropFields, applyGender, applyLocality, clearPick, getDocumentText, fieldSuggestions, ensureFieldSuggestions],
   );
-  return <MultitoolAdvisorContext.Provider value={value}>{children}</MultitoolAdvisorContext.Provider>;
+  const live = useMemo(
+    () => ({ input, setInput, streamText, hoverField, setHoverField }),
+    [input, setInput, streamText, hoverField, setHoverField],
+  );
+  return (
+    <MultitoolAdvisorContext.Provider value={value}>
+      <MultitoolLiveContext.Provider value={live}>{children}</MultitoolLiveContext.Provider>
+    </MultitoolAdvisorContext.Provider>
+  );
 }
 
 // Portal helper: render a tab's footer action into the single shared Multitool
@@ -5172,7 +5186,8 @@ function MultitoolComposer() {
   // A state ref, not useRef, so the effects below run when the textarea
   // actually mounts (this component returns null until the advisor exists).
   const [areaEl, setAreaEl] = useState(null);
-  const advInput = adv?.input;
+  const live = useMultitoolLive();
+  const advInput = live?.input;
   const fitArea = useCallback(() => {
     if (!areaEl) return;
     const composer = areaEl.closest('.dv-advisor-composer');
@@ -5200,8 +5215,9 @@ function MultitoolComposer() {
     return () => ro.disconnect();
   }, [areaEl, fitArea]);
   if (!adv) return null;
+  const { input } = live || {};
   const {
-    input, setInput, busy, send, stop, genMode, options = [], chooseOption,
+    setInput, busy, send, stop, genMode, options = [], chooseOption,
     questions = [], submitQuestions, skipQuestions, pendingAsk, resolveAsk, debugAsk, setDebugAsk,
   } = adv;
   // genMode clarifying questions, shaped for the shared AskUserPanel (free-text).
@@ -5776,7 +5792,8 @@ function AdvisorPanel({ file }) {
   }, [messages, scrollToBottom]);
   useEffect(() => { scrollToBottom(false); }, [busy, scrollToBottom]);
   // A streaming answer keeps the thread at its foot as it grows.
-  useEffect(() => { if (adv?.streamText) scrollToBottom(false); }, [adv?.streamText, scrollToBottom]);
+  const streamText = useMultitoolLive()?.streamText;
+  useEffect(() => { if (streamText) scrollToBottom(false); }, [streamText, scrollToBottom]);
 
   const copyMessage = async (text, index) => {
     try { await navigator.clipboard.writeText(text || ''); } catch { /* clipboard blocked */ }
@@ -6011,8 +6028,8 @@ function AdvisorPanel({ file }) {
                 <div className="bubble">
                   <div className="bubble-c">
                     <div className="bubble-msg">
-                      {adv?.streamText
-                        ? <AiAnswer text={adv.streamText} streaming revealKey={`dv:${file?.path || ''}`} onTick={() => scrollToBottom(false)} onRef={openAnswerRef} />
+                      {streamText
+                        ? <AiAnswer text={streamText} streaming revealKey={`dv:${file?.path || ''}`} onTick={() => scrollToBottom(false)} onRef={openAnswerRef} />
                         : <AdvThinkingStatus query={lastUserText} />}
                     </div>
                   </div>
@@ -6376,7 +6393,7 @@ function LivePhotoLayer({ live, mode, muted, imgRef, transform, transition, vide
 }
 
 function MediaOcrPane({ file, url, kind, sidePanelSlot = null, sideTabsSlot = null }) {
-  const { notify } = useNotifications();
+  const { notify } = useNotify();
   // ── Photo editing (images only) ─────────────────────────────────────────
   // "Edit photo" in the Quick actions card swaps this pane for the editor
   // (`components/PhotoEditor`: rotate, straighten, rectangle or four-point
@@ -8354,7 +8371,7 @@ function CaptionEditor({ value, onChange, ariaLabel, onCommit, onCancel }) {
 // panel). `onCaptionsChange` (optional) lets a parent mirror the transcript —
 // the audio pane uses it to drive its now-playing karaoke lyrics.
 function CaptionsPanel({ file, url, currentTime, onSeek, onCaptionsChange }) {
-  const { notify } = useNotifications();
+  const { notify } = useNotify();
   const [captions, setCaptions] = useState(() => captionsFromCache(file.storage_path));
   const [copied, setCopied] = useState(false);
   // Index of the caption currently being edited inline (null = none) — each
@@ -8419,15 +8436,32 @@ function CaptionsPanel({ file, url, currentTime, onSeek, onCaptionsChange }) {
   // Persist on every change so an edit survives reopening the file, just like a
   // freshly generated transcript. The onCaptionsChange effect mirrors edits to
   // the now-playing lyrics.
+  // Saving is DEBOUNCED: typing in a caption used to write the whole
+  // transcript (twice over, with its original) on every keystroke, and each
+  // write woke every listener of the file's data. The pending save is flushed
+  // when the file changes or the pane closes.
+  const captionSaveRef = useRef(null); // { path, data, timer }
+  const flushCaptionSave = useCallback(() => {
+    const p = captionSaveRef.current;
+    if (!p) return;
+    clearTimeout(p.timer);
+    captionSaveRef.current = null;
+    saveCaptions(p.path, p.data);
+  }, []);
+  useEffect(() => flushCaptionSave, [file.storage_path, flushCaptionSave]);
   const persistCaptions = useCallback((next) => {
     setCaptions(next);
     if (next?.state === 'done') {
-      saveCaptions(file.storage_path, {
+      const data = {
         text: next.text, segments: next.segments, language: next.language, createdAt: next.createdAt,
         original: next.original || null,
-      });
+      };
+      const prev = captionSaveRef.current;
+      if (prev && prev.path !== file.storage_path) flushCaptionSave();
+      if (captionSaveRef.current) clearTimeout(captionSaveRef.current.timer);
+      captionSaveRef.current = { path: file.storage_path, data, timer: setTimeout(flushCaptionSave, 500) };
     }
-  }, [file.storage_path]);
+  }, [file.storage_path, flushCaptionSave]);
 
   const editSegment = (i, value) => {
     if (captions?.state !== 'done') return;
@@ -9461,7 +9495,7 @@ function SpreadsheetPane({ file, url, onExportPdf, onOpenNative }) {
 // (lib/extractFileText, or the main-process parser for legacy .doc) saved into
 // the SAME per-file history store — so every file type has a consistent panel.
 function DocExtractPanel({ file, url, kind, width, fill = false, sideTabsSlot = null }) {
-  const { notify } = useNotifications();
+  const { notify } = useNotify();
   const [history, setHistory] = useState(() => loadOcrHistory(file.storage_path));
   const [working, setWorking] = useState(false);
   const [errorMsg, setErrorMsg] = useState(null);
@@ -13275,7 +13309,7 @@ function DocxRenderPane({ url, regenTick = 0, ctor = null, restyle = null, docNa
   // up — and re-rendered everything reading the advisor context on every
   // mouse-over.) `hoverField` is still honoured when something else sets it —
   // a fields card pointing at its gap.
-  const hoverField = adv?.hoverField || null;
+  const hoverField = useMultitoolLive()?.hoverField || null;
   useEffect(() => {
     const host = hostRef.current;
     if (!host) return undefined;
@@ -14969,7 +15003,7 @@ function DocxWorkspace({ file, url, regenTick = 0, onExportPdf, onOpenNative, on
   //     Everything Word carries — styles, numbering, tables, headers, images —
   //     comes through untouched, because only the changed paragraphs are
   //     rewritten. There is no undo on this path, which is what the dialog says.
-  const { notify } = useNotifications();
+  const { notify } = useNotify();
   const [restyleBusy, setRestyleBusy] = useState(false);
   const [restyleStep, setRestyleStep] = useState(null);
   const restyleModel = adv?.model;
@@ -16737,7 +16771,7 @@ const PdfFormatGlyph = ToPdfGlyph;
 const PDF_CONVERT_FROM = { label: 'PDF', icon: PdfFormatGlyph };
 
 function DocPane({ file, onWhatsAppDetected, onRenamed, sidePanelSlot = null, sideTabsSlot = null, regenTick = 0, startInBuilder = false }) {
-  const { notify } = useNotifications();
+  const { notify } = useNotify();
   const { kind: baseKind, mime } = useMemo(
     () => classify(file.mime, file.name, file.path),
     [file.mime, file.name, file.path],
@@ -17392,7 +17426,7 @@ function DocFieldsPanel() {
   // to be clicked to see where a field lands, and nothing stays marked
   // afterwards.
   const setHoverField = adv?.setHoverField;
-  const hoverField = adv?.hoverField || null;
+  const hoverField = useMultitoolLive()?.hoverField || null;
   const hoverCard = useCallback((id) => { setHoverField?.(id); }, [setHoverField]);
   // Leaving the panel entirely (or the panel unmounting) must not leave a gap
   // lit in the document with nothing pointing at it.

@@ -15,7 +15,7 @@ import { LEGAL_TAB_PATHS, LEGAL_TABS } from './LegalTabs';
 import './RefPill.css';
 import { isBlankChat } from '../lib/advisorChats';
 import { researchStore, RESEARCH_SCOPE } from '../lib/researchChats';
-import { subscribeRunner as subscribeResearchRun, runnerState as researchRunState, anyRunning as researchAnyRunning, isThreadBusy as researchThreadBusy } from '../lib/researchRunner';
+import { subscribeRunner as subscribeResearchRun, runnerActivity as researchRunState, anyRunning as researchAnyRunning, isThreadBusy as researchThreadBusy } from '../lib/researchRunner';
 import { subscribeBrowser, browserState, curPage, pageMeta, selectTab, closeTab, openSearch, isSearchTab, moveTab, flushBrowser } from '../lib/legalBrowser';
 import { prefetchProjects } from '../lib/projectListPrefetch';
 import { preloadProjectList } from '../AppRoutes';

@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { sendInvite } from '../lib/projects';
-import { useNotifications } from '../context/NotificationsContext';
+import { useNotify } from '../context/NotificationsContext';
 import { builtInLabel } from './RoleBadge';
 // Reuse the modal backdrop/card/button styles from ConfirmModal so this
 // dialog matches the rest of the app's modals (DeleteProjectModal does the
@@ -34,7 +34,7 @@ export default function InviteMemberModal({
   onClose,
   onSent,
 }) {
-  const { notify } = useNotifications();
+  const { notify } = useNotify();
   const [email, setEmail] = useState('');
   // `roleKey` is either a built-in enum value ('member' | 'admin' | 'viewer')
   // or the synthetic string `custom:<uuid>` for a custom role. Storing

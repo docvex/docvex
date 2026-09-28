@@ -34,6 +34,10 @@ import { useSocialNotificationSource } from '../notifications/sources/useSocialN
 import * as platform from '../lib/platform';
 
 const NotificationsContext = createContext(null);
+// The ACTIONS alone (notify, dismissToast, …), which never change: most
+// components only send notifications, and re-rendered on every toast shown or
+// dismissed while they read the whole state. `useNotify()` reads this one.
+const NotificationsApiContext = createContext(null);
 
 // The server writes still running per `userId|dedupeKey` — see the mirror in
 // notify(), which queues a key's writes behind each other.
@@ -423,7 +427,27 @@ export function NotificationsProvider({ children, sourcesEnabled = true }) {
     window.__notify = notify;
   }
 
-  return <NotificationsContext.Provider value={value}>{children}</NotificationsContext.Provider>;
+  const api = useMemo(() => ({
+    notify,
+    dismissToast,
+    markRead,
+    markAllRead,
+    remove,
+    clearAll,
+  }), [notify, dismissToast, markRead, markAllRead, remove, clearAll]);
+
+  return (
+    <NotificationsApiContext.Provider value={api}>
+      <NotificationsContext.Provider value={value}>{children}</NotificationsContext.Provider>
+    </NotificationsApiContext.Provider>
+  );
+}
+
+/** The notification ACTIONS only — stable; doesn't re-render on new toasts. */
+export function useNotify() {
+  const ctx = useContext(NotificationsApiContext);
+  if (!ctx) throw new Error('useNotify must be used inside <NotificationsProvider>');
+  return ctx;
 }
 
 export function useNotifications() {

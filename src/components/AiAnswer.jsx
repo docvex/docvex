@@ -1,4 +1,4 @@
-import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { findFollowableRefs, caenContextOf, findLawRefs, dropOverlaps } from '../lib/lawRefs';
@@ -155,9 +155,17 @@ export default function AiAnswer({ text = '', typing = false, streaming = false,
   const n = useReveal(text, { on, streaming, revealKey, onTick, onDone: onTyped });
   const shown = on ? text.slice(0, n) : text;
 
-  const hits = [];
-  hitsRef.current = hits;
-  const rehype = highlight ? [[rehypeLegalRefs, { ctx: caenContextOf(shown), hits }]] : [];
+  // The Markdown is parsed (and the legislation marked) only when the SHOWN
+  // text changes. It used to be re-parsed on every render of the thread — a
+  // keystroke in the composer re-parsed every past answer. Reusing the same
+  // element makes React skip ReactMarkdown, and the rehype pass's `hits` stay
+  // the ones it filled.
+  const md = useMemo(() => {
+    const hits = [];
+    const rehype = highlight ? [[rehypeLegalRefs, { ctx: caenContextOf(shown), hits }]] : [];
+    return { hits, el: <ReactMarkdown remarkPlugins={REMARK} rehypePlugins={rehype}>{shown}</ReactMarkdown> };
+  }, [shown, highlight]);
+  hitsRef.current = md.hits;
 
   const fire = (e) => {
     const el = e.target.closest?.('.ai-lref');
@@ -174,7 +182,7 @@ export default function AiAnswer({ text = '', typing = false, streaming = false,
     // The keys and clicks belong to the marks inside (role=button, tabIndex 0).
     // eslint-disable-next-line jsx-a11y/no-static-element-interactions
     <div className={`aichat-md${on ? ' aichat-typing' : ''}${className ? ` ${className}` : ''}`} onClick={fire} onKeyDown={fire}>
-      <ReactMarkdown remarkPlugins={REMARK} rehypePlugins={rehype}>{shown}</ReactMarkdown>
+      {md.el}
       {on ? <span className="aichat-caret" aria-hidden="true" /> : null}
     </div>
   );

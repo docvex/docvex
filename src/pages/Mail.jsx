@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { useNotifications } from '../context/NotificationsContext';
+import { useNotify } from '../context/NotificationsContext';
 import { askProjectAi } from '../lib/projectAi';
 import { useMiniGlowSpot } from '../lib/pointerSpots';
 import MiniHeaderFade from '../components/MiniHeaderFade';
@@ -368,7 +368,7 @@ function MailCompactBar({ children }) {
 
 export default function Mail() {
   const { session } = useAuth();
-  const { notify } = useNotifications();
+  const { notify } = useNotify();
   const user = session?.user;
   const signature = (user?.user_metadata?.full_name || user?.user_metadata?.name || user?.email || 'me').split(' ')[0];
 

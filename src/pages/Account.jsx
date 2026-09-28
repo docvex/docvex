@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { useNotifications } from '../context/NotificationsContext';
+import { useNotify } from '../context/NotificationsContext';
 import { PLAN } from '../lib/plan';
 import { supabase } from '../lib/supabaseClient';
 import '../components/ConfirmModal.css'; // modal-* classes for the password modal
@@ -78,7 +78,7 @@ const DZ_CONFIRMS = {
 
 export default function Account() {
   const { session, logout, eraseData, deleteAccount, linkGoogle, setPassword } = useAuth();
-  const { notify } = useNotifications();
+  const { notify } = useNotify();
   const navigate = useNavigate();
   const [copied, setCopied] = useState(false);
   // In-card danger-zone confirmation: the active action ('signout' | 'erase' |

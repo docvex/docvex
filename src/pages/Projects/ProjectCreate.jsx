@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { createProject } from '../../lib/projects';
-import { useNotifications } from '../../context/NotificationsContext';
+import { useNotify } from '../../context/NotificationsContext';
 import { useSelectedProject } from '../../context/SelectedProjectContext';
 import { useAuth } from '../../context/AuthContext';
 import { localFolderApi, isElectronBranch, hasProjectIndex, linkProjectFolder } from '../../lib/localFolder';
@@ -61,7 +61,7 @@ const ArrowLeftIcon = (
 
 export default function ProjectCreate() {
   const navigate = useNavigate();
-  const { notify } = useNotifications();
+  const { notify } = useNotify();
   const { selectProject } = useSelectedProject();
   const { session } = useAuth();
   const [name, setName] = useState('');

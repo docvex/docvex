@@ -6,7 +6,7 @@ import { useAuth } from './context/AuthContext';
 import { isElectron, isAuxWindow, isTabWindow, reportTabWindowRoute } from './lib/platform';
 import { projectIndexApi } from './lib/localFolder';
 import { getProject } from './lib/projects';
-import { useNotifications } from './context/NotificationsContext';
+import { useNotify } from './context/NotificationsContext';
 import { prefetchProjectFiles, clearPrefetchedProjectFiles } from './lib/projectFilesPrefetch';
 import AppShell from './components/AppShell';
 import TitleBar from './components/TitleBar';
@@ -119,7 +119,7 @@ function ProjectPrefetch() {
 function ProjectFileOpened() {
   const navigate = useNavigate();
   const { selectProject, beginSwitch } = useSelectedProject();
-  const { notify } = useNotifications();
+  const { notify } = useNotify();
   const { session } = useAuth();
   const userId = session?.user?.id || null;
   const pendingRef = useRef(null);

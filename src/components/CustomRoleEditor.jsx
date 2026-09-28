@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { CAPABILITIES, createCustomRole, updateCustomRole, resolveCapability, cycleCapability } from '../lib/customRoles';
 import { builtInLabel } from './RoleBadge';
-import { useNotifications } from '../context/NotificationsContext';
+import { useNotify } from '../context/NotificationsContext';
 import Tooltip from './Tooltip';
 import './ConfirmModal.css';
 import './InviteMemberModal.css';
@@ -44,7 +44,7 @@ const ROLE_PRESETS = [
 
 export default function CustomRoleEditor({ open, role, projectId, onClose, onSaved, onOptimistic, onFailed }) {
   const isEdit = !!role;
-  const { notify } = useNotifications();
+  const { notify } = useNotify();
   const nameRef = useRef(null);
 
   const [name, setName] = useState('');

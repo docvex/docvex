@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { recognizeCanvas, OCR_MAX_EDGE } from '../lib/ocr';
-import { useNotifications } from '../context/NotificationsContext';
+import { useNotify } from '../context/NotificationsContext';
 import { useAuth } from '../context/AuthContext';
 import { useSelectedProject } from '../context/SelectedProjectContext';
 import { readProjectsDir } from '../lib/projectsDir';
@@ -66,7 +66,7 @@ export default function SnipOverlay() {
   // screenshot gets a " w<n>" suffix so every screen's capture + snippets
   // coexist in the project files.
   const winNo = params.get('w');
-  const { notify } = useNotifications();
+  const { notify } = useNotify();
   const { session } = useAuth();
   const { selectedProjectId, selectedProject } = useSelectedProject();
 

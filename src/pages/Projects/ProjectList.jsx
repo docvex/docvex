@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { useSelectedProject } from '../../context/SelectedProjectContext';
-import { useNotifications } from '../../context/NotificationsContext';
+import { useNotify } from '../../context/NotificationsContext';
 import { updateProject, deleteProject } from '../../lib/projects';
 import {
   sortProjectsByRecent,
@@ -382,7 +382,7 @@ export default function ProjectList() {
   const userId = session?.user?.id ?? null;
   const navigate = useNavigate();
   const { selectProject, beginSwitch } = useSelectedProject();
-  const { notify } = useNotifications();
+  const { notify } = useNotify();
 
   // Seed synchronously so the very FIRST painted frame has rows: the session's
   // prefetch snapshot if the sidebar hover warmed one, otherwise the last list

@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useReportProblem } from '../context/ReportProblemContext';
-import { useNotifications } from '../context/NotificationsContext';
+import { useNotify } from '../context/NotificationsContext';
 import { sendSupportReport } from '../lib/support';
 import Tooltip from './Tooltip';
 // Reuse the shared .modal-btn / .modal-btn-cancel / .modal-btn-confirm
@@ -73,7 +73,7 @@ function useFilePreviews(files) {
 
 export default function ReportProblemModal() {
   const { open, screenshot, close, removeScreenshot } = useReportProblem();
-  const { notify } = useNotifications();
+  const { notify } = useNotify();
 
   const [subject, setSubject] = useState('');
   const [description, setDescription] = useState('');
