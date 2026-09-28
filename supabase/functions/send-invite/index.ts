@@ -118,6 +118,30 @@ Deno.serve(async (req: Request) => {
     });
     if (capErr) return jsonResponse({ error: "role_check_failed", detail: capErr.message }, 500);
     if (!canInvite) return jsonResponse({ error: "forbidden" }, 403);
+
+    // members.invite alone must not mint admins: inviting at admin tier (or
+    // with a custom role based on admin) needs the caller to be admin/owner.
+    let effectiveTier = role;
+    if (custom_role_id) {
+      // The custom role must belong to THIS project — accept_invitation copies
+      // its base role, so a role from another project would be an escalation.
+      const { data: cr, error: crErr } = await callerClient
+        .from("custom_roles")
+        .select("id, project_id, base_role")
+        .eq("id", custom_role_id)
+        .maybeSingle();
+      if (crErr) return jsonResponse({ error: "role_check_failed", detail: crErr.message }, 500);
+      if (!cr || cr.project_id !== project_id) return jsonResponse({ error: "invalid_custom_role" }, 400);
+      effectiveTier = cr.base_role;
+    }
+    if (effectiveTier === "admin") {
+      const { data: isAdmin, error: tierErr } = await callerClient.rpc("has_project_role", {
+        p_project_id: project_id,
+        p_min_role: "admin",
+      });
+      if (tierErr) return jsonResponse({ error: "role_check_failed", detail: tierErr.message }, 500);
+      if (!isAdmin) return jsonResponse({ error: "forbidden_role" }, 403);
+    }
   }
 
   // Service-role client for the upsert (bypasses RLS so we can read the
