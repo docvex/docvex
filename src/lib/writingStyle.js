@@ -49,15 +49,25 @@ export async function listSamples() {
 // `text` is the extracted plain text of the document. Stored capped — see the
 // note at the top of the file.
 export async function addSample({ name, mimeType = '', docKind = '', text = '' }) {
-  const body = String(text || '').replace(/\r\n/g, '\n').trim();
-  if (!body) return { error: new Error('no_text') };
+  const clear = String(text || '').replace(/\r\n/g, '\n').trim();
+  if (!clear) return { error: new Error('no_text') };
+  // The excerpt is stored on DocVex's servers and later read by the AI: names,
+  // CNPs, IBANs, addresses… are replaced with placeholders FIRST (the personal
+  // vault), and nothing is stored if that cannot run.
+  let body;
+  try {
+    const { maskPersonalText } = await import('./pseudonymize/transport');
+    body = await maskPersonalText(clear.slice(0, SAMPLE_EXCERPT_CHARS));
+  } catch {
+    return { error: new Error('vault_unavailable') };
+  }
   const { data, error } = await supabase
     .from('writing_samples')
     .insert({
       name: String(name || 'Untitled'),
       mime_type: mimeType || '',
       doc_kind: docKind || '',
-      char_count: body.length,
+      char_count: clear.length,
       excerpt: body.slice(0, SAMPLE_EXCERPT_CHARS),
     })
     .select('id, name, doc_kind, mime_type, char_count, created_at')

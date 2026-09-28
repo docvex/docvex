@@ -18,6 +18,31 @@ const wire = { maskBody, makeStreamReidentifier, bodyText, recordSent };
 
 export const VAULT_UNAVAILABLE = 'vault_unavailable';
 
+/** The personal vault's id for the signed-in user, or null when signed out. */
+export async function personalVaultId() {
+  try {
+    const { supabase } = await import('../supabaseClient');
+    const uid = (await supabase.auth.getSession()).data.session?.user?.id;
+    return uid ? `personal-${uid}` : null;
+  } catch { return null; }
+}
+
+/**
+ * Mask a text with the user's personal vault before it is STORED anywhere
+ * off this computer (the Playbook's writing samples). Nothing to put back:
+ * a writing style reads the same with placeholders. Throws when masking
+ * cannot run, so the caller stores nothing rather than the clear text.
+ */
+export async function maskPersonalText(text) {
+  const id = await personalVaultId();
+  if (!id) throw new Error(VAULT_UNAVAILABLE);
+  const vault = await openProjectVault(id);
+  if (vault.storageError) throw new Error(VAULT_UNAVAILABLE);
+  const out = vault.mask(String(text || ''), { detectors: [detectLayer3] });
+  await vault.save();
+  return out;
+}
+
 /**
  * @param {string|null|undefined} usageProject — undefined = the selected project
  * @param {string} usageAction
@@ -33,11 +58,14 @@ export async function vaultForCall(usageProject, usageAction) {
     recordSent({ usageAction, projectId, masked: false, sent: false, reason: `not sent: ${why}` });
     return { error: VAULT_UNAVAILABLE, projectId };
   };
-  if (!projectId) return refuse('no project');
+  // No project: the signed-in user's personal vault (Mail, the Playbook,
+  // Research with nothing selected).
+  const vaultId = projectId || await personalVaultId();
+  if (!vaultId) return refuse('not signed in');
   try {
-    const vault = await openProjectVault(projectId);
+    const vault = await openProjectVault(vaultId);
     if (vault.storageError) return refuse(vault.storageError);
-    await refreshKnownEntities(projectId, vault);
+    if (projectId) await refreshKnownEntities(projectId, vault);
     // Layer 3 (guessed names) rides on this call only, after the vault's own.
     const maskOpts = { detectors: isGuessNamesOn(projectId, usageAction) ? [detectLayer3] : [] };
     return { vault, wire, maskOpts, projectId };

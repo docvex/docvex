@@ -44,16 +44,20 @@ export function subscribePseudonymize(fn) {
 
 /** Is this call's text masked? @param {string|null} projectId @param {string} usageAction */
 export function isPseudonymizeOn(projectId, usageAction) {
-  if (!projectId) return false;
+  // Outside a project (Mail, the Playbook, Research with nothing selected) the
+  // user's PERSONAL vault masks the call — always on; there is no project
+  // setting to switch it off.
+  if (!projectId) return true;
   const mode = getPseudonymizeMode(projectId);
   if (mode === 'off') return false;
   return true; // 'default' and 'all' both mask every call (usageAction kept for callers)
 }
 
 // ── Guessing names the project doesn't know (lib/pseudonymize/detectorLayer3)
-// On (the default) it runs in the calls masked by default — the AI scan and
-// the MRZ reader; the user may switch it off (a guess can over-reach and hide
-// a word the AI needed). It only ever adds to a call that is masked at all.
+// On by default in EVERY masked call (a name after "Subsemnatul", "domnul",
+// "Reclamant:", a company before SRL…) — without it, third parties named in
+// chat, Research and advisor turns went out in clear. The user may switch it
+// off per project (a guess can over-reach and hide a word the AI needed).
 const GUESS_KEY = 'docvex:pseudonymize:guess:v1:';
 export const GUESS_BY_DEFAULT = new Set(['files-scan', 'mrz']);
 
@@ -73,5 +77,6 @@ export function setGuessNames(projectId, on) {
 
 /** Does this call also guess unknown names? @param {string|null} projectId @param {string} usageAction */
 export function isGuessNamesOn(projectId, usageAction) {
-  return !!projectId && getGuessNames(projectId) && GUESS_BY_DEFAULT.has(usageAction) && isPseudonymizeOn(projectId, usageAction);
+  if (!projectId) return true;
+  return getGuessNames(projectId) && isPseudonymizeOn(projectId, usageAction);
 }
