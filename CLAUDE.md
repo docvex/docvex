@@ -129,6 +129,8 @@ No linter (`npm run lint` is a stub). Tests: `npm test` runs the `node:test` sui
 
 `forge.config.js` runs three Vite configs (main, preload, renderer). The Vite plugin injects `MAIN_WINDOW_VITE_DEV_SERVER_URL` / `MAIN_WINDOW_VITE_NAME` globals into the main process — `src/main.js` reads them to decide dev-server vs file-loaded bundle.
 
+**Background helper (`src/backgroundWorker.js`).** A third Forge build entry, forked by main.js as an Electron utility process on first use. The project index (`src/projectIndex/`: synchronous SQLite, reconciles, file hashing) and legacy `.doc` parsing (`doc:extract-text`) run there, so they can't freeze the windows. main.js's `projectIndexService()` returns a proxy with the service's methods (`PROJECT_INDEX_METHODS`), each forwarded over the parent port; index events come back as `broadcast` messages and project folders as `projectDir` (→ `registerLocalfileRoot`), in order on the same port. If the helper can't start the index runs in-process as before; quitting waits ≤1.5s for it to flush. A new index method must be added to `PROJECT_INDEX_METHODS`.
+
 `src/renderer.jsx` is the (only) entry. The provider stack is:
 
 ```
