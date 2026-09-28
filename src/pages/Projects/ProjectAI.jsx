@@ -5,6 +5,8 @@ import { Link } from 'react-router-dom';
 import ReactMarkdown from 'react-markdown';
 import { splitChoices, withChoicesRule, dropUnanswered } from '../../lib/aiChoices';
 import AiChoices from '../../components/AiChoices';
+import Typewriter from '../../components/AiTypewriter';
+import ThinkingStatus from '../../components/AiThinking';
 import { nextPrompts } from '../../lib/advisorPrompts';
 import { splitEdits, withEditRule, applyReplyEdits } from '../../lib/aiFileEdits';
 import AiEdits from '../../components/AiEdits';
@@ -43,7 +45,6 @@ import Tooltip from '../../components/Tooltip';
 import PageMasthead from '../../components/PageMasthead';
 import LegalTabs, { RailToggle } from '../../components/LegalTabs';
 import '../../components/LegalTabs.css';
-import gavelLoader from '../../gavel-loader.svg';
 import '../../lib/useChatFind.css'; // the search box's "N chats" count chip
 import './ProjectScoped.css';
 import {
@@ -241,80 +242,9 @@ const AiMarkdown = React.memo(function AiMarkdown({ text }) {
   );
 });
 
-// Typewriter — reveals an AI answer character-by-character, rendered through
-// Markdown as it grows so formatting appears live. `onTick` keeps the thread
-// scrolled to the bottom while the text grows.
-function Typewriter({ text, onDone, onTick }) {
-  const [n, setN] = React.useState(0);
-  const doneRef = React.useRef(onDone);
-  const tickRef = React.useRef(onTick);
-  doneRef.current = onDone;
-  tickRef.current = onTick;
-  React.useEffect(() => {
-    const total = text.length;
-    if (!total) { doneRef.current && doneRef.current(); return undefined; }
-    let raf = 0;
-    let start = 0;
-    const dur = Math.min(Math.max(total / 90, 0.4), 6) * 1000; // ~90 chars/s, 0.4–6s
-    const step = (ts) => {
-      if (!start) start = ts;
-      const p = Math.min((ts - start) / dur, 1);
-      const eased = 1 - Math.pow(1 - p, 2);
-      setN(Math.floor(eased * total));
-      tickRef.current && tickRef.current();
-      if (p < 1) { raf = requestAnimationFrame(step); }
-      else { setN(total); doneRef.current && doneRef.current(); }
-    };
-    raf = requestAnimationFrame(step);
-    return () => cancelAnimationFrame(raf);
-  }, [text]);
-  return (
-    <div className="aichat-md aichat-typing">
-      <ReactMarkdown remarkPlugins={REMARK_PLUGINS}>{text.slice(0, n)}</ReactMarkdown>
-      <span className="aichat-caret" aria-hidden="true" />
-    </div>
-  );
-}
+// Typewriter — the shared components/AiTypewriter (Research uses it too).
 
-// Contextual "thinking" status — cycles through short status words picked from
-// a set matching what the user asked for (math, writing, files, code, …).
-const THINKING_SETS = {
-  math: ['Calculating', 'Crunching the numbers', 'Working through the math', 'Checking the figures'],
-  write: ['Drafting', 'Composing', 'Choosing the words', 'Polishing'],
-  legal: ['Reviewing', 'Checking the clauses', 'Weighing the details', 'Consulting the rules'],
-  files: ['Reading your files', 'Scanning the documents', 'Gathering context', 'Looking things up'],
-  code: ['Writing code', 'Reasoning about the logic', 'Tracing the flow', 'Working it out'],
-  summary: ['Reading', 'Summarising', 'Distilling the key points', 'Pulling it together'],
-  general: ['Thinking', 'Working on it', 'Reasoning', 'Putting it together'],
-};
-
-function pickThinkingSet(text) {
-  const t = (text || '').toLowerCase();
-  if (/(calcul|\bsum\b|total|\bmath|number|average|percent|\bcost|price|budget|amount|equation|formula|multipl|divid|add up|how much)/.test(t)) return 'math';
-  if (/(write|draft|compose|email|letter|essay|paragraph|rewrite|rephrase|\bmessage\b|reply)/.test(t)) return 'write';
-  if (/(legal|\blaw\b|clause|contract|statute|regulation|complian|gdpr|liabilit|court|\bcase\b|tax)/.test(t)) return 'legal';
-  if (/(file|document|folder|search|\bfind\b|look up|\bpdf\b|\bdoc\b|spreadsheet|attach)/.test(t)) return 'files';
-  if (/(\bcode\b|function|\bbug\b|script|\bapi\b|json|\bcss\b|html|javascript|python|\bsql\b|\berror\b|program)/.test(t)) return 'code';
-  if (/(summar|tl;?dr|overview|recap|key points|\bbrief\b|explain)/.test(t)) return 'summary';
-  return 'general';
-}
-
-function ThinkingStatus({ query }) {
-  const set = React.useMemo(() => THINKING_SETS[pickThinkingSet(query)], [query]);
-  const [i, setI] = React.useState(0);
-  React.useEffect(() => {
-    setI(0);
-    const id = window.setInterval(() => setI((n) => (n + 1) % set.length), 2000);
-    return () => window.clearInterval(id);
-  }, [set]);
-  return (
-    <span className="aichat-thinking" role="status" aria-label="DocVex AI is working">
-      <img className="aichat-thinking-gavel" src={gavelLoader} alt="" aria-hidden="true" />
-      <span className="aichat-thinking-text" key={i}>{set[i]}</span>
-      <span className="aichat-thinking-dots" aria-hidden="true"><span /><span /><span /></span>
-    </span>
-  );
-}
+// The "thinking" status — the shared components/AiThinking (Research uses it too).
 
 export default function ProjectAI() {
   useMiniGlowSpot(); // the .mini-glow bar's spotlight (lib/pointerSpots)

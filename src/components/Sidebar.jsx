@@ -13,7 +13,9 @@ import { toLayoutPx } from '../lib/appZoom';
 import { hasNewBrief, onNewsletterChanged } from '../lib/legalFeed';
 import { LEGAL_TAB_PATHS, LEGAL_TABS } from './LegalTabs';
 import './RefPill.css';
-import { subscribeChats, chatsState, bindChats, selectChat, closeChat, openNewChat, moveChat, isBlankChat, chatMeta } from '../lib/advisorChats';
+import { advisorStore, bindChats, isBlankChat } from '../lib/advisorChats';
+import { researchStore, RESEARCH_SCOPE } from '../lib/researchChats';
+import { subscribeRunner as subscribeResearchRun, runnerState as researchRunState, anyRunning as researchAnyRunning, isThreadBusy as researchThreadBusy } from '../lib/researchRunner';
 import { subscribeBrowser, browserState, curPage, pageMeta, selectTab, closeTab, openSearch, isSearchTab, moveTab, flushBrowser } from '../lib/legalBrowser';
 import { prefetchProjects } from '../lib/projectListPrefetch';
 import { preloadProjectList } from '../AppRoutes';
@@ -86,6 +88,15 @@ const LegislationIcon = (
     <path d="M12 7.5C10.6 6.2 8.6 5.5 6 5.5H4v11h2c2.6 0 4.6.7 6 2" />
     <path d="M12 7.5c1.4-1.3 3.4-2 6-2h2v11h-2c-2.6 0-4.6.7-6 2" />
     <path d="M12 7.5v13" />
+  </svg>
+);
+
+// Research — a magnifier over a spark: the law and the Advisor searched as one.
+const ResearchIcon = (
+  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <circle cx="10.5" cy="10.5" r="6.5" />
+    <path d="m20 20-4.6-4.6" />
+    <path d="M10.5 7.5v6M7.5 10.5h6" />
   </svg>
 );
 
@@ -228,14 +239,16 @@ const canPopOut = canOpenTabWindow && !isTabWindow;
 // tooltip into a menu — Open, and Pop out (the tab in a window of its own,
 // main window only). The host is display: contents, so it adds no box.
 const ADVISOR_OPEN_KEY = 'docvex.sidebar.advisorOpen';
+// Whether Research's dropdown (its chats) is open.
+const RESEARCH_OPEN_KEY = 'docvex.sidebar.researchOpen';
 // An Advisor chat's hover pill — the same highlight pill: what it is, its
 // title, the last thing said in it, what a click does.
-function chatTabPill(t, m) {
+function chatTabPill(t, m, label = 'Advisor') {
   const last = [...(t.messages || [])].reverse().find((x) => String(x.text || '').trim());
   const said = last ? String(last.text).replace(/```[\s\S]*?```/g, '').replace(/\s+/g, ' ').trim() : '';
   return (
     <span className="dv-refpill" style={{ '--refpill-tone': t.unreadAt ? 'var(--success)' : 'var(--accent)' }}>
-      <span className="dv-refpill-kind">{t.unreadAt ? 'Advisor · new reply' : m.kind}</span>
+      <span className="dv-refpill-kind">{t.unreadAt ? `${label} · new reply` : m.kind}</span>
       <span className="dv-refpill-head">{m.title}</span>
       {said ? <span className="dv-refpill-line">{last.who === 'me' ? 'You: ' : ''}{said.length > 140 ? `${said.slice(0, 140)}…` : said}</span> : null}
       <span className="dv-refpill-act">Click to open · right-click for more</span>
@@ -435,6 +448,11 @@ function Sidebar({ collapsed = false, offstage = false, onHubNav }) {
   // thinking, unread once a reply landed in a non-open conversation. Drives
   // the dot on the Advisor nav item.
   const [advisorActivity, setAdvisorActivity] = React.useState({ busy: false, unread: false });
+  // Research's running work (lib/researchRunner — it carries on when the page
+  // is left): a spinner on the Research row while anything runs, and on each
+  // chat tab that is working.
+  const researchRun = useSyncExternalStore(subscribeResearchRun, researchRunState);
+  const researchBusy = researchAnyRunning(researchRun);
   // The Files tab's AI scan runs on when the tab is left (lib/scanRunner): a
   // spinner at the Files row's right end says it is still going.
   const scanRunning = useAnyScanRunning();
@@ -702,93 +720,16 @@ function Sidebar({ collapsed = false, offstage = false, onHubNav }) {
     window.dispatchEvent(new CustomEvent('docvex:legal-listed', { detail: { listed: legalListed } }));
   }, [legalListed]);
 
-  // THE ADVISOR'S dropdown — the Advisor's CHATS as tabs (lib/advisorChats),
-  // the Legislation dropdown's twin to the letter: pinned first, the blank
-  // "New chat" not listed (the Advisor row opens it), drag to reorder, × to
-  // close, the row click opening a new chat while on the Advisor.
+  // THE CHAT DROPDOWNS — the Advisor's chats (lib/advisorChats, per project)
+  // and Research's (lib/researchChats, per user) as tabs, the Legislation
+  // dropdown's twin to the letter: pinned first, the blank "New chat" not
+  // listed (the entry's row opens it), drag to reorder, × to close, the row
+  // click opening a new chat while on the page. One hook, one renderer
+  // (useChatFold / renderChatEntry), two stores.
   useEffect(() => { bindChats(session?.user?.id || '_anonymous', selectedProjectId); }, [session?.user?.id, selectedProjectId]);
-  const chats = useSyncExternalStore(subscribeChats, chatsState);
-  const listedChats = chats.threads.filter((t) => !isBlankChat(t));
-  const pinnedChats = listedChats.filter((t) => t.pinned);
-  const openChats = listedChats.filter((t) => !t.pinned);
-  const advisorGroups = [
-    { key: 'pinned', label: 'Pinned', tabs: pinnedChats },
-    { key: 'open', label: pinnedChats.length ? 'Open' : 'Open chats', tabs: openChats },
-  ].filter((g) => g.tabs.length);
-  const advisorCount = listedChats.length;
-  const [advisorOpen, setAdvisorOpen] = useState(() => {
-    try { return localStorage.getItem(ADVISOR_OPEN_KEY) !== '0'; } catch { return true; }
-  });
-  const toggleAdvisor = () => {
-    setAdvisorOpen((v) => {
-      const next = !v;
-      try { localStorage.setItem(ADVISOR_OPEN_KEY, next ? '1' : '0'); } catch { /* ignore */ }
-      return next;
-    });
-  };
-  const [chatDrag, setChatDrag] = useState(null);
-  const chatListRef = useRef(null);
-  const chatDropAt = (y) => {
-    const rows = chatListRef.current ? [...chatListRef.current.querySelectorAll('.nav-cat-row[data-tab-id]')] : [];
-    for (const r of rows) { const b = r.getBoundingClientRect(); if (y < b.top + b.height / 2) return r.dataset.tabId; }
-    return 'end';
-  };
-  const chatFlipFrom = useRef(null);
-  const dropChat = (over) => {
-    const d = chatDrag;
-    setChatDrag(null);
-    if (!d || !over || over === d.id) return;
-    const rows = chatListRef.current ? [...chatListRef.current.querySelectorAll('.nav-cat-row[data-tab-id]')] : [];
-    const from = new Map(rows.map((r) => [r.dataset.tabId, r.getBoundingClientRect().top]));
-    const ids = rows.map((r) => r.dataset.tabId);
-    if (over !== 'end' && ids[ids.indexOf(d.id) + 1] === over) return;
-    if (over === 'end' && ids[ids.length - 1] === d.id) return;
-    chatFlipFrom.current = from;
-    moveChat(d.id, over === 'end' ? null : over);
-  };
-  const chatOrder = chats.threads.map((t) => t.id).join('|');
-  useLayoutEffect(() => {
-    const from = chatFlipFrom.current;
-    chatFlipFrom.current = null;
-    const list = chatListRef.current;
-    if (!from || !list) return;
-    if (document.documentElement.dataset.reduceMotion === 'true') return;
-    const rows = [...list.querySelectorAll('.nav-cat-row[data-tab-id]')];
-    const moved = [];
-    for (const r of rows) {
-      const was = from.get(r.dataset.tabId);
-      if (was == null) continue;
-      const dy = toLayoutPx(was - r.getBoundingClientRect().top);
-      if (Math.abs(dy) < 0.5) continue;
-      r.style.transition = 'none';
-      r.style.transform = `translateY(${dy}px)`;
-      moved.push(r);
-    }
-    if (!moved.length) return;
-    void list.offsetHeight;
-    for (const r of moved) {
-      r.style.transition = 'transform 260ms cubic-bezier(0.16, 1, 0.3, 1)';
-      r.style.transform = '';
-      const done = () => { r.style.transition = ''; r.removeEventListener('transitionend', done); };
-      r.addEventListener('transitionend', done);
-    }
-  }, [chatOrder]);
-  // The Advisor page's rail hands its list over here (`docvex:advisor-list-set`),
-  // and hears back whether the dropdown is listing them (`docvex:advisor-listed`).
-  useEffect(() => {
-    const onSet = (e) => {
-      const next = !!e.detail?.open;
-      setAdvisorOpen(next);
-      try { localStorage.setItem(ADVISOR_OPEN_KEY, next ? '1' : '0'); } catch { /* ignore */ }
-    };
-    window.addEventListener('docvex:advisor-list-set', onSet);
-    return () => window.removeEventListener('docvex:advisor-list-set', onSet);
-  }, []);
-  const advisorListed = advisorOpen && advisorCount > 0;
-  useEffect(() => {
-    window.__docvexAdvisorListed = advisorListed;
-    window.dispatchEvent(new CustomEvent('docvex:advisor-listed', { detail: { listed: advisorListed } }));
-  }, [advisorListed]);
+  useEffect(() => { researchStore.bind(session?.user?.id || '_anonymous', RESEARCH_SCOPE); }, [session?.user?.id]);
+  const advisorFold = useChatFold(advisorStore, { openKey: ADVISOR_OPEN_KEY, setEvent: 'docvex:advisor-list-set', listedEvent: 'docvex:advisor-listed', flag: '__docvexAdvisorListed' });
+  const researchFold = useChatFold(researchStore, { openKey: RESEARCH_OPEN_KEY, setEvent: 'docvex:research-list-set', listedEvent: 'docvex:research-listed', flag: '__docvexResearchListed' });
 
   // What survives the fold: Settings alone. Not "the first item" — if Settings
   // is missing (signed out) the section folds to nothing, which is correct.
@@ -808,6 +749,7 @@ function Sidebar({ collapsed = false, offstage = false, onHubNav }) {
   const renderNavItem = ({ to, label, icon, end, badge, pill, dot, onClick, onWarm, activeOn, fold }) => (
     fold === 'legal' ? renderLegalEntry({ to, label, icon, end, badge, pill, dot, onClick, onWarm, activeOn })
       : fold === 'advisor' ? renderAdvisorEntry({ to, label, icon, end, badge, pill, dot, onClick, onWarm, activeOn })
+      : fold === 'research' ? renderResearchEntry({ to, label, icon, end, badge, pill, dot, onClick, onWarm, activeOn })
         : renderNavItemRow({ to, label, icon, end, badge, pill, dot, onClick, onWarm, activeOn }, null)
   );
   function renderNavItemRow({ to, label, icon, end, badge, pill, dot, onClick, onWarm, activeOn, notActive }, chev) {
@@ -981,80 +923,83 @@ function Sidebar({ collapsed = false, offstage = false, onHubNav }) {
     );
   };
 
-  // The Advisor entry — renderLegalEntry's twin, over the chats.
-  const renderAdvisorEntry = (item) => {
-    const chev = advisorCount ? (
-      <Tooltip content={advisorOpen ? 'Hide the open chats' : `Show the open chats (${advisorCount})`}>
+  // A chat entry (the Advisor, Research) — renderLegalEntry's twin, over the
+  // chats of `f` (useChatFold). `busy`: a turn is running on that page.
+  const renderChatEntry = (item, f, { busy = false, focusEvent, listName }) => {
+    const { store, chats, listed, groups, count, open, toggle, drag, setDrag, listRef, dropAt, drop } = f;
+    const chev = count ? (
+      <Tooltip content={open ? 'Hide the open chats' : `Show the open chats (${count})`}>
         <span
-          className={`nav-fold-chev${advisorOpen ? ' is-open' : ''}`}
+          className={`nav-fold-chev${open ? ' is-open' : ''}`}
           role="button"
           tabIndex={0}
-          aria-expanded={advisorOpen}
-          aria-label={advisorOpen ? 'Hide open chats' : 'Show open chats'}
-          onClick={(e) => { e.preventDefault(); e.stopPropagation(); toggleAdvisor(); }}
-          onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); toggleAdvisor(); } }}
+          aria-expanded={open}
+          aria-label={open ? 'Hide open chats' : 'Show open chats'}
+          onClick={(e) => { e.preventDefault(); e.stopPropagation(); toggle(); }}
+          onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); toggle(); } }}
         >
           {FoldChevron}
         </span>
       </Tooltip>
     ) : null;
-    const shown = advisorOpen && advisorCount > 0;
+    const shown = open && count > 0;
     const selected = pathname === item.to;
-    // ON THE ADVISOR, the row opens a NEW CHAT (the blank one if there is
-    // one); from elsewhere it goes to the Advisor and opens the list.
+    // ON THE PAGE, the row opens a NEW CHAT (the blank one if there is one);
+    // from elsewhere it goes to the page and opens the list.
     const onRowClick = (e) => {
       item.onClick?.(e);
       if (selected) {
         e.preventDefault();
-        openNewChat();
-        requestAnimationFrame(() => window.dispatchEvent(new Event('docvex:advisor-focus')));
+        store.openNew();
+        requestAnimationFrame(() => window.dispatchEvent(new Event(focusEvent)));
         return;
       }
-      if (advisorCount && !advisorOpen) toggleAdvisor();
+      if (count && !open) toggle();
     };
-    const openChat = (id) => { selectChat(id); if (pathname !== item.to) navigate(item.to); };
-    const tabOnShow = selected && listedChats.some((t) => t.id === chats.active);
+    const openChat = (id) => { store.select(id); if (pathname !== item.to) navigate(item.to); };
+    const tabOnShow = selected && listed.some((t) => t.id === chats.active);
     return (
       <div key={item.to} className={`nav-fold${shown ? ' is-cat' : ''}`}>
         {renderNavItemRow({ ...item, onClick: onRowClick, notActive: tabOnShow }, chev)}
-        {advisorCount > 0 && (
+        {count > 0 && (
           <div className={`nav-cat-fold${shown ? ' is-open' : ''}`} inert={!shown} aria-hidden={!shown}>
           <div className="nav-cat-fold-inner">
           <div
-            ref={chatListRef}
-            className={`sidebar-cat-items nav-cat-list${chatDrag ? ' is-dragging' : ''}${chatDrag?.over === 'end' ? ' is-drop-end' : ''}`}
+            ref={listRef}
+            className={`sidebar-cat-items nav-cat-list${drag ? ' is-dragging' : ''}${drag?.over === 'end' ? ' is-drop-end' : ''}`}
             role="group"
-            aria-label="The Advisor's chats"
+            aria-label={listName}
             onDragOver={(e) => {
-              if (!chatDrag) return;
+              if (!drag) return;
               e.preventDefault();
               e.dataTransfer.dropEffect = 'move';
-              const over = chatDropAt(e.clientY);
-              if (over !== chatDrag.over) setChatDrag((d) => (d ? { ...d, over } : d));
+              const over = dropAt(e.clientY);
+              if (over !== drag.over) setDrag((d) => (d ? { ...d, over } : d));
             }}
-            onDrop={(e) => { if (!chatDrag) return; e.preventDefault(); dropChat(chatDropAt(e.clientY)); }}
+            onDrop={(e) => { if (!drag) return; e.preventDefault(); drop(dropAt(e.clientY)); }}
           >
-            {advisorGroups.map((g) => (
+            {groups.map((g) => (
               <React.Fragment key={g.key}>
                 <div className="sidebar-cat-label nav-cat-div"><span className="sidebar-cat-text">{g.label}</span></div>
                 {g.tabs.map((t) => {
-                  const m = chatMeta(t, { busy: advisorActivity.busy && chats.active === t.id && pathname === item.to });
+                  const tBusy = typeof busy === 'function' ? busy(t.id) : (busy && chats.active === t.id && pathname === item.to);
+                  const m = store.meta(t, { busy: tBusy });
                   const active = selected && chats.active === t.id;
                   return (
                     <div
                       key={t.id}
                       data-tab-id={t.id}
-                      className={`doc-tab-row nav-sub-row nav-cat-row${chatDrag?.id === t.id ? ' is-dragged' : ''}${chatDrag?.over === t.id && chatDrag.id !== t.id ? ' is-drop' : ''}`}
+                      className={`doc-tab-row nav-sub-row nav-cat-row${drag?.id === t.id ? ' is-dragged' : ''}${drag?.over === t.id && drag.id !== t.id ? ' is-drop' : ''}`}
                       draggable
                       onDragStart={(e) => {
                         e.dataTransfer.effectAllowed = 'move';
                         try { e.dataTransfer.setData('text/plain', t.id); } catch { /* some hosts refuse */ }
-                        setChatDrag({ id: t.id, over: null });
+                        setDrag({ id: t.id, over: null });
                       }}
-                      onDragEnd={() => setChatDrag(null)}
+                      onDragEnd={() => setDrag(null)}
                     >
                       <TabMenuPill
-                        hover={chatTabPill(t, m)}
+                        hover={chatTabPill(t, m, store.label)}
                         onOpen={() => openChat(t.id)}
                         popRoute={item.to}
                         popTitle={m.title}
@@ -1065,15 +1010,15 @@ function Sidebar({ collapsed = false, offstage = false, onHubNav }) {
                           onClick={() => openChat(t.id)}
                         >
                           <span className="label nav-sub-text">
-                            <span className="nav-sub-kind"><FadeText className="nav-cat-kindtext">
-                              <span className="nav-cat-site" style={{ '--tone': t.unreadAt ? 'var(--success)' : m.tone }}>Advisor</span>{m.kind.replace(/^Advisor/, '')}
+                            <span className="nav-sub-kind">{tBusy ? <span className="nav-dot is-spin nav-cat-spin" aria-label="Working" /> : null}<FadeText className="nav-cat-kindtext">
+                              <span className="nav-cat-site" style={{ '--tone': t.unreadAt ? 'var(--success)' : m.tone }}>{store.label}</span>{m.kind.slice(store.label.length)}
                             </FadeText></span>
                             <FadeText className="nav-sub-title">{m.title}</FadeText>
                           </span>
                         </button>
                       </TabMenuPill>
                       {!t.pinned ? (
-                        <button type="button" className="doc-tab-close" onClick={() => closeChat(t.id)} aria-label={`Close ${m.title}`}>
+                        <button type="button" className="doc-tab-close" onClick={() => store.close(t.id)} aria-label={`Close ${m.title}`}>
                           {CloseGlyph}
                         </button>
                       ) : null}
@@ -1089,6 +1034,8 @@ function Sidebar({ collapsed = false, offstage = false, onHubNav }) {
       </div>
     );
   };
+  const renderAdvisorEntry = (item) => renderChatEntry(item, advisorFold, { busy: advisorActivity.busy, focusEvent: 'docvex:advisor-focus', listName: "The Advisor's chats" });
+  const renderResearchEntry = (item) => renderChatEntry(item, researchFold, { busy: (id) => researchThreadBusy(researchRun, id), focusEvent: 'docvex:research-focus', listName: "Research's chats" });
 
   // Cursor-following spotlight: write the pointer position (sidebar-relative,
   // layout px) and moves the rail's light layers (`.sidebar-glow` / `.sidebar-shine`) so the glow
@@ -1228,6 +1175,15 @@ function Sidebar({ collapsed = false, offstage = false, onHubNav }) {
       <span className="sidebar-glow" aria-hidden="true"><span className="sidebar-glow-dot" ref={glowDotRef} /></span>
       <span className="sidebar-shine" aria-hidden="true"><span className="sidebar-shine-dot" ref={shineDotRef} /></span>
       <ul className="sidebar-nav">
+        {/* ── Research — first in the rail and OUTSIDE every section (no
+            heading): the Legislation search and the Advisor as one search
+            engine (pages/Research). Both tabs stay where they are. ── */}
+        <li className="sidebar-cat sidebar-cat--lead">
+          <div className="sidebar-cat-items">
+            {renderNavItem({ to: '/research', label: 'Research', icon: ResearchIcon, end: true, fold: 'research', dot: researchBusy ? 'spin' : null })}
+          </div>
+        </li>
+
         {/* ── DocVex — the user's own feeds (formerly "Personal"). ── */}
         <li className="sidebar-cat">
           <span className="sidebar-cat-label">
@@ -1413,4 +1369,93 @@ function Sidebar({ collapsed = false, offstage = false, onHubNav }) {
 // fade clearing) and each used to re-render this whole list with it. Everything
 // the rail shows comes from its own hooks (route, auth, notifications…), which
 // still re-render it; the shell hands it stable props (AppShell).
+// A CHAT DROPDOWN's state (the Advisor's, Research's): the store's chats as
+// tabs grouped Pinned / Open, whether the dropdown is open (per device), the
+// drag-to-reorder with its FLIP glide, and the handshake with the page's own
+// rail — the page asks for the list (`setEvent`) and hears back whether the
+// sidebar is listing it (`listedEvent` + `window[flag]`).
+function useChatFold(store, { openKey, setEvent, listedEvent, flag }) {
+  const chats = useSyncExternalStore(store.subscribe, store.getState);
+  const listed = chats.threads.filter((t) => !isBlankChat(t));
+  const pinned = listed.filter((t) => t.pinned);
+  const rest = listed.filter((t) => !t.pinned);
+  const groups = [
+    { key: 'pinned', label: 'Pinned', tabs: pinned },
+    { key: 'open', label: pinned.length ? 'Open' : 'Open chats', tabs: rest },
+  ].filter((g) => g.tabs.length);
+  const count = listed.length;
+  const [open, setOpen] = useState(() => {
+    try { return localStorage.getItem(openKey) !== '0'; } catch { return true; }
+  });
+  const toggle = () => {
+    setOpen((v) => {
+      const next = !v;
+      try { localStorage.setItem(openKey, next ? '1' : '0'); } catch { /* ignore */ }
+      return next;
+    });
+  };
+  const [drag, setDrag] = useState(null);
+  const listRef = useRef(null);
+  const dropAt = (y) => {
+    const rows = listRef.current ? [...listRef.current.querySelectorAll('.nav-cat-row[data-tab-id]')] : [];
+    for (const r of rows) { const b = r.getBoundingClientRect(); if (y < b.top + b.height / 2) return r.dataset.tabId; }
+    return 'end';
+  };
+  const flipFrom = useRef(null);
+  const drop = (over) => {
+    const d = drag;
+    setDrag(null);
+    if (!d || !over || over === d.id) return;
+    const rows = listRef.current ? [...listRef.current.querySelectorAll('.nav-cat-row[data-tab-id]')] : [];
+    const from = new Map(rows.map((r) => [r.dataset.tabId, r.getBoundingClientRect().top]));
+    const ids = rows.map((r) => r.dataset.tabId);
+    if (over !== 'end' && ids[ids.indexOf(d.id) + 1] === over) return;
+    if (over === 'end' && ids[ids.length - 1] === d.id) return;
+    flipFrom.current = from;
+    store.move(d.id, over === 'end' ? null : over);
+  };
+  const order = chats.threads.map((t) => t.id).join('|');
+  useLayoutEffect(() => {
+    const from = flipFrom.current;
+    flipFrom.current = null;
+    const list = listRef.current;
+    if (!from || !list) return;
+    if (document.documentElement.dataset.reduceMotion === 'true') return;
+    const rows = [...list.querySelectorAll('.nav-cat-row[data-tab-id]')];
+    const moved = [];
+    for (const r of rows) {
+      const was = from.get(r.dataset.tabId);
+      if (was == null) continue;
+      const dy = toLayoutPx(was - r.getBoundingClientRect().top);
+      if (Math.abs(dy) < 0.5) continue;
+      r.style.transition = 'none';
+      r.style.transform = `translateY(${dy}px)`;
+      moved.push(r);
+    }
+    if (!moved.length) return;
+    void list.offsetHeight;
+    for (const r of moved) {
+      r.style.transition = 'transform 260ms cubic-bezier(0.16, 1, 0.3, 1)';
+      r.style.transform = '';
+      const done = () => { r.style.transition = ''; r.removeEventListener('transitionend', done); };
+      r.addEventListener('transitionend', done);
+    }
+  }, [order]);
+  useEffect(() => {
+    const onSet = (e) => {
+      const next = !!e.detail?.open;
+      setOpen(next);
+      try { localStorage.setItem(openKey, next ? '1' : '0'); } catch { /* ignore */ }
+    };
+    window.addEventListener(setEvent, onSet);
+    return () => window.removeEventListener(setEvent, onSet);
+  }, [openKey, setEvent]);
+  const isListed = open && count > 0;
+  useEffect(() => {
+    window[flag] = isListed;
+    window.dispatchEvent(new CustomEvent(listedEvent, { detail: { listed: isListed } }));
+  }, [isListed, flag, listedEvent]);
+  return { store, chats, listed, groups, count, open, toggle, drag, setDrag, listRef, dropAt, drop };
+}
+
 export default React.memo(Sidebar);

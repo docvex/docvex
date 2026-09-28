@@ -63,6 +63,8 @@ const Updates = page(() => import('./pages/Updates'));
 const Newsletter = page(() => import('./pages/Newsletter'), { warm: 1 });
 const Legislation = page(() => import('./pages/Legislation'), { warm: 1 });
 const Caen = page(() => import('./pages/Caen'), { warm: 1 });
+// Research — the Legislation search and the Advisor as one search engine.
+const Research = page(() => import('./pages/Research'), { warm: 1 });
 const PortalJust = page(() => import('./pages/PortalJust'), { warm: 1 });
 const Anaf = page(() => import('./pages/Anaf'), { warm: 1 });
 const LegalSourceStub = page(() => import('./pages/LegalSourceStub'), { warm: 1 });
@@ -157,6 +159,9 @@ export default function AppRoutes({ Shell, ProjectShell }) {
           <Route path="newsletter" element={<Newsletter />} />
           <Route path="legislation" element={<Legislation />} />
           <Route path="caen" element={<Caen />} />
+          {/* Research: one search over the legal platforms AND the Advisor
+              (pages/Research). Neither tab is replaced. */}
+          <Route path="research" element={<Research />} />
           {/* The courts' portal (case files, live over SOAP from main) and
               ANAF (a company's fiscal record, live over REST from main). */}
           <Route path="portal-just" element={<PortalJust />} />

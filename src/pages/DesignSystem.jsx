@@ -20,6 +20,7 @@ import { BarPicker } from '../components/LegalBar';
 import { useOneOpen } from '../lib/oneOpen';
 import DropZone from '../components/DropZone';
 import Toggle from '../components/Toggle';
+import SideDrawer from '../components/SideDrawer';
 import RuleOptions from '../components/RuleOptions';
 import AiChoices from '../components/AiChoices';
 import '../components/AiChoices.css';
@@ -305,6 +306,7 @@ export default function DesignSystem() {
 
           <ToggleSample />
           <SegmentedSample />
+          <SideDrawerSample />
 
           <Sample name="Danger zone" of="components/DangerZone — DangerZone + DangerRow + .dz-btn (Account, Admin)" wide>
             <DangerZone subtitle="Irreversible actions. Proceed with care." className="dsg-dz">
@@ -1032,6 +1034,54 @@ function ToggleSample() {
     <Sample name="Toggle" of="components/Toggle .tgl — on / off with its label (the Playbook's Preview)" row>
       <Toggle on={on} onChange={setOn} label="Preview" />
       <Toggle on={off} onChange={setOff} label="Preview" />
+    </Sample>
+  );
+}
+
+// The SIDE DRAWER (components/SideDrawer — Research's drawer, the Playbook
+// preview's recipe), live: it slides in from the right over the page; a press
+// on this gallery leaves it open (keepOpenWithin), a row inside goes one view
+// deeper and Back returns — the stack is the caller's, as in Research.
+const DRAWER_SAMPLE_ROWS = [
+  { id: 'a', kind: 'Lege', title: 'nr. 31/1990 — privind societățile comerciale' },
+  { id: 'b', kind: 'Ordonanță de urgență', title: 'nr. 195/2002 — privind circulația pe drumurile publice' },
+  { id: 'c', kind: 'Hotărâre', title: 'nr. 1383/2022 — pentru aprobarea normelor metodologice' },
+];
+function SideDrawerSample() {
+  const [stack, setStack] = useState([]);
+  const view = stack[stack.length - 1] || null;
+  return (
+    <Sample name="Side drawer" of="components/SideDrawer .sd-drawer — slides in from the right over the page; resizable by its left edge; Back, ×, Escape, a press outside (Research's drawer)" row>
+      <button type="button" className="dsg-btn is-primary" onClick={() => setStack([{ id: 'list' }])}>Open the drawer</button>
+      <button type="button" className="dsg-btn" onClick={() => setStack([{ id: 'list' }, DRAWER_SAMPLE_ROWS[0]])}>Open two views deep</button>
+      <SideDrawer
+        open={stack.length > 0}
+        onClose={() => setStack([])}
+        onBack={stack.length > 1 ? () => setStack((st) => st.slice(0, -1)) : null}
+        title={view?.id === 'list' || !view ? 'Sample list' : view.kind}
+        subtitle={view && view.id !== 'list' ? view.title.split(' — ')[0] : ''}
+        widthKey="docvex:design:drawer-w"
+        keepOpenWithin=".dsg-page"
+        contentKey={view}
+      >
+        {!view || view.id === 'list' ? (
+          <ul className="lgb-rows">
+            {DRAWER_SAMPLE_ROWS.map((r) => (
+              <li key={r.id} className="lgb-row">
+                <button type="button" className="lgb-row-main" onClick={() => setStack((st) => [...st, r])}>
+                  <span className="lgb-row-kind">{r.kind}</span>
+                  <span className="lgb-row-title">{r.title}</span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <div>
+            <p className="dsg-sample-name">{view.kind} {view.title}</p>
+            <p className="dsg-sample-of">Anything can stand here — the component only draws the panel, its head (title, Back, ×) and the resize handle. Drag the left edge to resize it; double-click it for the default width.</p>
+          </div>
+        )}
+      </SideDrawer>
     </Sample>
   );
 }

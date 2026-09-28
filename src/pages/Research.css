@@ -1,0 +1,194 @@
+/* Research (pages/Research.jsx) — laid out by the Advisor's stylesheets
+   (ProjectAIChat.css: .ai-chat-page, the rail, the thread, the bottom-bar
+   composer) with the Legislation tab's rows (LegalBrowser.css .lgb-*) and act
+   (Legislation.css .lg-act …). What is here is Research's own: the model
+   picker in the composer, the byline under each answer, a fixed search's act,
+   the folded legal sources. Tokens only. */
+
+/* The composer's model picker (LegalBar's BarPicker, standing alone). */
+.rs-model { display: inline-flex; align-items: center; }
+.rs-model .lg-kind { height: 25.6px; }  /* the composer buttons' height (.dvx-composer-btn) */
+
+/* The composer's Project files switch — the Design system's Toggle
+   (components/Toggle), sized to the toolbar. */
+.rs-files-toggle { margin-left: 6px; }
+.rs-files-toggle.tgl, .rs-files-toggle .tgl { height: 25.6px; box-sizing: border-box; }
+
+/* Which model answered. */
+.rs-byline {
+  margin: 6px 0 0;
+  font-size: 11.5px; line-height: 1.45;
+  color: var(--text-muted);
+}
+.rs-byline b { font-weight: 600; color: var(--text-secondary); }
+
+.rs-muted { margin: 0; font-size: 13px; color: var(--text-muted); }
+.rs-error { margin: 0; font-size: 13px; color: var(--danger-text, var(--danger)); }
+
+.rs-chips { display: flex; gap: 6px; flex-wrap: wrap; }
+.rs-actchip { --tone: var(--cat-update); color: var(--cat-update); }
+
+/* A fixed search's answer takes the thread's width, as the act does in the
+   Legislation tab. */
+.bubble-msg.rs-fixed-msg { width: 100%; }
+/* The exact-match answer stands in a PANEL of its own — rounded, on the
+   frosted surface the Design system's bars and floating cards use (the bar
+   frost over the page ground, the bar blur, a hairline ring, the card radius
+   and shadow) — the result's card and the byline together. Medium /
+   Low graphics: near-opaque, no blur (styles/perf.css). */
+.rs-fixed {
+  position: relative;
+  display: flex; flex-direction: column; gap: 12px;
+  /* The switch stands on the top edge, half above it: the panel keeps that
+     half clear above itself and the other half inside. */
+  margin-top: 18px;
+  padding: 30px 20px 14px;
+  border: 1px solid var(--ds-hairline, var(--border));
+  border-radius: var(--ds-card-radius, 14px);
+  background: color-mix(in srgb, var(--bg-page) var(--ds-bar-frost, 66%), transparent);
+  backdrop-filter: blur(var(--ds-bar-blur, 6.4px));
+  -webkit-backdrop-filter: blur(var(--ds-bar-blur, 6.4px));
+  box-shadow: var(--ds-card-shadow, var(--shadow-card));
+}
+:root[data-theme="cream"] .rs-fixed { background: color-mix(in srgb, var(--bg-sidebar) var(--ds-bar-frost, 66%), transparent); }
+/* The foot: the byline (no button — every result is a card you click). */
+.rs-fixed-foot {
+  position: relative;
+  display: flex; align-items: center; min-height: 30px;
+  margin-top: -2px; padding-top: 10px;
+  border-top: 1px solid var(--ds-hairline, var(--border));
+}
+.rs-more-inline { margin-top: 0; font-size: inherit; }
+
+/* THE SWITCH ON THE TOP EDGE (components/RuleOptions — the Design system's
+   Segmented choice): its vertical middle on the panel's border, 20px in from
+   its left edge, like a fieldset's legend. Its ground is made near-opaque
+   and frosted so the border does not run through it. The pill takes the
+   picked choice's platform colour (--scope-tone, the Legislation results'
+   recipe, `.lgb-scopes` in LegalBrowser.css); every result carries its
+   platform's dot. */
+.rs-fixed-switchwrap {
+  position: absolute; z-index: 2;
+  top: 0; left: 20px; right: 20px;
+  transform: translateY(-50%);
+  display: flex; pointer-events: none;
+}
+.rs-fixed-switchwrap > .pbk-rule-opts { pointer-events: auto; }
+.rs-fixed-switch.pbk-rule-opts {
+  background: color-mix(in srgb, var(--bg-page) 96%, transparent);
+  backdrop-filter: blur(var(--ds-bar-blur, 6.4px));
+  -webkit-backdrop-filter: blur(var(--ds-bar-blur, 6.4px));
+}
+:root[data-theme="cream"] .rs-fixed-switch.pbk-rule-opts { background: color-mix(in srgb, var(--bg-sidebar) 96%, transparent); }
+.rs-fixed-switch .pbk-rule-opt { display: inline-flex; align-items: center; gap: 6px; }
+.rs-opt-dot {
+  width: 7px; height: 7px; border-radius: 50%; flex: none;
+  background: var(--tone, var(--accent));
+}
+/* On the picked (filled) choice the dot turns the pill's text colour, or it
+   would vanish into its own colour. */
+.rs-fixed-switch .pbk-rule-opt.is-on .rs-opt-dot { background: currentColor; }
+.rs-fixed-foot > .rs-byline { margin: 0; }
+
+/* THE ACT'S CARD — the act's opening, drawn as the result rows' card
+   (LegalBrowser's .lgb-row-main: hairline ring, row radius, the neutral
+   wash on hover) and opening the whole act in the drawer on a click. */
+.rs-act-card {
+  position: relative;
+  padding: 14px 16px;
+  border: 1px solid var(--ds-hairline, var(--border));
+  border-radius: var(--ds-row-radius, 8px);
+  cursor: pointer;
+  transition: border-color 120ms ease, background 120ms ease;
+}
+.rs-act-card:hover { border-color: var(--border-strong); background: color-mix(in srgb, var(--text-primary) var(--ds-control-tint, 4%), transparent); }
+.rs-act-card:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+/* Cut off: "Click to view more", a soft pill centred over the fade (outside
+   the masked article, so the mask doesn't fade it too). */
+.rs-act-more {
+  position: absolute; left: 50%; bottom: 14px; transform: translateX(-50%);
+  display: inline-flex; align-items: center;
+  height: var(--ds-pill-h, 22px); padding: 0 var(--ds-pill-pad, 10px);
+  border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--accent) 12%, var(--bg-page));
+  color: var(--accent);
+  font-size: 11.5px; font-weight: 600; white-space: nowrap;
+  pointer-events: none;
+}
+.rs-act-card.is-cut:hover .rs-act-more { background: color-mix(in srgb, var(--accent) 18%, var(--bg-page)); }
+.rs-act { position: relative; max-height: 560px; overflow: hidden; }
+.rs-act .lg-act-title { font-size: 20px; }
+/* A cut-off act fades out at its foot — by a MASK, since the panel it stands
+   on is see-through (a gradient painted over it would show as a band). */
+.rs-act-fade { display: none; }
+.rs-act:has(.rs-act-fade) {
+  -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 96px), transparent);
+  mask-image: linear-gradient(to bottom, #000 calc(100% - 96px), transparent);
+}
+
+/* The legal sources under an AI answer — folded, open on the latest. */
+.rs-legal { margin-top: 12px; }
+.rs-legal > summary {
+  cursor: pointer; list-style: none;
+  font-size: var(--ds-label-size, 0.6rem); letter-spacing: var(--ds-label-tracking, 0.06em);
+  text-transform: uppercase; font-weight: 700; color: var(--text-muted);
+}
+.rs-legal > summary::-webkit-details-marker { display: none; }
+.rs-legal > summary::before { content: '▸ '; }
+.rs-legal[open] > summary::before { content: '▾ '; }
+.rs-legal .rs-serp { margin-top: 10px; gap: 14px; }
+
+/* A result group's head (LegalBrowser's .lgb-group-head): the site and count
+   ("anaf.ro · 1 result") stand on the platform name's BASELINE, not centred
+   against its taller line. The dot stays centred on the name. */
+.rs-serp .lgb-group-head { align-items: baseline; }
+.rs-serp .lgb-group-dot { align-self: center; }
+.rs-more {
+  margin-top: 8px; border: 0; background: transparent; padding: 0;
+  font: inherit; font-size: 12px; color: var(--accent); cursor: pointer;
+}
+.rs-more:hover { text-decoration: underline; }
+
+/* What Research draws INSIDE the shared side drawer (components/SideDrawer). */
+.rs-drawer-note { margin: 0; font-size: 13px; color: var(--text-secondary); }
+.rs-drawer-note.is-bad { color: var(--danger-text, var(--danger)); }
+.rs-drawer-act .lg-act-title { font-size: 22px; }
+.rs-drawer-table { overflow-x: auto; font-size: 11px; line-height: 1.35; }
+
+/* A record in the drawer — a court file, a company, a CAEN code. */
+.rs-rec { display: flex; flex-direction: column; gap: 10px; }
+.rs-rec-kind { margin: 0; font-size: var(--ds-label-size, 0.6rem); letter-spacing: var(--ds-label-tracking, 0.06em); text-transform: uppercase; font-weight: 700; }
+.rs-rec-title { margin: 0; font-family: var(--font-display); font-size: 22px; font-weight: 700; line-height: 1.25; color: var(--text-primary); }
+.rs-rec-facts { display: grid; grid-template-columns: max-content 1fr; gap: 6px 16px; margin: 4px 0 0; font-size: 13px; }
+.rs-rec-facts dt { color: var(--text-muted); }
+.rs-rec-facts dd { margin: 0; color: var(--text-primary); }
+.rs-rec-sec { margin-top: 10px; padding-top: 12px; border-top: 1px solid var(--ds-hairline, var(--border)); }
+.rs-rec-h { margin: 0 0 8px; font-size: 13px; font-weight: 700; color: var(--text-primary); }
+.rs-rec-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.rs-rec-list > li { display: flex; flex-direction: column; gap: 2px; padding: 8px 0; border-bottom: 1px solid var(--ds-hairline, var(--border)); font-size: 13px; }
+.rs-rec-list > li:last-child { border-bottom: 0; }
+.rs-rec-when { font-size: 11.5px; color: var(--text-muted); }
+.rs-rec-sol { font-weight: 600; color: var(--text-primary); }
+.rs-rec-sol.is-muted { font-weight: 400; color: var(--text-muted); }
+.rs-rec-sum { color: var(--text-secondary); line-height: 1.5; }
+.rs-rec-path { display: flex; gap: 6px; flex-wrap: wrap; }
+.rs-rec-chip {
+  height: var(--ds-pill-h, 22px); padding: 0 9px;
+  border: 1px solid color-mix(in srgb, var(--warning) 30%, transparent); border-radius: 999px;
+  background: color-mix(in srgb, var(--warning) 10%, transparent); color: var(--warning);
+  font: inherit; font-size: 11.5px; font-weight: 600; cursor: pointer;
+}
+.rs-rec-chip:hover { background: color-mix(in srgb, var(--warning) 18%, transparent); }
+.rs-rec-link {
+  border: 0; background: none; padding: 0; text-align: left; cursor: pointer;
+  font: inherit; font-size: 13px; color: var(--text-primary);
+}
+.rs-rec-link:hover { color: var(--accent); }
+.rs-rec-link b { color: var(--warning); margin-right: 6px; }
+
+/* The exact-match panel's switch (components/RuleOptions — the Design
+   system's Segmented choice): the portal's own answer or an AI summary. */
+.rs-fixed-switch { align-self: flex-start; }
+.rs-summary { font-size: 14px; line-height: 1.6; }
+.rs-summary > :first-child { margin-top: 0; }

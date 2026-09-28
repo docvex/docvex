@@ -56,7 +56,7 @@ export function isProjectScopedRoute(pathname) {
 // '/projects' (the Hub) is here too: it's a full-screen launcher with the rail
 // slid out, so a rounded card frame around it read as a floating panel inside
 // an empty window rather than the surface filling it.
-const FLUSH_CONTENT_ROUTES = new Set(['/', '/newsletter', '/legislation', '/caen', '/portal-just', '/anaf', '/firme', '/bpi', '/ancpi', '/rejust', '/unbr', '/eurlex', '/roadmap', '/playbook', '/versions', '/mail', '/admin', '/settings', '/design', '/debug', '/files', '/chat', '/events', '/ai', '/projects']);
+const FLUSH_CONTENT_ROUTES = new Set(['/', '/research', '/newsletter', '/legislation', '/caen', '/portal-just', '/anaf', '/firme', '/bpi', '/ancpi', '/rejust', '/unbr', '/eurlex', '/roadmap', '/playbook', '/versions', '/mail', '/admin', '/settings', '/design', '/debug', '/files', '/chat', '/events', '/ai', '/projects']);
 
 // The project Overview / settings page (/projects/:id, no further segment)
 // also renders full-bleed — it carries its own Versions-style masthead, so it

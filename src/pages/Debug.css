@@ -333,3 +333,43 @@
   font-size: 10px; line-height: 1.5;
   overflow-wrap: anywhere; white-space: pre-wrap;
 }
+
+/* ── AI inventory (AiInventory, lib/aiInventory) — design-system rows: page
+   ground, hairlines, soft pills; no card fills. ── */
+.debug-ai-provider { margin-bottom: 26px; }
+.debug-ai-provider-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding-bottom: 6px; border-bottom: 1px solid var(--ds-hairline, var(--border)); }
+.debug-ai-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--tone, var(--accent)); flex: none; }
+.debug-ai-provider-name { margin: 0; font-family: var(--font-display); font-size: 15px; font-weight: 700; color: var(--text-primary); }
+.debug-ai-provider-role { font-size: 12px; color: var(--text-muted); }
+.debug-ai-key { margin-left: auto; font-size: 10.5px; color: var(--text-muted); }
+.debug-ai-note { margin: 6px 0 0; font-size: 12px; line-height: 1.55; color: var(--text-secondary); max-width: 90ch; }
+.debug-ai-note.is-warn { color: var(--warning); }
+.debug-ai-fn { margin-top: 14px; }
+.debug-ai-fn-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.debug-ai-fn-id { font-size: 12px; font-weight: 600; color: var(--text-primary); }
+.debug-ai-fn-title { font-size: 13px; font-weight: 650; color: var(--text-primary); }
+.debug-ai-count { font-size: 11.5px; color: var(--text-muted); }
+.debug-ai-uses { list-style: none; margin: 6px 0 0; padding: 0; }
+.debug-ai-use { padding: 8px 0; border-bottom: 1px solid var(--ds-hairline, var(--border)); }
+.debug-ai-use:last-child { border-bottom: 0; }
+.debug-ai-use-head { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.debug-ai-id { font-size: 11.5px; font-weight: 600; color: var(--text-primary); }
+.debug-ai-id.is-plain { font-family: inherit; font-size: 12.5px; }
+.debug-ai-what { margin: 3px 0 0; font-size: 12px; line-height: 1.55; color: var(--text-secondary); max-width: 100ch; }
+.debug-ai-model { font-family: ui-monospace, monospace; font-size: 10.5px; color: var(--text-muted); }
+.debug-ai-pill {
+  --tone: var(--info);
+  display: inline-flex; align-items: center;
+  height: var(--ds-pill-h, 18px); padding: 0 var(--ds-pill-pad, 8px);
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--tone) 30%, transparent);
+  background: color-mix(in srgb, var(--tone) 10%, transparent);
+  color: var(--tone);
+  font-size: 10.4px; font-weight: 600; white-space: nowrap;
+}
+.debug-ai-pill.is-task { --tone: var(--cat-update); }
+.debug-ai-pill.is-new { --tone: var(--success); }
+.debug-ai-pill.is-merge { --tone: var(--warning); }
+.debug-ai-pill.is-local { --tone: var(--cat-system); }
+.debug-ai-privacy { margin: 24px 0 0; font-size: 12px; line-height: 1.6; color: var(--text-secondary); max-width: 100ch; }
+.debug-ai-privacy b { color: var(--text-primary); }

@@ -21,6 +21,8 @@ import PageMasthead from '../components/PageMasthead';
 import Tooltip from '../components/Tooltip';
 import { REF_GROUPS, REF_CATALOGUE, findAllLegalRefs, refKindName, scanRefPatterns } from '../lib/lawRefs';
 import { setWorkspaceSimulation, workspaceSimulation } from '../lib/workspaceItems';
+import RuleOptions from '../components/RuleOptions';
+import { AI_PROVIDERS, AI_SURFACES, AI_TASKS, AI_FUNCTIONS, AI_LOCAL, AI_PRIVACY, AI_INTRO, allAiUses } from '../lib/aiInventory';
 import './Debug.css';
 
 // In-app developer tools. These used to live in the native "DEBUG" menu that
@@ -476,6 +478,126 @@ function LawRefCatalogue() {
   );
 }
 
+// THE AI INVENTORY (lib/aiInventory) — every AI the app reaches, three ways:
+// by SERVICE (provider → Edge Function → its uses), by SURFACE (where in the
+// app each use lives) and by TASK (what it does — the axis the planned merge
+// runs along: a task done on two or more surfaces is marked as a candidate).
+const AI_VIEWS = { label: 'View', options: [{ id: 'service', label: 'By service' }, { id: 'surface', label: 'By surface' }, { id: 'task', label: 'By task' }] };
+
+function AiUseRow({ u, showSurface = true, showFn = true }) {
+  const pv = AI_PROVIDERS.find((p) => p.id === u.provider);
+  return (
+    <li className="debug-ai-use">
+      <div className="debug-ai-use-head">
+        <code className="debug-ai-id">{u.id}</code>
+        {u.isNew ? <span className="debug-ai-pill is-new">new</span> : null}
+        {showSurface ? <span className="debug-ai-pill">{AI_SURFACES[u.surface]?.name || u.surface}</span> : null}
+        <span className="debug-ai-pill is-task">{AI_TASKS[u.task] || u.task}</span>
+        {showFn ? <span className="debug-ai-pill is-fn" style={{ '--tone': pv?.tone }}>{u.fn}</span> : null}
+        {u.model ? <span className="debug-ai-model">{u.model}</span> : null}
+      </div>
+      <p className="debug-ai-what">{u.what}</p>
+    </li>
+  );
+}
+
+function AiInventory() {
+  const [view, setView] = useState('service');
+  const uses = useMemo(() => allAiUses(), []);
+  const groups = useMemo(() => {
+    const by = (key) => {
+      const m = new Map();
+      for (const u of uses) { if (!m.has(u[key])) m.set(u[key], []); m.get(u[key]).push(u); }
+      return m;
+    };
+    return { surface: by('surface'), task: by('task') };
+  }, [uses]);
+  return (
+    <section className="debug-icons debug-ai">
+      <div className="debug-icons-head">
+        <div>
+          <h2 className="debug-card-title">AI inventory — every AI the app uses</h2>
+          <p className="debug-card-body">{AI_INTRO}</p>
+        </div>
+        <RuleOptions field={AI_VIEWS} value={view} onPick={setView} />
+      </div>
+      <p className="debug-icons-count">
+        {AI_PROVIDERS.length} services · {AI_FUNCTIONS.length} functions · {uses.length} uses · {Object.keys(AI_SURFACES).length} surfaces.
+        Kept as data in lib/aiInventory.js — update it when an AI use is added, moved or removed.
+      </p>
+
+      {view === 'service' && AI_PROVIDERS.map((pv) => (
+        <div key={pv.id} className="debug-ai-provider">
+          <div className="debug-ai-provider-head">
+            <span className="debug-ai-dot" style={{ '--tone': pv.tone }} />
+            <h3 className="debug-ai-provider-name">{pv.name}</h3>
+            <span className="debug-ai-provider-role">{pv.role}</span>
+            <code className="debug-ai-key">{pv.key}</code>
+          </div>
+          <p className="debug-ai-note">{pv.privacy}</p>
+          {pv.warning ? <p className="debug-ai-note is-warn">{pv.warning}</p> : null}
+          {AI_FUNCTIONS.filter((f) => f.provider === pv.id).map((f) => (
+            <div key={f.id} className="debug-ai-fn">
+              <div className="debug-ai-fn-head">
+                <code className="debug-ai-fn-id">{f.id}</code>
+                <span className="debug-ai-fn-title">{f.title}</span>
+                {(f.models || []).map((m) => <span key={m} className="debug-ai-model">{m}</span>)}
+              </div>
+              {f.note ? <p className="debug-ai-note">{f.note}</p> : null}
+              <ul className="debug-ai-uses">
+                {f.uses.map((u) => <AiUseRow key={u.id} u={{ ...u, fn: f.id, provider: f.provider }} showFn={false} />)}
+              </ul>
+            </div>
+          ))}
+        </div>
+      ))}
+
+      {view === 'surface' && [...groups.surface.entries()].map(([sid, list]) => (
+        <div key={sid} className="debug-ai-fn">
+          <div className="debug-ai-fn-head">
+            <span className="debug-ai-fn-title">{AI_SURFACES[sid]?.name || sid}</span>
+            {AI_SURFACES[sid]?.route ? <code className="debug-ai-fn-id">{AI_SURFACES[sid].route}</code> : null}
+            <span className="debug-ai-count">{list.length} {list.length === 1 ? 'use' : 'uses'} · {new Set(list.map((u) => u.fn)).size} {new Set(list.map((u) => u.fn)).size === 1 ? 'function' : 'functions'}</span>
+          </div>
+          <ul className="debug-ai-uses">{list.map((u) => <AiUseRow key={`${u.fn}:${u.id}`} u={u} showSurface={false} />)}</ul>
+        </div>
+      ))}
+
+      {view === 'task' && [...groups.task.entries()].map(([tid, list]) => {
+        const surfaces = [...new Set(list.map((u) => u.surface))];
+        return (
+          <div key={tid} className="debug-ai-fn">
+            <div className="debug-ai-fn-head">
+              <span className="debug-ai-fn-title">{AI_TASKS[tid] || tid}</span>
+              <span className="debug-ai-count">{list.length} {list.length === 1 ? 'use' : 'uses'} on {surfaces.length} {surfaces.length === 1 ? 'surface' : 'surfaces'}</span>
+              {surfaces.length > 1 ? (
+                <Tooltip content={`Done separately on: ${surfaces.map((s) => AI_SURFACES[s]?.name || s).join(', ')}`}>
+                  <span className="debug-ai-pill is-merge">merge candidate</span>
+                </Tooltip>
+              ) : null}
+            </div>
+            <ul className="debug-ai-uses">{list.map((u) => <AiUseRow key={`${u.fn}:${u.id}`} u={u} />)}</ul>
+          </div>
+        );
+      })}
+
+      <div className="debug-ai-fn">
+        <div className="debug-ai-fn-head"><span className="debug-ai-fn-title">Features that use no AI service — they run on the computer</span></div>
+        <ul className="debug-ai-uses">
+          {AI_LOCAL.map((l) => (
+            <li key={l.name} className="debug-ai-use">
+              <div className="debug-ai-use-head"><span className="debug-ai-id is-plain">{l.name}</span><span className="debug-ai-pill is-local">local</span></div>
+              <p className="debug-ai-what">{l.what}</p>
+            </li>
+          ))}
+        </ul>
+      </div>
+
+      <p className="debug-ai-privacy"><b>Privacy.</b> {AI_PRIVACY}</p>
+    </section>
+  );
+}
+
 export default function Debug() {
   const { notify } = useNotifications();
   const { session } = useAuth();
@@ -593,6 +715,7 @@ export default function Debug() {
         ))}
       </div>
 
+      <AiInventory />
       <LawRefCatalogue />
       <FileTypeIcons />
     </div>

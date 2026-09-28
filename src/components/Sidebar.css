@@ -376,7 +376,25 @@
   /* Fill the rail's height so .sidebar-cat--end can push to the bottom. */
   flex: 1 1 auto;
   min-height: 0;
+  /* THE LIST SCROLLS, the account footer stays put. `min-height: 0` let the
+     list shrink below its rows, and with no overflow of its own they spilled
+     over the footer instead of scrolling — so the list is the scroller.
+     It is pulled out to the rail's padding edge (negative margins, the same
+     padding given back) so a row's hover wash, lifted pill and shadow are not
+     clipped at the old content edge, and 3.2px at the top and foot give the
+     first and last row's shadow room. The scrollbar (the app's thin one,
+     index.css) takes its column only while the list actually scrolls — the
+     rows' left edge, and so every icon, never moves. */
+  overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior: contain;
+  margin: -3.2px -9.6px;
+  padding: 3.2px 9.6px;
 }
+/* Collapsed: the strip scrolls with no visible bar (the icons' inset was
+   measured without one — see the collapsed-rail note further down). */
+.sidebar.is-collapsed .sidebar-nav { scrollbar-width: none; }
+.sidebar.is-collapsed .sidebar-nav::-webkit-scrollbar { width: 0; height: 0; }
 
 .sidebar-nav > li {
   display: block;
@@ -2328,3 +2346,8 @@
 .sidebar.is-collapsed .doc-tab-pop { display: none; }
 /* The morph pill's host around a sidebar tab adds no box of its own. */
 .tab-pill-host { display: contents; }
+
+/* A chat tab that is working (Research — lib/researchRunner; the Advisor's
+   open chat while it thinks): the rail's small spinning ring before its
+   first line. */
+.nav-cat-spin.nav-dot.is-spin { width: 9px; height: 9px; margin-right: 5px; align-self: center; }

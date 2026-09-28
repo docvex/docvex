@@ -65,7 +65,7 @@
   .sidebar, .fx-pathbar.is-pinned, .fx-bottombar, .sv-footer, .avt-toolbar.is-pinned,
   .dvx-toolbar.is-pinned, .dc-compact, .mx-compact, .pjd-compact,
   .updates-page .versions-compact, .lgb-rail, .pbk-prail, .exr-sidebar,
-  .dv-ask-debug-section, .dv-ocr-history-compact, .dv-daterange-calwrap
+  .dv-ask-debug-section, .dv-ocr-history-compact, .dv-daterange-calwrap, .sd-drawer, .rs-fixed
 ) { background: color-mix(in srgb, var(--bg-page) 96%, transparent) !important; }
 :root:is([data-perf="medium"], [data-perf="low"]) .dvx-composer::before {
   background: color-mix(in srgb, var(--bg-page) 96%, transparent) !important;
