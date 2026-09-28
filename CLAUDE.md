@@ -197,7 +197,7 @@ Critical dev-mode detail: when `process.defaultApp` is true (under `electron-for
 
 `AuthContext` listens for `oauth:callback-url` and calls `supabase.auth.exchangeCodeForSession(code)` itself.
 
-`eraseData()` (distinct from `signOut()`) calls `signOut({ scope: 'global' })` to revoke refresh tokens server-side across all devices, then defensively clears `sb-*` / `supabase.*` keys from `localStorage`. `deleteAccount()` calls the `delete-user` Edge Function with the user's JWT.
+`eraseData()` (distinct from `signOut()`) calls `signOut({ scope: 'global' })` to revoke refresh tokens server-side across all devices, then wipes this computer's copy (`lib/localWipe.js` → main's `app:wipe-local-data`: project index databases, vaults, thumbnails, the index key, Chromium storage; plus every `docvex*` / `sb-*` / `supabase.*` localStorage key). The index's private / knowledge / settings columns and the thumbnail cache are sealed at rest (`src/projectIndex/seal.js`, AES-256-GCM, key in `userData/index-key.bin` wrapped by safeStorage). `deleteAccount()` calls the `delete-user` Edge Function with the user's JWT.
 
 ### Custom `localfile://` protocol
 

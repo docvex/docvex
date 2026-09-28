@@ -75,9 +75,6 @@ export function phoneUploadPage(cfg = {}) {
 <meta name="theme-color" content="#F9F9FA" media="(prefers-color-scheme: light)">
 <meta name="theme-color" content="#16181A" media="(prefers-color-scheme: dark)">
 <title>Upload to DocVex</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@600;700&display=swap">
 <style>
   /* tokens.css — Cream */
   :root {

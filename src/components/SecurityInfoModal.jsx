@@ -23,28 +23,24 @@ const SECURITY_URL = 'https://docvex.ro/security.html';
 // with the edge functions' *_MODEL env defaults.
 const MODELS = [
   {
-    name: 'Claude Opus 4.7',
+    name: 'Claude (Opus, Sonnet, Haiku)',
     by: 'Anthropic',
-    used: 'Project AI, the document advisor, the legal newsfeed and the Word add-in',
-    sees: 'Document text and your questions',
+    used: 'Research, the document advisor, drafting and editing, the AI scan of project files, building Word / PowerPoint / Excel files, the legal newsfeed',
+    sees: 'Document text and your questions — with names, CNPs, IBANs, addresses and other identifiers replaced by placeholders on this computer first (on by default)',
   },
   {
-    name: 'Claude Sonnet 4.6',
+    name: 'Claude (reading pictures)',
     by: 'Anthropic',
-    used: 'Building Word, PowerPoint and Excel files',
-    sees: 'Your instructions and the document being built',
-  },
-  {
-    name: 'Claude Haiku 4.5',
-    by: 'Anthropic',
-    used: 'Reading text out of photos and screenshots',
-    sees: 'The part of the image you select',
+    used: 'Reading text and signatures out of photos and scans, when cloud reading is switched on for the project',
+    sees: 'The picture or the part of it you select',
+    optional: true,
   },
   {
     name: 'Whisper',
     by: 'OpenAI',
-    used: 'Turning recordings into captions',
+    used: 'Turning recordings into captions, when cloud reading is switched on for the project',
     sees: 'The audio you ask it to transcribe',
+    optional: true,
   },
 ];
 
@@ -74,8 +70,10 @@ export default function SecurityInfoModal({ onClose }) {
           <h3 className="sec-h3">Your files stay on your computer</h3>
           <ul className="sec-list">
             <li>Project files live in a folder you choose. DocVex has <strong>no cloud file store</strong> — nothing is uploaded when you open, edit or organise them.</li>
+            <li>Two cloud features are off until you switch them on: <strong>Sync with account</strong> keeps a copy of a project in private EU storage that only its members can read, and <strong>phone upload through the DocVex cloud</strong> holds a file only until this computer has received it.</li>
+            <li>What DocVex works out about your files (text read out of documents, AI conversations, face measurements), the placeholder table and the thumbnail cache are <strong>encrypted on this computer</strong> with a key kept by Windows / macOS. Turn on BitLocker or FileVault to protect the case files themselves.</li>
             <li>Deleting a file moves it to a local recycle bin for 30 days, on your disk.</li>
-            <li>The app can only read the folders you opened. Paths are resolved through their real location, so a shortcut can’t be used to reach the rest of your drive.</li>
+            <li>The app refuses system locations and only writes in the folders you opened. Paths are resolved through their real location, so a shortcut can’t be used to reach the rest of your drive.</li>
             <li>Links open in your normal browser, and only ever <code>http</code> / <code>https</code>.</li>
             <li>Face matching (off by default) compares faces <strong>on this computer only</strong>. Face data is biometric data: it is never uploaded, never sent to an AI provider and never synced to your account.</li>
           </ul>
@@ -87,7 +85,8 @@ export default function SecurityInfoModal({ onClose }) {
             <li>Your account, your projects and who is in them, chat messages, and notifications — held in the EU (Supabase, eu-west-1).</li>
             <li>Access is enforced per row in the database, so one firm can never read another’s data.</li>
             <li>If you connect a mailbox, its access tokens are encrypted before being stored.</li>
-            <li>You can erase your data or delete your account outright from the Account page. Signing out revokes the session on every device.</li>
+            <li>The Playbook keeps an excerpt of each document you import to learn your writing style, with identifiers replaced by placeholders first.</li>
+            <li>You can download your data, erase it (including what DocVex keeps on this computer) or delete your account from the Account page. Erasing revokes the session on every device.</li>
             <li>“Report a problem” sends a screenshot only if you keep it attached. Remove it before sending if client documents are on screen.</li>
           </ul>
         </section>
@@ -95,10 +94,11 @@ export default function SecurityInfoModal({ onClose }) {
         <section className="sec-section">
           <h3 className="sec-h3">When AI is used — and what it sees</h3>
           <p className="sec-note">
-            AI runs only when you ask it to. A file you never open in an AI tool is never sent
-            anywhere. What does get sent goes to the providers’ <strong>business APIs</strong>, whose
-            terms exclude your data from training their models; it is held roughly 30 days for abuse
-            monitoring and then deleted.
+            AI runs only when you ask it to, or when you switch on automatic understanding of new files
+            for a project. What does get sent goes to the providers’ <strong>business APIs</strong> in the
+            United States, whose terms exclude your data from training their models; it is held roughly
+            30 days for abuse monitoring and then deleted. The table that turns placeholders back into
+            real names never leaves this computer.
           </p>
           <div className="sec-models">
             {MODELS.map((m) => (
@@ -118,7 +118,8 @@ export default function SecurityInfoModal({ onClose }) {
         <section className="sec-section">
           <h3 className="sec-h3">GDPR</h3>
           <ul className="sec-list">
-            <li>Data is processed in the EU, and you decide what leaves your machine.</li>
+            <li>Our servers are in the EU; AI providers are in the United States (EU–US Data Privacy Framework / Standard Contractual Clauses). You decide what leaves your machine.</li>
+            <li>Searches in the Legislation, Court files and Companies tools go straight to the Romanian public services that answer them.</li>
             <li>Access, correction, export and erasure are all available from the Account page.</li>
             <li>A Data Processing Agreement is available for firms that need one on file.</li>
           </ul>

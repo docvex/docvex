@@ -1049,8 +1049,8 @@ export default function Playbook() {
           title="Drop documents you wrote here"
           sub={
             samples.length > 0
-              ? 'Word, PDF or plain text. Only the text is kept — the files stay on your computer.'
-              : 'Word, PDF or plain text. The AI reads how you draft — your structure, your phrasing, your tone — and writes in that voice from then on. Only the text is kept, and only the first pages of it; the files stay on your computer.'
+              ? 'Word, PDF or plain text. An excerpt of the text is kept with your account, with names and identifiers replaced by placeholders — the files stay on your computer.'
+              : 'Word, PDF or plain text. The AI reads how you draft — your structure, your phrasing, your tone — and writes in that voice from then on. Only an excerpt of the text is kept with your account, with names, CNPs, IBANs and addresses replaced by placeholders first; the files stay on your computer.'
           }
         />
 

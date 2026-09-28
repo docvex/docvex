@@ -313,9 +313,9 @@ function ConnectScreen({ connecting, error, onConnect }) {
       </div>
       <h1 className="mx-connect-title">Mail</h1>
       <p className="mx-connect-lead">
-        Connect a mailbox and DocVex reads incoming mail, drafts a reply for each one in your
-        voice, and waits. Every draft has two buttons: <strong>Send</strong> or <strong>Regenerate</strong>.
-        Nothing leaves your account until you say so.
+        Connect a mailbox and DocVex lists your incoming mail. Press <strong>Draft a reply with AI</strong> on
+        a message and DocVex writes a reply in your voice — that message is sent to the AI provider
+        (Anthropic) only then. Every draft waits for you: <strong>Send</strong> or <strong>Regenerate</strong>.
       </p>
       {error && <div className="mx-connect-error">{error}</div>}
       <div className="mx-providers">
@@ -338,7 +338,7 @@ function ConnectScreen({ connecting, error, onConnect }) {
       </div>
       <div className="mx-connect-note">
         <IcShield width="15" height="15" />
-        <span>DocVex requests read + send access so it can draft replies. Drafts are generated on demand and never sent automatically — you press Send. Disconnect any time.</span>
+        <span>DocVex requests read + send access. Its access tokens are encrypted on our EU servers; message contents are read when you open the Mail tab and are not kept on our servers. A reply is drafted only when you ask, and never sent automatically — you press Send. Disconnect any time.</span>
       </div>
     </div>
   );

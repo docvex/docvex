@@ -122,7 +122,7 @@
         <section class="lg-card" id="ai">
           <h2>5. AI features &amp; your content</h2>
           <p class="lg-sub">What is sent, when, and to whom.</p>
-          <p>AI features — document Q&amp;A, summaries, risk review, drafting, OCR text extraction, audio transcription, document generation, and the legal-feed briefing — are powered by third-party AI providers: <strong>Anthropic</strong> (Claude models) and, for audio transcription, <strong>OpenAI</strong> (Whisper).</p>
+          <p>AI features — document Q&amp;A, summaries, risk review, drafting, OCR text extraction, audio transcription, document generation, and the legal-feed briefing — are powered by third-party AI providers: <strong>Anthropic</strong> (Claude models) and, for audio transcription, <strong>OpenAI</strong> (Whisper). When you have DocVex build an Office file, the draft is created in Anthropic's file storage and code-execution environment and downloaded to your computer.</p>
           <ul class="lg-list">
             <li>Content is transmitted to an AI provider <strong>only when you invoke an AI feature on it</strong>, or when you have switched on automatic understanding of new files for a project (Section 4) — never otherwise in the background.</li>
             <li>We send the minimum needed: the selected document content, image region, audio track, or prompt.</li>
@@ -145,9 +145,16 @@
                 <tr><td>Resend</td><td>Transactional email delivery</td><td>United States / EU</td></tr>
                 <tr><td>GitHub</td><td>Hosting the website, application downloads, and the update feed</td><td>United States</td></tr>
                 <tr><td>Google / Microsoft</td><td>Sign-in with Google; Gmail/Outlook sync — only if you connect them</td><td>United States / EU</td></tr>
+                <tr><td>Google</td><td>Maps of a company's public address (ANAF tab, when you open the map); typefaces on the website (Google Fonts)</td><td>United States</td></tr>
+                <tr><td>Electron (update.electronjs.org)</td><td>Update check for the Windows app: IP address, platform and version</td><td>United States</td></tr>
+                <tr><td>esm.sh</td><td>Delivers a code library to the website's sign-in and forms: IP address and browser</td><td>Global CDN</td></tr>
               </tbody>
             </table>
           </div>
+          <h3>Public legal portals</h3>
+          <p>The Legislation, Court files, Companies (ANAF) and CAEN tools send what you type into them — including a party name, file number or tax code — directly from your computer to the Romanian public service that answers it: legislatie.just.ro (Ministry of Justice), portal.just.ro (the courts' portal; its service is reached over plain HTTP, so a search can be seen on the network path), and ANAF's public web services. These are independent public authorities, not our processors; they receive your IP address and the search. Search the courts' portal by party name only where you have a reason to.</p>
+          <h3>Other things we keep on our servers</h3>
+          <p>If you import documents into the Playbook so DocVex learns your writing style, an excerpt of each (up to 12,000 characters) and the style description learned from them are stored with your account. Names, national ID numbers, IBANs, addresses and similar identifiers are replaced with placeholders on your computer before either is stored. Deleting a document or your account deletes them.</p>
           <p>The authoritative, maintained list — including how to object to changes — is in the <a href="dpa.html#subprocessors">Data Processing Agreement</a>.</p>
         </section>
 
