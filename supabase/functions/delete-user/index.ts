@@ -77,6 +77,13 @@ Deno.serve(async (req: Request) => {
     }
   };
 
+  // Phone uploads still waiting in the hand-off bucket. Swept FIRST: deleting a
+  // project below cascades its session rows, and with them the list of folders.
+  try {
+    const { data: sessions } = await admin.from("phone_upload_sessions").select("id").eq("user_id", user.id);
+    for (const { id } of sessions ?? []) await emptyFolder("phone-upload", id);
+  } catch (_) { /* best effort */ }
+
   // Projects where the user is the ONLY member would be left with nobody able
   // to reach them — their rows, chat and synced case files kept forever. They
   // are deleted now (rows cascade), their project-sync copy with them. A project
@@ -92,12 +99,6 @@ Deno.serve(async (req: Request) => {
       await admin.from("projects").delete().eq("id", project_id);
     }
   } catch (_) { /* best effort — the account is still deleted */ }
-
-  // Phone uploads still waiting in the hand-off bucket.
-  try {
-    const { data: sessions } = await admin.from("phone_upload_sessions").select("id").eq("user_id", user.id);
-    for (const { id } of sessions ?? []) await emptyFolder("phone-upload", id);
-  } catch (_) { /* best effort */ }
 
   // Erase the user's PRIVATE sync bundle (project-sync/user-<uid>/, their own
   // advisor threads and chats — lib/projectSyncData). Storage objects are not
