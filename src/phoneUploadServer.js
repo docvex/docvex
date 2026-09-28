@@ -488,10 +488,13 @@ function closeIfIdle() {
   if (!sessions.size && server) { server.close(); server = null; port = 0; }
 }
 
-export function registerPhoneUpload({ ipcMain }) {
+export function registerPhoneUpload({ ipcMain, guardDir = () => null }) {
   ipcMain.handle('phone-upload:start', async (e, payload) => {
     const dir = payload?.dir;
     if (!dir) return { ok: false, error: 'no_folder' };
+    // Files from the phone are written here: never a protected location
+    // (main.js protectedPathReason).
+    if (guardDir(dir)) return { ok: false, error: 'no_folder' };
     try {
       const st = await fsp.stat(dir);
       if (!st.isDirectory()) return { ok: false, error: 'no_folder' };

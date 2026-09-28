@@ -1922,7 +1922,7 @@ ipcMain.on('files:removed', (e, paths) => {
 });
 
 // Upload from a phone over the local network (the Files tab's Import QR code).
-registerPhoneUpload({ ipcMain });
+registerPhoneUpload({ ipcMain, guardDir: (d) => protectedPathReason(d) || (isWritableLocation(d) ? null : 'not_writable') });
 
 // Generic on-disk change (e.g. a rename from the doc-viewer tab sidebar) — fan
 // it out to every other window's Files tab. Sender skipped (same reason).
@@ -2202,6 +2202,7 @@ function recordExternalOpen(filePath) {
 function openExternalFile(filePath) {
   try { if (!fs.statSync(filePath).isFile()) return; } catch { return; }
   recordExternalOpen(filePath);
+  trustWriteRoot(path.dirname(path.resolve(filePath))); // "Save a copy" beside it
   createDocViewerWindow({
     path: path.resolve(filePath),
     name: path.basename(filePath),
@@ -2282,7 +2283,7 @@ function projectIndexService() {
       broadcast: broadcastToAllWindows,
       // A project's folder is the user's own case folder: serve it over
       // localfile:// like any folder the Files tab lists.
-      onProjectDir: (dir) => { trustNetworkRoot(dir); registerLocalfileRoot(dir); },
+      onProjectDir: (dir) => { trustNetworkRoot(dir); trustWriteRoot(dir); registerLocalfileRoot(dir); },
     });
   }
   return projectIndex;
@@ -2903,6 +2904,10 @@ ipcMain.on('app:open-docx', (_, payload) => {
   // Local DOCX → keep the Word-on-disk chain so the user can edit
   // in place. Local Word saves directly to the file; our watcher
   // picks the change up into the diff layer like any other edit.
+  // Word reads an argument starting with "/" or "-" as a command-line switch
+  // (e.g. /l loads an add-in): only an absolute, existing document path goes.
+  if (typeof localPath !== 'string' || !path.isAbsolute(localPath) || /^[-/]/.test(localPath)
+    || isUntrustedNetworkPath(localPath) || !fs.existsSync(localPath)) return;
   const winwordPath = getWinwordPath();
   if (winwordPath && spawnWord(winwordPath, localPath)) return;
   if (app.getApplicationNameForProtocol('ms-word:')) {
@@ -3186,6 +3191,7 @@ ipcMain.handle('local-folder:pick', async () => {
   if (result.canceled) return null;
   const picked = result.filePaths?.[0] || null;
   trustNetworkRoot(picked);
+  trustWriteRoot(picked);
   if (picked) registerLocalfileRoot(picked);
   return picked;
 });
@@ -3235,11 +3241,13 @@ async function sidecarProjectId(dirPath) {
   } catch { return null; }
 }
 
-ipcMain.handle('local-folder:project-dir', async (_, arg) => {
+async function resolveProjectDir(arg) {
   const projectId = typeof arg === 'string' ? arg : arg?.projectId;
   const projectName = (arg && typeof arg === 'object') ? arg.name : undefined;
   const baseDir = (arg && typeof arg === 'object' && arg.baseDir) ? String(arg.baseDir) : null;
   if (!projectId) return { path: null, error: 'No project id' };
+  // The projects folder comes from the renderer: never a protected location.
+  if (baseDir && protectedPathReason(baseDir)) return { path: null, error: protectedPathReason(baseDir) };
   try {
     const docvexRoot = path.join(app.getPath('documents'), 'Docvex');
     await fsp.mkdir(docvexRoot, { recursive: true });
@@ -3307,6 +3315,13 @@ ipcMain.handle('local-folder:project-dir', async (_, arg) => {
   } catch (err) {
     return { path: null, error: err?.message || String(err) };
   }
+}
+ipcMain.handle('local-folder:project-dir', async (_, arg) => {
+  const res = await resolveProjectDir(arg);
+  // The folder main itself resolved (or created) for this project is one the
+  // app may write to (strict write allow-list).
+  if (res?.path) trustWriteRoot(res.path);
+  return res;
 });
 
 
@@ -3473,13 +3488,20 @@ function isNetworkPath(p) {
 // A firm's file server (\\server\cases) is fine once the USER chose it: a
 // folder picked in the native dialog, or a linked project's own folder. Any
 // other network path is refused before it is touched.
+// Windows device / extended-length prefixes (\\?\C:\…, \\.\…, \\?\UNC\…) start
+// with two slashes too but are NOT file-server paths: they are refused
+// outright, and never trusted, so they can't dress a local path up as one.
+function isDevicePath(p) {
+  return /^[\\/]{2}[?.][\\/]/.test(String(p || ''));
+}
 const trustedNetworkRoots = new Set();
 function trustNetworkRoot(dir) {
-  if (dir && typeof dir === 'string' && isNetworkPath(dir)) {
+  if (dir && typeof dir === 'string' && isNetworkPath(dir) && !isDevicePath(dir)) {
     try { trustedNetworkRoots.add(caseFold(path.resolve(dir))); } catch { /* bad path */ }
   }
 }
 function isUntrustedNetworkPath(p) {
+  if (isDevicePath(p)) return true;
   if (!isNetworkPath(p)) return false;
   let f;
   try { f = caseFold(path.resolve(p)); } catch { return true; }
@@ -3533,6 +3555,7 @@ function protectedRoots() {
 /** Why `target` may not be written / deleted, or null when it may. */
 function protectedPathReason(target, { deleting = false } = {}) {
   if (!target || typeof target !== 'string') return 'No path';
+  if (isDevicePath(target)) return 'Device paths are not allowed';
   if (isUntrustedNetworkPath(target)) return 'Network paths are not allowed';
   let abs;
   try { abs = path.resolve(target); } catch { return 'Bad path'; }
@@ -3554,10 +3577,95 @@ function protectedPathReason(target, { deleting = false } = {}) {
   if (deleting && P.exact.includes(f)) return 'This folder cannot be deleted from DocVex';
   return null;
 }
+// ── Strict write allow-list (audit 2026-09-28) ─────────────────────────────
+// Beyond the protected locations, a write / move / delete must land inside a
+// folder the USER put in front of the app:
+//   - a folder picked in the native dialog, or resolved by main for a project
+//     (Documents/Docvex/…, local-folder:project-dir);
+//   - a folder holding a project file (`<name>.docvex`), or inside one — the
+//     renderer cannot create such a file outside this list, so it cannot make
+//     a folder writable on its own;
+//   - the folder of a file the OS opened with DocVex (Save a copy beside it);
+//   - the OS temp folder.
+// The list is kept in userData/write-roots.json. On the first launch with it,
+// every project folder the app already knew (both registries) and the folders
+// of files opened with DocVex are carried over, so nothing a user set up stops
+// working.
+const WRITE_ROOTS_FILE = () => path.join(app.getPath('userData'), 'write-roots.json');
+let writeRoots = null;
+function saveWriteRoots() {
+  try { fs.writeFileSync(WRITE_ROOTS_FILE(), JSON.stringify([...writeRoots], null, 2)); } catch { /* next change retries */ }
+}
+function loadWriteRoots() {
+  if (writeRoots) return writeRoots;
+  writeRoots = new Set();
+  let seeded = false;
+  try {
+    const raw = JSON.parse(fs.readFileSync(WRITE_ROOTS_FILE(), 'utf8'));
+    if (Array.isArray(raw)) { raw.forEach((d) => typeof d === 'string' && writeRoots.add(d)); seeded = true; }
+  } catch { /* first run with the list */ }
+  if (!seeded) {
+    const add = (d) => { if (d && typeof d === 'string' && !protectedPathReason(d)) writeRoots.add(caseFold(path.resolve(d))); };
+    try {
+      const reg = JSON.parse(fs.readFileSync(path.join(app.getPath('userData'), 'project-index', 'registry.json'), 'utf8'));
+      for (const e of Object.values(reg || {})) add(e?.dir);
+    } catch { /* no index registry */ }
+    try {
+      const docvexRoot = path.join(app.getPath('documents'), 'Docvex');
+      const reg = JSON.parse(fs.readFileSync(path.join(docvexRoot, '.docvex-projects.json'), 'utf8'));
+      for (const v of Object.values(reg || {})) add(path.isAbsolute(String(v)) ? v : path.join(docvexRoot, String(v)));
+    } catch { /* no legacy registry */ }
+    try { for (const e of loadExternalOpens()) add(path.dirname(e.path)); } catch { /* none */ }
+    saveWriteRoots();
+  }
+  return writeRoots;
+}
+function trustWriteRoot(dir) {
+  if (!dir || typeof dir !== 'string' || protectedPathReason(dir)) return;
+  const f = caseFold(path.resolve(dir));
+  const roots = loadWriteRoots();
+  if (roots.has(f)) return;
+  roots.add(f);
+  saveWriteRoots();
+}
+const projectFileSeen = new Map(); // folded dir → { at, has }
+function folderHasProjectFile(dir) {
+  const key = caseFold(dir);
+  const hit = projectFileSeen.get(key);
+  if (hit && Date.now() - hit.at < 30_000) return hit.has;
+  let has = false;
+  try {
+    has = fs.readdirSync(dir).some((n) => !n.startsWith('.') && n.toLowerCase().endsWith('.docvex')
+      && (() => { try { return fs.statSync(path.join(dir, n)).isFile(); } catch { return false; } })());
+  } catch { has = false; }
+  projectFileSeen.set(key, { at: Date.now(), has });
+  if (projectFileSeen.size > 500) projectFileSeen.delete(projectFileSeen.keys().next().value);
+  return has;
+}
+function isWritableLocation(target) {
+  let abs;
+  try { abs = path.resolve(target); } catch { return false; }
+  const f = caseFold(abs);
+  const P = protectedRoots();
+  if (P.temp && isInsideDir(caseFold(P.temp), f, { allowRoot: true })) return true;
+  const docvexRoot = caseFold(path.join(app.getPath('documents'), 'Docvex'));
+  if (isInsideDir(docvexRoot, f, { allowRoot: true })) return true;
+  for (const root of loadWriteRoots()) if (isInsideDir(root, f, { allowRoot: true })) return true;
+  // Inside a project folder (one holding its project file)?
+  let dir = abs;
+  for (let i = 0; i < 16; i += 1) {
+    if (folderHasProjectFile(dir)) return true;
+    const up = path.dirname(dir);
+    if (up === dir) break;
+    dir = up;
+  }
+  return false;
+}
 const refusePath = (...checks) => {
   for (const [p, opts] of checks) {
     const why = protectedPathReason(p, opts);
     if (why) return why;
+    if (!isWritableLocation(p)) return 'DocVex only changes files inside your project folders or a folder you chose';
   }
   return null;
 };
@@ -3587,6 +3695,14 @@ function registerLocalfileRoot(dir) {
 function registerLocalfileFile(filePath) {
   if (!filePath || typeof filePath !== 'string') return;
   if (isUntrustedNetworkPath(filePath)) return;
+  // Allowing one file serves its whole folder: never a protected folder
+  // (~/.ssh, app data…) and never the home folder itself.
+  try {
+    const parent = path.dirname(path.resolve(filePath));
+    if (protectedPathReason(parent)) return;
+    const P = protectedRoots();
+    if (P.home && caseFold(parent) === caseFold(P.home)) return;
+  } catch { return; }
   try { localfileRoots.add(path.dirname(path.resolve(filePath))); } catch { /* ignore */ }
 }
 // Is `filePath` inside an allowed root? Resolves symlinks first (fs.realpath) so
@@ -4481,12 +4597,20 @@ ipcMain.handle('local-folder:restore-from-trash', trashLocked(async (_, payload)
   const dir = payload?.dir;
   const stored = payload?.stored;
   if (!dir || !stored) return { ok: false, error: 'Missing args' };
+  if (!isSingleSegment(stored)) return { ok: false, error: 'Invalid name' };
+  { const why = refusePath([dir]); if (why) return { ok: false, error: why }; }
   try {
     const from = path.join(trashDir(dir), stored);
     const meta = await readTrashMeta(dir);
     const rec = meta[stored] || {};
     const originalName = rec.originalName || stored.replace(/^\d+__/, '');
-    const destDir = rec.originalRelDir ? path.join(dir, rec.originalRelDir) : dir;
+    const destDir = rec.originalRelDir ? path.resolve(dir, rec.originalRelDir) : path.resolve(dir);
+    // The bin's index can come from another device (it syncs with the folder):
+    // its folder and name must still land inside this project.
+    if (!isInsideDir(path.resolve(dir), destDir, { allowRoot: true }) || !isSingleSegment(originalName)) {
+      return { ok: false, error: 'Path is outside project folder' };
+    }
+    { const why = refusePath([destDir]); if (why) return { ok: false, error: why }; }
     await fsp.mkdir(destDir, { recursive: true });
     let target = path.join(destDir, originalName);
     // Collision → suffix "(restored)" before the extension.
@@ -4510,6 +4634,8 @@ ipcMain.handle('local-folder:delete-from-trash', trashLocked(async (_, payload) 
   const dir = payload?.dir;
   const stored = payload?.stored;
   if (!dir || !stored) return { ok: false, error: 'Missing args' };
+  if (!isSingleSegment(stored)) return { ok: false, error: 'Invalid name' };
+  { const why = refusePath([dir]); if (why) return { ok: false, error: why }; }
   try {
     try { await fsp.unlink(path.join(trashDir(dir), stored)); }
     catch (err) { if (err?.code !== 'ENOENT') throw err; }
@@ -4527,6 +4653,7 @@ ipcMain.handle('local-folder:purge-trash', trashLocked(async (_, payload) => {
   const dir = payload?.dir;
   const olderThanDays = payload?.olderThanDays ?? TRASH_RETENTION_DAYS;
   if (!dir) return { purged: 0, error: 'No directory specified' };
+  { const why = refusePath([dir]); if (why) return { purged: 0, error: why }; }
   try {
     const purged = await purgeTrashDir(dir, olderThanDays);
     return { purged, error: null };
