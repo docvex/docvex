@@ -458,15 +458,35 @@ function isUsableRect(s) {
   return !!s && Number.isFinite(s.width) && Number.isFinite(s.height);
 }
 
+// Read ONCE and kept in memory: every move / resize / theme settle used to
+// re-read and re-write the file synchronously on the main thread. Writes go
+// out asynchronously and are serialised; only quit flushes synchronously.
+let windowStateCache = null;
 function readWindowStateFile() {
+  if (windowStateCache) return windowStateCache;
+  windowStateCache = {};
   try {
     const s = JSON.parse(fs.readFileSync(windowStateFile(), 'utf8'));
-    if (!s || typeof s !== 'object') return {};
-    // Legacy flat shape → treat it as the main window's state.
-    if (isUsableRect(s) && !s.main && !s.docViewer) return { main: s, backgroundColor: s.backgroundColor };
-    return s;
+    if (s && typeof s === 'object') {
+      // Legacy flat shape → treat it as the main window's state.
+      windowStateCache = isUsableRect(s) && !s.main && !s.docViewer
+        ? { main: s, backgroundColor: s.backgroundColor }
+        : s;
+    }
   } catch { /* no/invalid state — fall back to defaults */ }
-  return {};
+  return windowStateCache;
+}
+let windowStateWrite = Promise.resolve();
+function writeWindowStateFile({ sync = false } = {}) {
+  if (sync) {
+    try { fs.writeFileSync(windowStateFile(), JSON.stringify(readWindowStateFile())); } catch { /* best-effort */ }
+    return;
+  }
+  // Serialised at WRITE time, not call time, so a queued write can never put
+  // back an older state over a newer one (including the quit-time flush).
+  windowStateWrite = windowStateWrite
+    .then(() => fsp.writeFile(windowStateFile(), JSON.stringify(readWindowStateFile())))
+    .catch(() => { /* best-effort */ });
 }
 
 // ── The window's own background colour ────────────────────────────────────
@@ -492,7 +512,7 @@ function rememberWindowBackground(color) {
     const all = readWindowStateFile();
     if (all.backgroundColor === color) return;
     all.backgroundColor = color;
-    fs.writeFileSync(windowStateFile(), JSON.stringify(all));
+    writeWindowStateFile();
   } catch { /* best-effort */ }
 }
 
@@ -501,7 +521,7 @@ function readWindowState(role = 'main') {
   return isUsableRect(state) ? state : null;
 }
 
-function saveWindowState(win, role = 'main') {
+function saveWindowState(win, role = 'main', { sync = false } = {}) {
   if (!win || win.isDestroyed()) return;
   // A window standing at presentation size on Windows is not at a size anybody
   // chose — `getNormalBounds()` reports the whole monitor there, because the
@@ -526,7 +546,7 @@ function saveWindowState(win, role = 'main') {
         maximized: win.isMaximized(), fullscreen: win.isFullScreen(),
         minimized,
       };
-    fs.writeFileSync(windowStateFile(), JSON.stringify(all));
+    writeWindowStateFile({ sync });
   } catch { /* best-effort */ }
 }
 
@@ -545,7 +565,7 @@ function trackWindowState(win, role) {
   win.on('unmaximize', schedule);
   win.on('minimize', schedule);
   win.on('restore', schedule);
-  win.on('close', () => { clearTimeout(saveTimer); saveWindowState(win, role); });
+  win.on('close', () => { clearTimeout(saveTimer); saveWindowState(win, role, { sync: true }); });
 }
 
 // Put a freshly-created window into the maximized / fullscreen / minimized mode
@@ -3273,19 +3293,33 @@ ipcMain.handle('local-folder:project-dir', async (_, arg) => {
 // Files tab is flat by design, and recursing could surface a project's
 // node_modules. Each entry carries size + mtime so the card meta line
 // can show the same "size · date" pair the cloud cards use.
+// Run `fn` over `items` with at most `limit` in flight. A folder listing used to
+// stat its entries strictly one after another — a folder of a few thousand
+// files took seconds to show, one libuv round-trip at a time.
+async function mapLimit(items, limit, fn) {
+  const out = new Array(items.length);
+  let next = 0;
+  const worker = async () => {
+    while (next < items.length) {
+      const i = next++;
+      out[i] = await fn(items[i], i);
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+  return out;
+}
+
 ipcMain.handle('local-folder:list', async (_, dir) => {
   if (!dir) return { files: [], dirs: [], error: 'No directory specified' };
   registerLocalfileRoot(dir); // the user is viewing this folder → its files are serveable
   try {
     const entries = await fsp.readdir(dir, { withFileTypes: true });
-    const files = [];
-    const dirs = [];
-    for (const entry of entries) {
+    const listed = await mapLimit(entries, 16, async (entry) => {
       if (entry.isDirectory()) {
         // Hide dotfolders (.git, .vscode, …) — same "show only the
         // project's stuff" spirit as the file-noise filter. Visible
         // folders are what the user organises with.
-        if (entry.name.startsWith('.')) continue;
+        if (entry.name.startsWith('.')) return null;
         try {
           const full = path.join(dir, entry.name);
           const stat = await fsp.stat(full);
@@ -3300,26 +3334,33 @@ ipcMain.handle('local-folder:list', async (_, dir) => {
                 : (c.isFile() && !isIgnoredLocalFilename(c.name))
             ));
           } catch { /* unreadable → treat as empty */ }
-          dirs.push({ name: entry.name, path: full, mtimeIso: stat.mtime.toISOString(), empty });
-        } catch { /* skip dirs we can't stat */ }
-        continue;
+          return { dir: { name: entry.name, path: full, mtimeIso: stat.mtime.toISOString(), empty } };
+        } catch { return null; /* skip dirs we can't stat */ }
       }
-      if (!entry.isFile()) continue;
+      if (!entry.isFile()) return null;
       // Drop OS / editor / lockfile noise so the local pane reads
       // as "your project's documents" only. See isIgnoredLocalFilename
       // for the exact pattern set and the rationale per pattern.
-      if (isIgnoredLocalFilename(entry.name)) continue;
+      if (isIgnoredLocalFilename(entry.name)) return null;
       try {
         const full = path.join(dir, entry.name);
         const stat = await fsp.stat(full);
-        files.push({
-          name: entry.name,
-          path: full,
-          sizeBytes: stat.size,
-          mtimeIso: stat.mtime.toISOString(),
-          mimeType: guessMimeFromName(entry.name),
-        });
-      } catch { /* skip files we can't stat (permission, symlink to gone target) */ }
+        return {
+          file: {
+            name: entry.name,
+            path: full,
+            sizeBytes: stat.size,
+            mtimeIso: stat.mtime.toISOString(),
+            mimeType: guessMimeFromName(entry.name),
+          },
+        };
+      } catch { return null; /* skip files we can't stat (permission, symlink to gone target) */ }
+    });
+    const files = [];
+    const dirs = [];
+    for (const r of listed) {
+      if (r?.file) files.push(r.file);
+      else if (r?.dir) dirs.push(r.dir);
     }
     // Newest first — matches the cloud list's `uploaded_at DESC` order.
     files.sort((a, b) => (a.mtimeIso < b.mtimeIso ? 1 : -1));
@@ -3431,14 +3472,26 @@ function registerLocalfileFile(filePath) {
 // Is `filePath` inside an allowed root? Resolves symlinks first (fs.realpath) so
 // a symlink planted inside an allowed folder can't point out of it and leak an
 // external file (defends the zip-symlink vector too).
+// A root's real path is resolved once and kept (it was resolved again for
+// every root on every request — a grid of tiles × dozens of roots queued tens
+// of thousands of realpath calls on the libuv pool, starving thumbnail reads).
+// Kept for a minute, so a root later swapped for a symlink is still re-checked.
+const realRootCache = new Map(); // root → { at, real: Promise<string> }
+const REAL_ROOT_TTL_MS = 60_000;
+function realRootOf(root) {
+  const hit = realRootCache.get(root);
+  if (hit && Date.now() - hit.at < REAL_ROOT_TTL_MS) return hit.real;
+  const real = fsp.realpath(root).catch(() => root);
+  realRootCache.set(root, { at: Date.now(), real });
+  return real;
+}
 async function isLocalfileAllowed(filePath) {
   if (!localfileRoots.size) return false;
   let real;
   try { real = await fsp.realpath(filePath); }
   catch { real = path.resolve(filePath); } // not-yet-existing → check resolved
   for (const root of localfileRoots) {
-    let realRoot;
-    try { realRoot = await fsp.realpath(root); } catch { realRoot = root; }
+    const realRoot = await realRootOf(root);
     if (real === realRoot || isInsideDir(realRoot, real, { allowRoot: true })) return true;
   }
   return false;
@@ -3911,16 +3964,31 @@ ipcMain.handle('local-folder:watch', (_, dir) => {
     // recursive so changes inside synced subfolders are noticed too
     // (Windows + macOS support recursive fs.watch; on platforms that
     // don't, it degrades to top-level only).
-    watcher = fs.watch(dir, { persistent: false, recursive: true }, () => {
+    let firstEventAt = 0;
+    const notify = () => {
+      watcherDebounce = null;
+      firstEventAt = 0;
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('local-folder:changed', dir);
+      }
+    };
+    watcher = fs.watch(dir, { persistent: false, recursive: true }, (_type, filename) => {
+      // Changes the Files tab never shows don't make it re-list: the app's
+      // own bookkeeping (.docvex/, .docvex.json, .docvex-trash/), Office
+      // ~$ lockfiles, editor swap files. Without this every sidecar or index
+      // write re-listed the folder, and the re-list could cause another write.
+      if (filename) {
+        const parts = String(filename).split(/[\\/]/);
+        if (parts.some((p) => p.startsWith('.')) || isIgnoredLocalFilename(parts[parts.length - 1])) return;
+      }
       // Debounce: collapse a burst of events (rename + change pairs
-      // during a save) into a single notification.
+      // during a save) into a single notification — but never hold it
+      // more than 1s, so a long copy or sync still shows progress.
+      const now = Date.now();
+      if (!firstEventAt) firstEventAt = now;
       if (watcherDebounce) clearTimeout(watcherDebounce);
-      watcherDebounce = setTimeout(() => {
-        watcherDebounce = null;
-        if (mainWindow && !mainWindow.isDestroyed()) {
-          mainWindow.webContents.send('local-folder:changed', dir);
-        }
-      }, 200);
+      if (now - firstEventAt >= 1000) { notify(); return; }
+      watcherDebounce = setTimeout(notify, 200);
     });
     watcher.on('error', () => stopWatcher());
     watchedDir = dir;
@@ -4563,7 +4631,13 @@ app.whenReady().then(() => {
   async function thumbnailFor(filePath, mtimeMs, width, mime) {
     const key = `${filePath}:${mtimeMs}:${width}`;
     const hit = thumbMemCache.get(key);
-    if (hit !== undefined) return hit;
+    if (hit !== undefined) {
+      // Least-recently-USED eviction: a hit moves to the back of the Map, so
+      // the tiles on screen aren't the ones pushed out by a scroll elsewhere.
+      thumbMemCache.delete(key);
+      thumbMemCache.set(key, hit);
+      return hit;
+    }
     const inflight = thumbInflight.get(key);
     if (inflight) return inflight;
 
@@ -4599,8 +4673,9 @@ app.whenReady().then(() => {
   }
 
   // One sweep per launch so a cache grown large in a previous session gets
-  // trimmed even if this one writes little.
-  sweepThumbCache();
+  // trimmed even if this one writes little. Deferred: it stats every cached
+  // thumbnail (thousands of files), which competed with the first paint.
+  setTimeout(() => sweepThumbCache(), 20_000);
 
   // The app's own bundle over docvex-app:// (packaged builds; see "The app origin").
   registerAppOrigin();
@@ -4694,7 +4769,9 @@ app.whenReady().then(() => {
           // but Chromium logs nothing — a 4xx here painted the console red
           // with one line per Office/PDF file in the folder for what is the
           // normal outcome on a PC with no shell provider for that format.
-          return new Response(null, { status: 204, headers: cors });
+          // Cacheable like a thumbnail: without it the renderer asked again
+          // on every repaint and paid the whole realpath + stat chain each time.
+          return new Response(null, { status: 204, headers: { ...cors, 'cache-control': 'max-age=3600' } });
         }
       }
       // Honour HTTP Range requests so <audio>/<video> can seek and read
