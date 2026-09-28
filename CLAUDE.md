@@ -207,8 +207,10 @@ Registered with privileges `standard | secure | supportFetchAPI | stream | bypas
 
 Two layers running in parallel — don't confuse them:
 
-1. **`update-electron-app` in `src/main.js`** (packaged builds only) — polls `update.electronjs.org` every 10 min, which reads GitHub Releases for `petreluca1105-dotcom/docvex`. Squirrel.Windows downloads in background, installs on next launch.
-2. **`UpdatesContext` in renderer** — fetches `https://api.github.com/repos/petreluca1105-dotcom/docvex/releases` (cached in `sessionStorage` under `docvex:releases-cache:v1`, 1 h TTL) and subscribes to `update:status` events from main. Drives the sidebar badge + the Updates page banner.
+**Releases live in a PUBLIC repo of their own** — `release-repo.json` at the root (today `docvex/docvex_releases`) is read by main.js, UpdatesContext, forge.config.js (publisher + Squirrel icon URL now `https://docvex.ro/favicon.ico`), the release scripts (`scripts/releaseRepo.mjs`), the website's installers page and README, so the SOURCE repo can be private. That repo needs at least one commit (a release tag is created at its default branch). Installs from before this change still poll the old repo: keep `docvex/docvex` public (or mirror one release there) until they have updated.
+
+1. **`update-electron-app` in `src/main.js`** (packaged builds only) — polls `update.electronjs.org` every 10 min, which reads GitHub Releases for the releases repo. Squirrel.Windows downloads in background, installs on next launch.
+2. **`UpdatesContext` in renderer** — fetches the releases repo's `https://api.github.com/repos/<owner>/<name>/releases` (cached in `sessionStorage` under `docvex:releases-cache:v1`, 1 h TTL) and subscribes to `update:status` events from main. Drives the sidebar badge + the Updates page banner.
 
 Layer 1 is the source of truth for "is an installer downloaded and ready?" → `update-downloaded` → `update:status { state: 'downloaded' }` → renderer shows "Restart & install". Layer 2 shows release notes + version-mismatch. Works in dev too (no Squirrel needed). Web returns `state: 'web'`.
 

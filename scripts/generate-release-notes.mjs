@@ -15,6 +15,7 @@
 //   - `claude` CLI on PATH (Claude Code installation; no extra API key needed).
 //   - GITHUB_TOKEN env var (already required by electron-forge publish).
 
+import { RELEASE_REPO_URL } from './releaseRepo.mjs';
 import { execSync, spawnSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 
@@ -135,10 +136,10 @@ ${commitLog}`;
     return;
   }
 
-  const repoUrl = pkg.repository?.url || '';
+  const repoUrl = RELEASE_REPO_URL;
   const m = repoUrl.match(/github\.com[/:]([^/]+)\/([^/.]+)/);
   if (!m) {
-    warn('Could not parse owner/repo from package.json repository.url:', repoUrl);
+    warn('Could not parse owner/repo from release-repo.json:', repoUrl);
     return;
   }
   const [, owner, repo] = m;

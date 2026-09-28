@@ -33,6 +33,7 @@
 // logged and the release ships without Mac builds rather than rolling
 // back the Windows release.
 
+import { RELEASE_REPO_URL } from './releaseRepo.mjs';
 import { spawnSync } from 'node:child_process';
 import { readFileSync, statSync, createReadStream } from 'node:fs';
 import { resolve, dirname, join } from 'node:path';
@@ -114,10 +115,10 @@ async function main() {
   }
 
   // 4. Find the draft release and upload.
-  const repoUrl = pkg.repository?.url || '';
+  const repoUrl = RELEASE_REPO_URL;
   const m = repoUrl.match(/github\.com[/:]([^/]+)\/([^/.]+)/);
   if (!m) {
-    warn('Could not parse owner/repo from package.json repository.url:', repoUrl);
+    warn('Could not parse owner/repo from release-repo.json:', repoUrl);
     return;
   }
   const [, owner, repo] = m;

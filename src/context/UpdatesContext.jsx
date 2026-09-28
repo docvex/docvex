@@ -1,9 +1,11 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import * as platform from '../lib/platform';
+import releaseRepo from '../../release-repo.json';
 
 const UpdatesContext = createContext(null);
 
-const REPO = 'petreluca1105-dotcom/docvex';
+// The public releases repo (release-repo.json), not the source repo.
+const REPO = `${releaseRepo.owner}/${releaseRepo.name}`;
 const RELEASES_URL = `https://api.github.com/repos/${REPO}/releases`;
 
 // sessionStorage cache for the GitHub /releases response. Keyed by version so a

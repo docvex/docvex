@@ -11,6 +11,7 @@
 //
 // Requires GITHUB_TOKEN in env (same scope as electron-forge publish).
 
+import { RELEASE_REPO_URL } from './releaseRepo.mjs';
 import { readFileSync } from 'node:fs';
 
 const PREFIX = '[upload-release-notes]';
@@ -32,10 +33,10 @@ if (!token) {
 const pkg = JSON.parse(
   readFileSync(new URL('../package.json', import.meta.url), 'utf8'),
 );
-const repoUrl = pkg.repository?.url || '';
+const repoUrl = RELEASE_REPO_URL;
 const m = repoUrl.match(/github\.com[/:]([^/]+)\/([^/.]+)/);
 if (!m) {
-  console.error(`${PREFIX} Could not parse owner/repo from package.json repository.url:`, repoUrl);
+  console.error(`${PREFIX} Could not parse owner/repo from release-repo.json:`, repoUrl);
   process.exit(2);
 }
 const [, owner, repo] = m;

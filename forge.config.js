@@ -1,4 +1,5 @@
 const path = require('node:path');
+const releaseRepo = require('./release-repo.json');
 const { FusesPlugin } = require('@electron-forge/plugin-fuses');
 const { FuseV1Options, FuseVersion } = require('@electron/fuses');
 
@@ -152,8 +153,9 @@ module.exports = {
       name: '@electron-forge/publisher-github',
       config: {
         repository: {
-          owner: 'petreluca1105-dotcom',
-          name: 'docvex',
+          // The PUBLIC releases repo (release-repo.json), not the source repo.
+          owner: releaseRepo.owner,
+          name: releaseRepo.name,
         },
         prerelease: false,
         draft: true,
@@ -170,7 +172,8 @@ module.exports = {
         //             machine can fetch. Resolves once src/favicon.ico is
         //             pushed to the repo (next release commits it).
         setupIcon: 'src/favicon.ico',
-        iconUrl: 'https://raw.githubusercontent.com/petreluca1105-dotcom/docvex/main/src/favicon.ico',
+        // Served by the website, so it stays reachable when the source repo is private.
+        iconUrl: 'https://docvex.ro/favicon.ico',
         // Authenticode signing (Setup.exe and the app inside the package).
         // Set WINDOWS_CERTIFICATE_FILE (.pfx) + WINDOWS_CERTIFICATE_PASSWORD,
         // or WINDOWS_SIGN_WITH_PARAMS for a cloud / hardware-token signer

@@ -24,6 +24,7 @@
 // GITHUB_TOKEN needs `public_repo` scope. Only the two darwin .zip assets are
 // touched — the Windows Setup.exe / nupkg / RELEASES assets are left alone.
 
+import { RELEASE_REPO_URL } from './releaseRepo.mjs';
 import { spawnSync } from 'node:child_process';
 import { readFileSync, statSync, createReadStream } from 'node:fs';
 import { resolve, dirname, join } from 'node:path';
@@ -47,9 +48,9 @@ if (process.platform !== 'darwin') {
 const token = process.env.GITHUB_TOKEN;
 if (!token) die('GITHUB_TOKEN not set (needs public_repo scope).');
 
-const repoUrl = pkg.repository?.url || '';
+const repoUrl = RELEASE_REPO_URL;
 const m = repoUrl.match(/github\.com[/:]([^/]+)\/([^/.]+)/);
-if (!m) die(`Could not parse owner/repo from package.json repository.url: ${repoUrl}`);
+if (!m) die(`Could not parse owner/repo from release-repo.json: ${repoUrl}`);
 const [, owner, repo] = m;
 
 const headers = {

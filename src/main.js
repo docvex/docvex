@@ -10,6 +10,7 @@ import { registerPhoneUpload } from './phoneUploadServer';
 import { guessMimeFromName, isIgnoredLocalFilename, walkLocalDir } from './projectIndex/walk.js';
 import { createProjectIndexService } from './projectIndex/index.js';
 import { setIndexKey, sealBytes, openBytes } from './projectIndex/seal.js';
+import releaseRepo from '../release-repo.json';
 
 // Resolve the path to Word's executable when Microsoft Word is
 // installed locally. Electron's `app.getApplicationNameForProtocol`
@@ -379,7 +380,7 @@ const AUTO_UPDATE_SUPPORTED = process.platform === 'win32';
 // first paint for no benefit — an update installs on the NEXT launch anyway.
 if (app.isPackaged && AUTO_UPDATE_SUPPORTED) {
   app.whenReady().then(() => setTimeout(() => updateElectronApp({
-    repo: 'petreluca1105-dotcom/docvex',
+    repo: `${releaseRepo.owner}/${releaseRepo.name}`,
     updateInterval: '10 minutes',
   }), 30000));
 }
@@ -3083,7 +3084,7 @@ async function downloadToFile(url, dest, onProgress) {
 // GitHub publishes for that asset. The renderer names the asset; main looks it
 // up itself, so a compromised renderer can neither point it at another host
 // nor at a tampered file.
-const UPDATE_REPO = 'petreluca1105-dotcom/docvex';
+const UPDATE_REPO = `${releaseRepo.owner}/${releaseRepo.name}`;
 async function resolveUpdateAsset(url) {
   let u;
   try { u = new URL(url); } catch { return { error: 'Invalid download URL.' }; }
