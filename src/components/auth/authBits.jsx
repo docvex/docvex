@@ -96,8 +96,7 @@ export function Agreements({ agree, news, onAgree, onNews }) {
           I agree to the{' '}
           <a href={TERMS_URL} target="_blank" rel="noopener noreferrer" onClick={openLegal(TERMS_URL)}>
             Terms of Service
-          </a>{' '}
-          and{' '}
+          </a>, confirm I am at least 16, and have read the{' '}
           <a href={PRIVACY_URL} target="_blank" rel="noopener noreferrer" onClick={openLegal(PRIVACY_URL)}>
             Privacy Policy
           </a>.
@@ -110,6 +109,20 @@ export function Agreements({ agree, news, onAgree, onNews }) {
         </span>
       </label>
     </>
+  );
+}
+
+// Under a Google button: Google can create an account without the confirm
+// step, so the same terms are stated here.
+export function GoogleTerms() {
+  const openLegal = (url) => (e) => { e.preventDefault(); openExternal(url); };
+  return (
+    <p className="auv-foot" style={{ fontSize: 12, marginTop: 10 }}>
+      By continuing with Google you agree to the{' '}
+      <a href={TERMS_URL} target="_blank" rel="noopener noreferrer" onClick={openLegal(TERMS_URL)}>Terms of Service</a>,
+      confirm you are at least 16, and have read the{' '}
+      <a href={PRIVACY_URL} target="_blank" rel="noopener noreferrer" onClick={openLegal(PRIVACY_URL)}>Privacy Policy</a>.
+    </p>
   );
 }
 

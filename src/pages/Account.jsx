@@ -8,6 +8,7 @@ import '../components/ConfirmModal.css'; // modal-* classes for the password mod
 import DangerZone, { DangerRow } from '../components/DangerZone';
 import StatusBadge from '../components/StatusBadge';
 import Tooltip from '../components/Tooltip';
+import Toggle from '../components/Toggle';
 import { STATUS_OPTIONS, DEFAULT_STATUS_KEY, updateStatus } from '../lib/userStatus';
 import { downloadMyData } from '../lib/dataExport';
 import './Account.css';
@@ -88,6 +89,16 @@ export default function Account() {
     } finally { setExporting(false); }
   };
   const { notify } = useNotifications();
+  // The Legal Newsfeed e-mail: opted into at sign-up, withdrawn (or given)
+  // here at any time — GDPR Art. 7(3). Kept in user_metadata.
+  const [newsPending, setNewsPending] = useState(null);
+  const newsOn = newsPending ?? !!session?.user?.user_metadata?.newsletter_opt_in;
+  const onNews = async (next) => {
+    setNewsPending(next);
+    const { error } = await supabase.auth.updateUser({ data: { newsletter_opt_in: !!next } });
+    setNewsPending(null);
+    if (error) notify?.({ category: 'system', variant: 'error', title: 'Could not save your newsletter choice', body: error.message, dedupeKey: 'account-news' });
+  };
   const navigate = useNavigate();
   const [copied, setCopied] = useState(false);
   // In-card danger-zone confirmation: the active action ('signout' | 'erase' |
@@ -563,6 +574,9 @@ export default function Account() {
         <button className="account-upgrade-btn" disabled={exporting} onClick={onExport}>
           {exporting ? 'Preparing…' : 'Download my data'}
         </button>
+        <div style={{ marginTop: 16 }}>
+          <Toggle on={newsOn} onChange={onNews} label="E-mail me the Legal Newsfeed (weekly)" />
+        </div>
       </section>
 
       <DangerZone subtitle="Irreversible actions for your account. Proceed with care.">

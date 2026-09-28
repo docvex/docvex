@@ -47,7 +47,7 @@ export function useAuthFlow(initial = {}) {
 
   const reset = useCallback(() => {
     setMode('signin'); setStep(0); setEmail(''); setPassword(''); setName('');
-    setFirm(''); setAgree(false); setNews(true); setError(''); setNotice('');
+    setFirm(''); setAgree(false); setNews(false); setError(''); setNotice('');
     setDone(false); setConfirmEmail('');
   }, []);
 

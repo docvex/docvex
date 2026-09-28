@@ -169,7 +169,7 @@ function footerHTML() {
             '<button class="dvx-footer-newsbtn" type="submit">Subscribe</button>' +
           '</form>' +
           '<p class="dvx-footer-newsmsg" id="dvxNewsMsg" hidden></p>' +
-          '<p class="dvx-footer-newsnote">Legal updates, summarized for your practice.</p>' +
+          '<p class="dvx-footer-newsnote">Legal updates, summarized for your practice. Weekly; unsubscribe any time by writing to docvexteam@docvex.ro. See our <a href="privacy.html">Privacy Policy</a>.</p>' +
         '</div>' +
       '</div>' +
       '<div class="dvx-footer-bottom">' +

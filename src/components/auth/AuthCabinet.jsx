@@ -1,6 +1,6 @@
 import React from 'react';
 import {
-  GoogleButton, Field, Strength, Agreements, ReviewSummary,
+  GoogleButton, GoogleTerms, Field, Strength, Agreements, ReviewSummary,
   FormMsg, CheckIcon, woodH, SIGNUP_URL,
 } from './authBits';
 import { openExternal } from '../../lib/platform';
@@ -75,6 +75,7 @@ function SignIn({ flow: f }) {
       </button>
       <div className="auv-or"><span>or</span></div>
       <GoogleButton onClick={f.google} />
+      <GoogleTerms />
       {/* Sign-up lives on the website — same Supabase project, so the account
           created there signs in here. Opens in the default browser (not a new
           tab) so the half-typed sign-in form survives. This is the only
@@ -114,6 +115,7 @@ function SignUp({ flow: f, stepDotClass }) {
           <button className="auv-btn auv-btn--cognac" onClick={f.next}>Continue</button>
           <div className="auv-or"><span>or</span></div>
           <GoogleButton onClick={f.google} label="Sign up with Google" />
+          <GoogleTerms />
           <p className="auv-foot">Already a member? <button type="button" className="auv-link" onClick={f.toSignin}>Sign in</button></p>
         </div>
       )}
