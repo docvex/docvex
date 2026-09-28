@@ -4,10 +4,8 @@
 // nothing else changes.
 //
 // FAILURE: a call that should be masked but cannot be (no project, the vault's
-// storage refused — safeStorage unavailable, an old preload) FAILS CLOSED for
-// the bulk readers (`FAIL_CLOSED`: the scan, the MRZ reader) — they answer
-// `vault_unavailable` and nothing is sent — and goes out unmasked, with a
-// warning, for everything else.
+// storage refused — safeStorage unavailable, an old preload) FAILS CLOSED: it
+// answers `vault_unavailable` and nothing is sent.
 
 import { getAiUsageProject } from '../aiTokenMeter';
 import { isPseudonymizeOn, isGuessNamesOn, FAIL_CLOSED } from '../pseudonymizeSetting';
@@ -29,14 +27,11 @@ export async function vaultForCall(usageProject, usageAction) {
   const projectId = usageProject === undefined ? getAiUsageProject() : usageProject;
   const wanted = isPseudonymizeOn(projectId, usageAction) || (!projectId && FAIL_CLOSED.has(usageAction) && usageProject !== null);
   if (!wanted) return { vault: null, projectId };
+  // A call that should be masked but cannot be is NOT sent (fail closed) —
+  // sending it unmasked would silently undo the protection the user relies on.
   const refuse = (why) => {
-    if (FAIL_CLOSED.has(usageAction)) {
-      recordSent({ usageAction, projectId, masked: false, sent: false, reason: `not sent: ${why}` });
-      return { error: VAULT_UNAVAILABLE, projectId };
-    }
-    // eslint-disable-next-line no-console
-    console.warn(`[pseudonymize] sending "${usageAction}" UNMASKED: ${why}`);
-    return { vault: null, projectId, reason: `sent unmasked: ${why}` };
+    recordSent({ usageAction, projectId, masked: false, sent: false, reason: `not sent: ${why}` });
+    return { error: VAULT_UNAVAILABLE, projectId };
   };
   if (!projectId) return refuse('no project');
   try {

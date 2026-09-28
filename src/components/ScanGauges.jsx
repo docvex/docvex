@@ -14,9 +14,8 @@ import RuleOptions from './RuleOptions';
 const MASK_FIELD = {
   label: 'Pseudonymise text sent to the AI',
   options: [
-    { id: 'default', label: 'Scan only', example: 'The AI scan sends tokens instead of names, CNPs, CUIs, IBANs, ID numbers, phones, e-mails and addresses. The advisor and Research send text as it is.' },
-    { id: 'all', label: 'Everything', example: 'Every AI call is masked. The advisor and Research can then no longer notice a misspelled name or a CNP that doesn\u2019t match a birth date.' },
-    { id: 'off', label: 'Off', example: 'Nothing is masked \u2014 text goes to the AI as it is.' },
+    { id: 'default', label: 'On', example: 'Every AI call made in this project sends tokens instead of names, CNPs, CUIs, IBANs, ID numbers, phones, e-mails and addresses. If masking cannot run, the call is not sent.' },
+    { id: 'off', label: 'Off', example: 'Nothing is masked \u2014 text goes to the AI as it is. The AI can then notice a misspelled name or a CNP that doesn\u2019t match a birth date.' },
   ],
 };
 import './RefPill.css';
@@ -406,7 +405,7 @@ function CloudMediaSection() {
         </li>
         <li>
           <span className="sg-feat-label">Pseudonymise text sent to the AI</span>
-          <RuleOptions field={MASK_FIELD} value={mode} onPick={(id) => setPseudonymizeMode(selectedProjectId, id)} />
+          <RuleOptions field={MASK_FIELD} value={mode === 'off' ? 'off' : 'default'} onPick={(id) => setPseudonymizeMode(selectedProjectId, id)} />
           <span className="sg-feat-note">
             Names, CNPs, CUIs, IBANs, ID numbers, phones, e-mails and addresses leave as tokens and are put back on this computer; the key stays here, encrypted. Pseudonymised text is still personal data under GDPR.
           </span>

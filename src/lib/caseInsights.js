@@ -859,6 +859,10 @@ async function imagePayload(f, page = null) {
 const parseJson = (text) => { const m = /\{[\s\S]*\}/.exec(String(text || '')); try { return m ? JSON.parse(m[0]) : null; } catch { return null; } };
 const SIG_WORDS = /semnat|semnatur|stampil|l\.s\.|sign|stamp|seal|contract|proces.?verbal|declarati|imputernicire|procura|factur|chitant|adeverint|certificat/;
 export async function compareSignatures(data, { projectId, onProgress, isCancelled } = {}) {
+  // Page images go to the AI provider: only with the project's consent to
+  // cloud reading of images (lib/cloudMedia), like every other picture path.
+  const { isCloudMediaAllowed, CLOUD_MEDIA_MESSAGE } = await import('./cloudMedia');
+  if (!isCloudMediaAllowed(projectId || undefined)) return { error: CLOUD_MEDIA_MESSAGE, marks: [], groups: [] };
   const say = (step, frac) => onProgress?.(step, frac);
   const pages = [];
   for (const f of data.files) {

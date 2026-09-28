@@ -1,12 +1,12 @@
 // Whether TEXT sent to the AI is pseudonymised (lib/pseudonymize), per project
-// and per device. Three modes:
-//   'default' — the AI scan and the MRZ reader only (what reads documents in
-//               bulk, where nobody is looking at the answer);
-//   'all'     — every AI call, the advisor and Research included;
-//   'off'     — none.
+// and per device. Modes:
+//   'default' — EVERY AI call made in a project (data protection by default,
+//               GDPR Art. 25; CNPs in particular — Law 190/2018 art. 4);
+//   'all'     — the same as 'default' (kept so a stored choice still reads);
+//   'off'     — none: the user's explicit choice for that project.
 // Masking hides real values from the AI, so it can no longer notice a
-// misspelled name or a CNP that doesn't match a birth date — which is why the
-// conversational surfaces are left to the user's choice.
+// misspelled name or a CNP that doesn't match a birth date — a trade the user
+// may make per project by switching it off, never one made for them.
 
 /** @typedef {'default'|'all'|'off'} PseudonymizeMode */
 
@@ -47,8 +47,7 @@ export function isPseudonymizeOn(projectId, usageAction) {
   if (!projectId) return false;
   const mode = getPseudonymizeMode(projectId);
   if (mode === 'off') return false;
-  if (mode === 'all') return true;
-  return PSEUDONYMIZE_BY_DEFAULT.has(usageAction);
+  return true; // 'default' and 'all' both mask every call (usageAction kept for callers)
 }
 
 // ── Guessing names the project doesn't know (lib/pseudonymize/detectorLayer3)

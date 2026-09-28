@@ -310,12 +310,15 @@ export function makeAskAnswers(questions, perQuestion, { dismissed = false } = {
 // `{ suggestions: [{ label, prompt }] }` or `{ error }` so the caller can fall
 // back to its own heuristic list.
 export async function suggestFileActions({ fileName, excerpt, mimeType }) {
+  const guard = await vaultForCall(undefined, 'suggest');
+  if (guard.error) return vaultError();
   const { data, error } = await supabase.functions.invoke('project-ai', {
-    body: { action: 'suggest', fileName, excerpt, mimeType },
+    body: masked(guard, { action: 'suggest', fileName, excerpt, mimeType }, 'suggest'),
   });
   const res = unwrap(data, error);
   if (res.error) return res;
-  return { suggestions: Array.isArray(res.data.suggestions) ? res.data.suggestions : [] };
+  const suggestions = Array.isArray(res.data.suggestions) ? res.data.suggestions : [];
+  return { suggestions: restored(guard, suggestions) };
 }
 
 // Draft a document. Returns `{ text }` or `{ error }`.
@@ -335,12 +338,14 @@ export async function generateDocument({ template, instructions, projectName, fi
     const parts = [instructions || '', await styleSteer(), docRulesSteer()].filter((x) => String(x).trim());
     steered = parts.join('\n\n').trim();
   } catch { /* a generic voice is a worse draft, not a failed one */ }
+  const guard = await vaultForCall(undefined, 'generate');
+  if (guard.error) return vaultError();
   const { data, error } = await supabase.functions.invoke('project-ai', {
-    body: withJurisdiction({ action: 'generate', template, instructions: steered, projectName, fileNames }),
+    body: masked(guard, withJurisdiction({ action: 'generate', template, instructions: steered, projectName, fileNames }), 'generate'),
   });
   const res = unwrap(data, error);
   if (res.error) return res;
-  return { text: res.data.text || '' };
+  return { text: restored(guard, res.data.text || '') };
 }
 
 // Build a real Office file from `content` using Anthropic's document Agent Skills
@@ -348,6 +353,11 @@ export async function generateDocument({ template, instructions, projectName, fi
 // success, or `{ unavailable: true }` when the account lacks the betas (so the
 // caller falls back to the local JS builders), or `{ error }` on a hard failure.
 export async function generateOfficeFile({ kind, content, instructions, model }) {
+  // The file comes back BUILT: placeholders inside it could not be put back,
+  // and it would sit in the provider's Files API. With masking on, the caller's
+  // local builders (docx / pptxgenjs / SheetJS / jsPDF) make it on this machine.
+  const projectId = getAiUsageProject();
+  if (isPseudonymizeOn(projectId, 'office')) return { unavailable: true, code: 'masked_local' };
   const { data, error } = await supabase.functions.invoke('project-ai', {
     body: withJurisdiction({ action: 'office', kind, content, instructions, model }),
   });
