@@ -8,7 +8,7 @@ bottom for reference. Work the **Outstanding** list top to bottom.
 
 ## ⏸ Outstanding
 
-### 1. Apply RLS migration `032` to production  — HIGH
+### 1. ~~Apply RLS migration `032` to production~~ — DONE 2026-09-28 (applied and verified in `pg_policies`)
 - **File (ready):** [`supabase/migrations/032_rls_security_fixes.sql`](supabase/migrations/032_rls_security_fixes.sql)
 - **Why:** fixes the owner-takeover (any admin can permanently demote/lock out the
   project owner), self-privilege-escalation (a viewer-tier custom role with

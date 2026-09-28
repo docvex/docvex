@@ -69,7 +69,10 @@ export const AI_LIMITS = {
   portalChars: 15_000,     // characters of one record handed over
   openFileChars: 40_000,   // characters of the open file handed over
   effort: 'medium',        // output_config.effort on every turn (constant, so the cache holds)
-  warmCache: true,         // write the prompt cache while the question is typed
+  // OFF: warming sent the open file and the project digest to the AI provider
+  // while the question was still being typed — before the user chose to send
+  // anything (GDPR: only what the user submits may leave the machine).
+  warmCache: false,
   warmEveryMs: 4 * 60_000, // at most once per model + data this often (the cache lives 5 min)
 };
 

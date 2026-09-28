@@ -138,8 +138,12 @@ function DraftBlock({ email, status, onSend, onArchive, onUndo, signature }) {
   const [length, setLength] = useState('Standard');
   const [text, setText] = useState('');
   const [reasoning, setReasoning] = useState([]);
-  const [busy, setBusy] = useState(true);
+  const [busy, setBusy] = useState(false);
   const [genError, setGenError] = useState(false);
+  // No draft is made until the user asks for one: drafting sends the email
+  // (someone else's personal data) to the AI provider, so it must never
+  // happen just because the inbox was opened.
+  const [asked, setAsked] = useState(false);
   const [edited, setEdited] = useState(false);
   const [sending, setSending] = useState(false);
   const [showWhy, setShowWhy] = useState(true);
@@ -147,7 +151,7 @@ function DraftBlock({ email, status, onSend, onArchive, onUndo, signature }) {
 
   const regenerate = useCallback(async (nextTone, nextLength) => {
     const id = ++reqId.current;
-    setBusy(true); setGenError(false);
+    setAsked(true); setBusy(true); setGenError(false);
     const { reasoning: r, draft, error } = await generateReply({
       email, tone: nextTone ?? tone, length: nextLength ?? length, signature,
     });
@@ -156,15 +160,8 @@ function DraftBlock({ email, status, onSend, onArchive, onUndo, signature }) {
     setReasoning(r); setText(draft); setEdited(false); setBusy(false);
   }, [email, tone, length, signature]);
 
-  // Draft once when the row first appears (real emails have no seed draft).
-  useEffect(() => {
-    if (status === 'pending') regenerate();
-    else setBusy(false);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  const pickTone = (t) => { setTone(t); regenerate(t, length); };
-  const pickLength = (l) => { setLength(l); regenerate(tone, l); };
+  const pickTone = (t) => { setTone(t); if (asked) regenerate(t, length); };
+  const pickLength = (l) => { setLength(l); if (asked) regenerate(tone, l); };
 
   const doSend = async () => {
     setSending(true);
@@ -188,6 +185,24 @@ function DraftBlock({ email, status, onSend, onArchive, onUndo, signature }) {
         <span className="mx-sent-badge is-muted"><IcArchive width="13" height="13" /> Archived</span>
         <span className="mx-sent-text">No reply drafted</span>
         <button type="button" className="mx-linkbtn" onClick={onUndo}>Undo</button>
+      </div>
+    );
+  }
+
+  if (!asked) {
+    return (
+      <div className="mx-draft mx-draft-card">
+        <div className="mx-card-foot">
+          <div className="mx-actions">
+            <button type="button" className="mx-btn mx-btn-primary" onClick={() => regenerate()}>
+              <IcSparkle width="15" height="15" /> Draft a reply with AI
+            </button>
+            <button type="button" className="mx-btn mx-btn-quiet" onClick={onArchive}>
+              <IcArchive width="15" height="15" /> Archive
+            </button>
+          </div>
+          <span className="mx-control-label">Drafting sends this email to the AI provider (Anthropic).</span>
+        </div>
       </div>
     );
   }
