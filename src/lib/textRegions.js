@@ -33,6 +33,7 @@
 import { askProjectAi } from './projectAi';
 import { readLocalBlob } from './localFolder';
 import { getAiFacet, saveAiFacet, stampFor } from './aiData';
+import { isCloudMediaAllowed } from './cloudMedia';
 import { readSourceText } from './identityExtract';
 import { readLines } from './paddleOcr';
 
@@ -831,8 +832,11 @@ const READING_VERSION = 9;
 // was composed in and the PARTS it was composed from (`data.parts`: the measured
 // runs, the AI's text per run), so switching never pays for the AI twice.
 const MODE_KEY = 'docvex:doc-viewer:text-reading-mode';
-export const DEFAULT_READING_MODE = { result: 'ai' };
-const cleanMode = (m) => ({ result: m?.result === 'local' ? 'local' : 'ai' });
+// LOCAL BY DEFAULT: the AI mode sends strips of the picture to Anthropic, so
+// it is used only when it was chosen AND the project allows cloud reading of
+// images (lib/cloudMedia) — see `extractImageText`.
+export const DEFAULT_READING_MODE = { result: 'local' };
+const cleanMode = (m) => ({ result: m?.result === 'ai' ? 'ai' : 'local' });
 export function loadReadingMode() {
   try { return cleanMode(JSON.parse(localStorage.getItem(MODE_KEY) || 'null') || DEFAULT_READING_MODE); } catch { return { ...DEFAULT_READING_MODE }; }
 }
@@ -947,7 +951,7 @@ export async function extractImageText(file, { el = null, force = false, mode: a
   // mode switch = rebuild). Only one the viewer cannot draw is made again.
   if (!force && !rebuild && drawable(saved)) return saved;
   const parts = !force && saved?.data?.v === READING_VERSION && saved.data.parts ? { ...saved.data.parts } : {};
-  const wantAi = mode.result === 'ai' && !Array.isArray(parts.ai);
+  const wantAi = mode.result === 'ai' && !Array.isArray(parts.ai) && isCloudMediaAllowed();
   let img = el;
   if ((!parts.local || wantAi) && !img?.naturalWidth) {
     try { img = await decodeImageAt(path); } catch { return { error: 'The picture couldn’t be opened for reading.' }; }

@@ -118,3 +118,38 @@
 .sg-live > li.is-off { opacity: 0.45; pointer-events: none; }
 .sg-live-status { color: var(--text-secondary); }
 .sg-live-status.is-busy { color: var(--accent); }
+
+.sg-feat-label { font-size: 12px; font-weight: 600; color: var(--text-primary); }
+.sg-feats .pbk-rule-opts { margin: 2px 0; }
+
+/* What was sent to the AI (SentLog). */
+.sg-sent { display: flex; flex-direction: column; gap: 6px; }
+.sg-sent-toggle, .sg-sent-clear {
+  align-self: flex-start; padding: 0; border: 0; background: none; cursor: pointer;
+  font: inherit; font-size: 11px; font-weight: 600; color: var(--accent);
+}
+.sg-sent-toggle:hover, .sg-sent-clear:hover { text-decoration: underline; }
+.sg-sent-list { display: flex; flex-direction: column; gap: 4px; max-height: 260px; overflow-y: auto; }
+.sg-sent-row { display: flex; flex-direction: column; gap: 2px; padding: 4px 0; border-top: 1px solid var(--ds-hairline, var(--border)); }
+.sg-sent-head {
+  display: flex; align-items: center; gap: 6px; padding: 0; border: 0; background: none;
+  font: inherit; font-size: 11px; color: var(--text-primary); text-align: left; cursor: pointer;
+}
+.sg-sent-head:disabled { cursor: default; }
+.sg-sent-action { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sg-sent-time { color: var(--text-muted); font-variant-numeric: tabular-nums; }
+.sg-sent-pill {
+  --pill-tone: var(--success);
+  flex: none; padding: 0 6px; border-radius: 999px; font-size: 10px; font-weight: 600; line-height: 16px;
+  color: var(--pill-tone);
+  background: color-mix(in srgb, var(--pill-tone) 14%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--pill-tone) 40%, transparent);
+}
+.sg-sent-pill.is-clear { --pill-tone: var(--warning); }
+.sg-sent-pill.is-refused { --pill-tone: var(--danger); }
+.sg-sent-text {
+  margin: 2px 0 0; padding: 6px 8px; max-height: 180px; overflow: auto;
+  font: 10.5px/1.45 ui-monospace, Consolas, monospace; white-space: pre-wrap; word-break: break-word;
+  color: var(--text-secondary); background: color-mix(in srgb, var(--text-primary) 4%, transparent);
+  border-radius: 6px;
+}

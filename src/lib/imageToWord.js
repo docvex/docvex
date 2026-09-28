@@ -20,6 +20,7 @@
 //   buildWordFromBlocks(blocks, { page, font }) → Blob (.docx)          (exported for tests)
 
 import { askProjectAi } from './projectAi';
+import { isCloudMediaAllowed, CLOUD_MEDIA_MESSAGE, CLOUD_MEDIA_OFF } from './cloudMedia';
 
 const MODEL = 'claude-sonnet-4-6';
 const MAX_EDGE = 2200;   // long side sent to the AI — enough for small print, under the API's limits
@@ -262,6 +263,8 @@ export async function buildWordFromBlocks(blocks, { page = null, font = null } =
 
 /** The picture on screen → a reconstructed Word document. */
 export async function pictureToWord(img, { projectId } = {}) {
+  // The whole picture goes to the AI: only with cloud reading allowed.
+  if (!isCloudMediaAllowed(projectId || undefined)) return { ok: false, error: CLOUD_MEDIA_MESSAGE, code: CLOUD_MEDIA_OFF };
   let data;
   try { data = pictureJpeg(img); } catch (e) { return { ok: false, error: e?.message || 'unreadable' }; }
   const res = await askProjectAi({

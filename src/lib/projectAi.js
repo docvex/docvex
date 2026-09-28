@@ -5,8 +5,41 @@
 // back gracefully instead of throwing on a non-2xx.
 
 import { supabase } from './supabaseClient';
-import { recordAiTokens } from './aiTokenMeter';
+import { recordAiTokens, getAiUsageProject } from './aiTokenMeter';
 import { getActiveJurisdiction } from './jurisdictions';
+import { isPseudonymizeOn, FAIL_CLOSED } from './pseudonymizeSetting';
+import { recordSent } from './pseudonymize/sentLog';
+
+// PSEUDONYMISATION (lib/pseudonymize, lib/pseudonymizeSetting): when a call's
+// text is to be masked, its body is masked here and its answer re-identified
+// here, so every caller keeps seeing real values. `guard` = what
+// `vaultForCall` answered: `{ vault }` (null = send as it is) or `{ error }`
+// (fail closed — nothing is sent).
+// The vault and its detectors are loaded only when a call is to be masked —
+// they pull in lib/lawRefs, which must stay out of the startup bundle.
+async function vaultForCall(usageProject, usageAction) {
+  const projectId = usageProject === undefined ? getAiUsageProject() : usageProject;
+  const wanted = isPseudonymizeOn(projectId, usageAction) || (!projectId && usageProject !== null && FAIL_CLOSED.has(usageAction));
+  if (!wanted) return { vault: null, projectId };
+  const t = await import('./pseudonymize/transport');
+  return t.vaultForCall(usageProject, usageAction);
+}
+const vaultError = () => ({ error: new Error('vault_unavailable') });
+// The body as it will go out — masked when the call is — and a record of it in
+// the "What was sent" log (lib/pseudonymize/sentLog: the masked text only;
+// nothing for a call sent as it is).
+const masked = (guard, body, usageAction, { log = true } = {}) => {
+  const out = guard.vault ? guard.wire.maskBody(body, guard.vault, guard.maskOpts) : body;
+  if (log) {
+    recordSent({
+      usageAction, projectId: guard.projectId, masked: !!guard.vault,
+      reason: guard.reason || (guard.vault ? '' : 'not masked (this project\u2019s setting)'),
+      preview: guard.vault ? guard.wire.bodyText(out) : null,
+    });
+  }
+  return out;
+};
+const restored = (guard, answer) => (guard.vault ? guard.vault.reidentify(answer) : answer);
 
 // Every request carries the open project's jurisdiction so the Edge Function
 // can build a system prompt that names the right law, courts and answer
@@ -124,10 +157,12 @@ function answerFrom(data, { usageProject, usageAction, model }) {
 
 export async function askProjectAi(opts) {
   const { usageProject, usageAction = 'chat', model } = opts;
-  const { data, error } = await supabase.functions.invoke('project-ai', { body: askBody(opts) });
+  const guard = await vaultForCall(usageProject, usageAction);
+  if (guard.error) return vaultError();
+  const { data, error } = await supabase.functions.invoke('project-ai', { body: masked(guard, askBody(opts), usageAction) });
   const res = unwrap(data, error);
   if (res.error) return res;
-  return answerFrom(res.data, { usageProject, usageAction, model });
+  return restored(guard, answerFrom(res.data, { usageProject, usageAction, model }));
 }
 
 /**
@@ -138,7 +173,12 @@ export async function askProjectAi(opts) {
  * aborts the request (Stop).
  */
 export async function askProjectAiStream(opts) {
-  const { usageProject, usageAction = 'chat', model, onText, signal } = opts;
+  const { usageProject, usageAction = 'chat', model, signal } = opts;
+  const guard = await vaultForCall(usageProject, usageAction);
+  if (guard.error) return vaultError();
+  // Re-identified as it arrives, a token never split across two pieces.
+  const sink = guard.vault ? guard.wire.makeStreamReidentifier(guard.vault, opts.onText) : null;
+  const onText = sink ? (piece) => sink.push(piece) : opts.onText;
   let token = '';
   try { token = (await supabase.auth.getSession())?.data?.session?.access_token || ''; } catch { token = ''; }
   const anon = import.meta.env.VITE_SUPABASE_ANON_KEY;
@@ -147,7 +187,7 @@ export async function askProjectAiStream(opts) {
     resp = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/project-ai`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', apikey: anon, Authorization: `Bearer ${token || anon}` },
-      body: JSON.stringify({ ...askBody(opts), stream: true }),
+      body: JSON.stringify({ ...masked(guard, askBody(opts), usageAction), stream: true }),
       signal,
     });
   } catch (e) {
@@ -160,7 +200,8 @@ export async function askProjectAiStream(opts) {
     const res = unwrap(data, resp.ok ? null : new Error(data?.error || `http_${resp.status}`));
     if (res.error) return res;
     if (res.data.text) onText?.(res.data.text, res.data.text);
-    return answerFrom(res.data, { usageProject, usageAction, model });
+    sink?.end();
+    return restored(guard, answerFrom(res.data, { usageProject, usageAction, model }));
   }
   const reader = resp.body.pipeThrough(new TextDecoderStream()).getReader();
   let buf = '';
@@ -186,7 +227,8 @@ export async function askProjectAiStream(opts) {
     return { error: e?.name === 'AbortError' ? new Error('aborted') : e };
   }
   if (!done) return { error: new Error('The answer was cut off.') };
-  return answerFrom(done, { usageProject, usageAction, model });
+  sink?.end();
+  return restored(guard, answerFrom(done, { usageProject, usageAction, model }));
 }
 
 /**
@@ -197,7 +239,12 @@ export async function askProjectAiStream(opts) {
  */
 export async function warmProjectAi(opts) {
   try {
-    const { data } = await supabase.functions.invoke('project-ai', { body: { ...askBody({ ...opts, messages: [{ role: 'user', content: '.' }] }), warm: true } });
+    // Masked exactly as the turn will be, or the cached prefix never matches
+    // (and an unmasked warm-up would send what the turn keeps back).
+    const guard = await vaultForCall(opts.usageProject, opts.usageAction || 'chat');
+    if (guard.error) return null;
+    const body = masked(guard, askBody({ ...opts, messages: [{ role: 'user', content: '.' }] }), opts.usageAction || 'chat', { log: false });
+    const { data } = await supabase.functions.invoke('project-ai', { body: { ...body, warm: true } });
     return data?.usage || null;
   } catch { return null; }
 }
@@ -208,24 +255,28 @@ export async function warmProjectAi(opts) {
 // `{ passports, missing }` or `{ error }`; a file in `missing` was left out by
 // the model and should be retried.
 export async function passportFiles({ files, jurisdiction, usageProject, usageAction = 'files-scan' }) {
-  const body = withJurisdiction({ action: 'passport', files }, jurisdiction);
+  const guard = await vaultForCall(usageProject, usageAction);
+  if (guard.error) return vaultError();
+  const body = masked(guard, withJurisdiction({ action: 'passport', files }, jurisdiction), usageAction);
   const { data, error } = await supabase.functions.invoke('project-ai', { body });
   const res = unwrap(data, error);
   if (res.error) return res;
   recordAiTokens({ projectId: usageProject, usage: res.data.usage || {}, action: usageAction, model: 'claude-sonnet-5' });
-  return { passports: res.data.passports || [], missing: res.data.missing || [] };
+  return restored(guard, { passports: res.data.passports || [], missing: res.data.missing || [] });
 }
 
 // REDUCE: passports (`{ id, name, ...passport }`) → `{ graph: { timeline,
 // facts, links }, dropped }` or `{ error }`. Each link is `{ from_file_id,
 // to_file_id, connection_type, explanation, evidence, confidence }`.
 export async function crossrefPassports({ passports, jurisdiction, usageProject, usageAction = 'files-scan' }) {
-  const body = withJurisdiction({ action: 'crossref', passports }, jurisdiction);
+  const guard = await vaultForCall(usageProject, usageAction);
+  if (guard.error) return vaultError();
+  const body = masked(guard, withJurisdiction({ action: 'crossref', passports }, jurisdiction), usageAction);
   const { data, error } = await supabase.functions.invoke('project-ai', { body });
   const res = unwrap(data, error);
   if (res.error) return res;
   recordAiTokens({ projectId: usageProject, usage: res.data.usage || {}, action: usageAction, model: 'claude-sonnet-5' });
-  return { graph: res.data.graph || { timeline: [], facts: [], links: [] }, dropped: res.data.dropped || [] };
+  return restored(guard, { graph: res.data.graph || { timeline: [], facts: [], links: [] }, dropped: res.data.dropped || [] });
 }
 
 // Build the two messages that RESUME a paused ask_user turn: the assistant turn

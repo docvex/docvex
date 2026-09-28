@@ -1,4 +1,4 @@
-import { app, BrowserWindow, Menu, Tray, ipcMain, shell, autoUpdater, dialog, protocol, nativeImage, screen, session, desktopCapturer } from 'electron';
+import { app, BrowserWindow, Menu, Tray, ipcMain, shell, autoUpdater, dialog, protocol, nativeImage, screen, session, desktopCapturer, safeStorage } from 'electron';
 import path from 'node:path';
 import fs from 'node:fs';
 import fsp from 'node:fs/promises';
@@ -1787,6 +1787,42 @@ ipcMain.on('window:open-tab-window', (_e, payload) => {
   broadcastTabWindows();
 });
 ipcMain.handle('tab-windows:list', () => [...tabWindows.values()]);
+
+// THE PSEUDONYMISATION VAULT (lib/pseudonymize): which token stands for which
+// real name / CNP / IBAN, per project. Kept ONLY here — <userData>/vault, never
+// in a case folder or .docvex/, which travel with the case — and encrypted with
+// the OS's own key store (safeStorage: DPAPI on Windows, the Keychain on
+// macOS). Where encryption isn't available nothing is written: a vault in
+// plain text beside the app's data would defeat the point.
+const VAULT_ID = /^[A-Za-z0-9_-]{1,80}$/;
+const vaultFile = (projectId) => path.join(app.getPath('userData'), 'vault', `${projectId}.bin`);
+ipcMain.handle('vault:get', async (_e, projectId) => {
+  if (!VAULT_ID.test(String(projectId || ''))) return { error: 'bad_id' };
+  // Asked first: a vault that could be read but never written back would hand
+  // out tokens it forgets.
+  if (!safeStorage.isEncryptionAvailable()) return { error: 'no_encryption' };
+  try {
+    const bytes = await fsp.readFile(vaultFile(projectId));
+    return { data: safeStorage.decryptString(bytes) };
+  } catch (err) {
+    return err?.code === 'ENOENT' ? { data: null } : { error: String(err?.message || err) };
+  }
+});
+ipcMain.handle('vault:put', async (_e, projectId, data) => {
+  if (!VAULT_ID.test(String(projectId || ''))) return { error: 'bad_id' };
+  if (typeof data !== 'string' || data.length > 20 * 1024 * 1024) return { error: 'bad_data' };
+  if (!safeStorage.isEncryptionAvailable()) return { error: 'no_encryption' };
+  try {
+    const file = vaultFile(projectId);
+    await fsp.mkdir(path.dirname(file), { recursive: true });
+    const tmp = `${file}.${process.pid}.tmp`;
+    await fsp.writeFile(tmp, safeStorage.encryptString(data));
+    await fsp.rename(tmp, file);
+    return { ok: true };
+  } catch (err) {
+    return { error: String(err?.message || err) };
+  }
+});
 ipcMain.on('tab-window:route', (e, payload) => {
   const w = BrowserWindow.fromWebContents(e.sender);
   const entry = w && tabWindows.get(w.id);

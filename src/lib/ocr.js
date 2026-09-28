@@ -5,6 +5,17 @@
 // where Claude transcribes it — the Anthropic key stays server-side and the
 // call rides the user's Supabase session like every other doc-ai task.
 import { supabase } from './supabaseClient';
+import { isCloudMediaAllowed } from './cloudMedia';
+
+// LOCAL BY DEFAULT: unless the project allows cloud reading of images
+// (lib/cloudMedia), the canvas is read on this computer by PaddleOCR
+// (lib/paddleOcr, in its worker) and nothing leaves the machine.
+async function recognizeLocally(canvas, onProgress) {
+  onProgress?.({ label: 'Reading text on this computer…', progress: null });
+  const { readLines } = await import('./paddleOcr');
+  const lines = await readLines(canvas);
+  return lines.map((l) => l.text).join('\n').trim();
+}
 
 // Claude internally downsizes anything over ~1568 px on the long edge —
 // shipping more pixels only slows the upload. Callers use this to scale the
@@ -14,7 +25,9 @@ export const OCR_MAX_EDGE = 1568;
 // canvas → recognized text (trimmed). onProgress receives
 // { label, progress: 0..1 | null } — the API gives no incremental progress,
 // so this is a single indeterminate stage.
-export async function recognizeCanvas(canvas, onProgress) {
+// `cloud` — true / false to force a route; left out, the project's switch decides.
+export async function recognizeCanvas(canvas, onProgress, { cloud } = {}) {
+  if (!(cloud ?? isCloudMediaAllowed())) return recognizeLocally(canvas, onProgress);
   onProgress?.({ label: 'Reading text…', progress: null });
   // JPEG keeps photo crops small (Claude caps images at ~5 MB); text stays
   // perfectly legible at this quality.

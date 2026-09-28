@@ -1,10 +1,24 @@
-import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import React, { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { createPortal } from 'react-dom';
 import { useMorphPill } from './useMorphPill';
 import { perfAllows } from '../lib/perf';
 import Toggle from './Toggle';
 import { SCAN_FEATURES, loadScanFeatures, saveScanFeatures } from '../lib/scanFeatures';
 import { useLiveNetwork, setLiveSettings } from '../lib/liveNetwork';
+import { isCloudMediaAllowed, setCloudMediaAllowed, subscribeCloudMedia } from '../lib/cloudMedia';
+import { useSelectedProject } from '../context/SelectedProjectContext';
+import { getPseudonymizeMode, setPseudonymizeMode, subscribePseudonymize, getGuessNames, setGuessNames } from '../lib/pseudonymizeSetting';
+import { getSentLog, subscribeSentLog, clearSentLog } from '../lib/pseudonymize/sentLog';
+import RuleOptions from './RuleOptions';
+
+const MASK_FIELD = {
+  label: 'Pseudonymise text sent to the AI',
+  options: [
+    { id: 'default', label: 'Scan only', example: 'The AI scan sends tokens instead of names, CNPs, CUIs, IBANs, ID numbers, phones, e-mails and addresses. The advisor and Research send text as it is.' },
+    { id: 'all', label: 'Everything', example: 'Every AI call is masked. The advisor and Research can then no longer notice a misspelled name or a CNP that doesn\u2019t match a birth date.' },
+    { id: 'off', label: 'Off', example: 'Nothing is masked \u2014 text goes to the AI as it is.' },
+  ],
+};
 import './RefPill.css';
 import './ScanGauges.css';
 
@@ -369,6 +383,77 @@ function LiveSection({ dir }) {
   );
 }
 
+// CLOUD READING OF IMAGES AND AUDIO (lib/cloudMedia): off, pictures and
+// scans are read on this computer and recordings are not transcribed.
+function CloudMediaSection() {
+  const { selectedProjectId } = useSelectedProject();
+  const on = useSyncExternalStore(subscribeCloudMedia, () => isCloudMediaAllowed(selectedProjectId), () => false);
+  const mode = useSyncExternalStore(subscribePseudonymize, () => getPseudonymizeMode(selectedProjectId), () => 'default');
+  const guess = useSyncExternalStore(subscribePseudonymize, () => getGuessNames(selectedProjectId), () => true);
+  if (!selectedProjectId) return null;
+  return (
+    <>
+      <div className="sg-menu-label">Privacy</div>
+      <ul className="sg-feats">
+        <li>
+          <Toggle on={on} onChange={(v) => setCloudMediaAllowed(selectedProjectId, v)} label="Cloud reading of images & audio" />
+          <span className="sg-feat-note">
+            {on
+              ? 'Pictures and scanned pages may be sent to Anthropic for reading, and recordings to OpenAI for captions.'
+              : 'Pictures and scanned pages are read on this computer; recordings are not transcribed. Nothing visual or audio leaves this computer.'}
+            {' '}This project, this device.
+          </span>
+        </li>
+        <li>
+          <span className="sg-feat-label">Pseudonymise text sent to the AI</span>
+          <RuleOptions field={MASK_FIELD} value={mode} onPick={(id) => setPseudonymizeMode(selectedProjectId, id)} />
+          <span className="sg-feat-note">
+            Names, CNPs, CUIs, IBANs, ID numbers, phones, e-mails and addresses leave as tokens and are put back on this computer; the key stays here, encrypted. Pseudonymised text is still personal data under GDPR.
+          </span>
+        </li>
+        <li className={mode === 'off' ? 'is-off' : ''}>
+          <Toggle on={mode !== 'off' && guess} onChange={(v) => setGuessNames(selectedProjectId, v)} label="Also guess names the project doesn't know" />
+          <span className="sg-feat-note">In the AI scan: a name after "Subsemnatul", "domnul", "reprezentată prin", "Vânzător:"…, or a company before SRL / SA, is masked too. A guess can miss a name, or hide a word the AI needed.</span>
+        </li>
+      </ul>
+      <SentLog />
+    </>
+  );
+}
+
+// WHAT WAS SENT (lib/pseudonymize/sentLog): the last calls this window made
+// to the AI — masked, sent as it is, or refused — with the masked text itself.
+function SentLog() {
+  const log = useSyncExternalStore(subscribeSentLog, getSentLog, getSentLog);
+  const [open, setOpen] = useState(false);
+  const [shown, setShown] = useState(null);   // the entry whose text is open
+  const when = (at) => new Date(at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+  return (
+    <div className="sg-sent">
+      <button type="button" className="sg-sent-toggle" onClick={() => setOpen((o) => !o)} aria-expanded={open}>
+        What was sent to the AI ({log.length})
+      </button>
+      {open && (
+        <div className="sg-sent-list">
+          {!log.length && <p className="sg-feat-note">Nothing sent from this window yet.</p>}
+          {log.map((e) => (
+            <div key={`${e.at}-${e.usageAction}`} className="sg-sent-row">
+              <button type="button" className="sg-sent-head" onClick={() => setShown(shown === e ? null : e)} disabled={!e.bodyPreview}>
+                <span className={`sg-sent-pill is-${!e.sent ? 'refused' : e.masked ? 'masked' : 'clear'}`}>{!e.sent ? 'Not sent' : e.masked ? 'Masked' : 'Not masked'}</span>
+                <span className="sg-sent-action">{e.usageAction}</span>
+                <span className="sg-sent-time">{when(e.at)}</span>
+              </button>
+              {e.reason && <span className="sg-feat-note">{e.reason}</span>}
+              {shown === e && e.bodyPreview && <pre className="sg-sent-text">{e.bodyPreview}</pre>}
+            </div>
+          ))}
+          {!!log.length && <button type="button" className="sg-sent-clear" onClick={() => { setShown(null); clearSentLog(); }}>Clear</button>}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function ScanCard({ scan, taggedCount, onScan, onErase, close, dir }) {
   const [features, setFeatures] = useState(loadScanFeatures);
   const [force, setForce] = useState(false);
@@ -397,6 +482,7 @@ function ScanCard({ scan, taggedCount, onScan, onErase, close, dir }) {
         </span>
       </div>
       <LiveSection dir={dir} />
+      <CloudMediaSection />
       {!running && (
         <>
           <div className="sg-menu-label">What the scan does</div>

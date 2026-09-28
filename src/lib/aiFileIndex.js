@@ -23,6 +23,7 @@
 //     a stronger one, and by then it's reading 25-word summaries.
 
 import { askProjectAi } from './projectAi';
+import { isCloudMediaAllowed } from './cloudMedia';
 import { textForFile, isContentSearchable, captionsFor } from './fileContentSearch';
 import { encodeVisualThumb, isVisualFile } from './visualThumb';
 import { peekFacet, putFacet, clearFacet, cachedEntries, hydratePaths } from './projectIndexClient';
@@ -319,7 +320,10 @@ export async function indexFiles(files, { signal, onProgress } = {}) {
       if (signal?.aborted) return;
       const job = queue.shift();
       try {
-        if (job.kind === 'image') await describeImageBatch(job.batch, signal);
+        // Pictures are uploaded to the AI: only with cloud reading allowed
+        // (lib/cloudMedia) — otherwise they stay undescribed and AI search
+        // matches them by name only.
+        if (job.kind === 'image') { if (isCloudMediaAllowed()) await describeImageBatch(job.batch, signal); }
         else await describeTextBatch(job.batch, signal);
       } catch { /* a failed batch just stays undescribed and retries next search */ }
       done += job.batch.length;

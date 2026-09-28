@@ -12,6 +12,7 @@
 // instead — no ffmpeg/native dep, the same Chromium media stack the <video>
 // preview already uses does the demux + decode.
 import { supabase } from './supabaseClient';
+import { isCloudMediaAllowed, cloudMediaOffError } from './cloudMedia';
 
 // Whisper's hard cap is 25 MB of raw audio; base64 inflates that by ~4/3.
 export const TRANSCRIBE_MAX_BYTES = 25 * 1024 * 1024;
@@ -161,7 +162,10 @@ async function serverErrorMessage(error) {
 //
 // For videos the whole file is far too big for Whisper, so we pull just the
 // audio track out and ship it as a small WAV; audio files go straight through.
-export async function transcribeAudio(url, mediaType, filename) {
+// Refused (before anything is read) unless the project allows cloud reading
+// of audio — there is no local transcription (lib/cloudMedia).
+export async function transcribeAudio(url, mediaType, filename, { projectId } = {}) {
+  if (!isCloudMediaAllowed(projectId || undefined)) throw cloudMediaOffError();
   const isVideo = (mediaType || '').toLowerCase().startsWith('video/');
 
   let buf;

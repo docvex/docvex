@@ -6,6 +6,13 @@
 // It reads, once, from the project folder: every Data collection (the facts a
 // draft may draw on, and — where the AI scan filled one — a party's record)
 // and the Playbook presets. A company can also be filled from ANAF by its CUI.
+//
+// And it is ANSWERED FROM THE NEURAL NETWORK first (lib/briefFromNetwork):
+// once the collections are in, what the live network understood of the files
+// fills the parties, the collections to draw on and every question the files
+// answer — marked "From your files" with the files it came from, so the user
+// reviews instead of typing. A question the user has touched is never
+// overwritten; editing an answer takes its mark off.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Tooltip from './Tooltip';
@@ -21,6 +28,7 @@ import {
   newParty, fieldsFromAnaf, buildBriefPrompt,
 } from '../lib/docBrief';
 import { checkText, groundingBlock } from '../lib/sourceChecks';
+import { projectDirFor, loadNetwork, networkIsEmpty, prefillBrief } from '../lib/briefFromNetwork';
 import './DocBrief.css';
 
 const COLLECTION_MAX = 200;
@@ -57,6 +65,17 @@ const Spark = () => (
   <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8z" /></svg>
 );
 
+// "From your files": an answer the neural network gave, with the files it came from.
+function AutoMark({ auto }) {
+  if (!auto) return null;
+  const names = (auto.from || []).map((r) => String(r).split('/').pop());
+  return (
+    <Tooltip content={names.length ? `From ${names.join(', ')}` : 'From what the neural network read in your files'}>
+      <span className="dbr-auto"><Spark /> From your files</span>
+    </Tooltip>
+  );
+}
+
 function Pill({ on, onClick, children, tone, disabled }) {
   return (
     <button type="button" className={`dbr-pill${on ? ' is-on' : ''}${tone ? ` is-${tone}` : ''}`} aria-pressed={!!on} onClick={onClick} disabled={disabled}>
@@ -81,7 +100,7 @@ function Question({ q, a, done, onChange, extra }) {
       <header className="dbr-q-head">
         <span className="dbr-q-mark" aria-hidden="true">{done ? <Check /> : null}</span>
         <div className="dbr-q-titles">
-          <h3 className="dbr-q-title">{q.title}</h3>
+          <h3 className="dbr-q-title">{q.title} <AutoMark auto={a.auto} /></h3>
           {q.hint && <p className="dbr-q-hint">{q.hint}</p>}
         </div>
       </header>
@@ -138,7 +157,7 @@ function PartyCard({ party, index, records, canRemove, onChange, onRemove }) {
   const [anafBusy, setAnafBusy] = useState(false);
   const [anafNote, setAnafNote] = useState('');
   const done = partyDone(party);
-  const set = (patch) => onChange({ ...party, ...patch });
+  const set = (patch) => onChange({ ...party, ...patch, auto: undefined });
   const setField = (key, v) => set({ fields: { ...party.fields, [key]: v } });
   const ofKind = records.filter((r) => !party.kind || r.kind === party.kind);
   const picked = party.source === 'collection' ? records.find((r) => r._path === party.path) : null;
@@ -165,6 +184,7 @@ function PartyCard({ party, index, records, canRemove, onChange, onRemove }) {
     <div className={`dbr-party${done ? ' is-done' : ''}`}>
       <div className="dbr-party-head">
         <span className="dbr-party-n">{index + 1}</span>
+        <AutoMark auto={party.auto} />
         <input
           className="dbr-input dbr-party-role" type="text" value={party.role}
           placeholder="Role — Vânzător, Reclamant…" aria-label="Party role"
@@ -232,7 +252,33 @@ function PartyCard({ party, index, records, canRemove, onChange, onRemove }) {
   );
 }
 
-export default function DocBrief({ template, custom, onBack, onGenerate, busy }) {
+// What the neural network did for this brief, under the title.
+function NetworkNote({ net, left }) {
+  if (net.state === 'loading') {
+    return <p className="dbr-network is-busy"><span className="dbr-network-spin" aria-hidden="true" />Reading what the neural network knows about this case…</p>;
+  }
+  if (net.state === 'none') {
+    return <p className="dbr-network is-quiet">Tag files for the AI scan in the Files tab and the neural network fills this brief from them.</p>;
+  }
+  if (net.state === 'error') {
+    return <p className="dbr-network is-quiet">The neural network could not fill the brief this time — answer the questions below.</p>;
+  }
+  return (
+    <div className="dbr-network">
+      <p>
+        <Spark /> {net.filled
+          ? `Filled ${net.filled} answer${net.filled === 1 ? '' : 's'} from the ${net.files} file${net.files === 1 ? '' : 's'} the neural network read — check the ones marked “From your files”.`
+          : `The ${net.files} file${net.files === 1 ? '' : 's'} the neural network read say nothing this document needs.`}
+        {left ? ` ${left} still open.` : ''}
+      </p>
+      {!!net.missing.length && (
+        <p className="dbr-network-missing">Not in the files: {net.missing.join(' · ')}</p>
+      )}
+    </div>
+  );
+}
+
+export default function DocBrief({ template, custom, hint, onBack, onGenerate, busy }) {
   const { selectedProject } = useSelectedProject();
   const { session } = useAuth();
   const presets = useMemo(() => loadRulePresets(), []);
@@ -253,6 +299,49 @@ export default function DocBrief({ template, custom, onBack, onGenerate, busy })
   }, [selectedProject?.id, selectedProject?.name, session?.user?.id]);
 
   const setAnswer = useCallback((id, a) => setAnswers((prev) => ({ ...prev, [id]: a })), []);
+
+  // What the user has answered themselves — the network never writes over it.
+  const touched = useRef(new Set());
+  const userSet = useCallback((id, a) => {
+    touched.current.add(id);
+    const { auto: _auto, ...rest } = a || {};
+    setAnswers((prev) => ({ ...prev, [id]: rest }));
+  }, []);
+
+  // ── Answered from the neural network ──
+  // { state: 'loading' | 'done' | 'none' | 'error', filled, missing, files }
+  const [net, setNet] = useState({ state: 'loading', filled: 0, missing: [], files: 0 });
+  useEffect(() => {
+    if (data.loading) return undefined;
+    let cancelled = false;
+    (async () => {
+      const dir = await projectDirFor(selectedProject, session?.user?.id);
+      const network = dir ? await loadNetwork(dir, selectedProject?.id).catch(() => null) : null;
+      if (cancelled) return;
+      if (networkIsEmpty(network)) { setNet({ state: 'none', filled: 0, missing: [], files: 0 }); return; }
+      const res = await prefillBrief(network, {
+        template, custom, hint, questions, records: data.records, collections: data.collections, projectId: selectedProject?.id,
+      }).catch((err) => ({ error: err?.message || String(err) }));
+      if (cancelled) return;
+      if (!res || res.error) { setNet({ state: 'error', filled: 0, missing: [], files: network.files.length }); return; }
+      // Counted outside the updater: React may run an updater twice.
+      const ids = Object.keys(res.answers).filter((id) => !touched.current.has(id));
+      const withParties = !touched.current.has('parties') && res.parties.length > 0;
+      const withCollections = !touched.current.has('collections') && res.collections.length > 0;
+      setAnswers((prev) => {
+        const next = { ...prev };
+        for (const id of ids) if (next[id]) next[id] = res.answers[id];
+        if (withParties) next.parties = { ...next.parties, parties: res.parties.map((p) => ({ ...newParty(p.role), ...p })) };
+        if (withCollections) next.collections = { ai: false, text: '', choice: res.collections, auto: { from: [] } };
+        return next;
+      });
+      const filled = ids.filter((id) => answers[id]).length + (withParties ? 1 : 0) + (withCollections ? 1 : 0);
+      setNet({ state: 'done', filled, missing: res.missing, files: network.files.length });
+    })();
+    return () => { cancelled = true; };
+    // Once per brief, when the project's collections are in.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data.loading]);
   const answered = (q) => isAnswered(q, answers[q.id]);
   const stepQs = (id) => questions.filter((q) => q.step === id);
   const stepDone = (id) => stepQs(id).every(answered);
@@ -316,7 +405,7 @@ export default function DocBrief({ template, custom, onBack, onGenerate, busy })
   };
 
   const partiesA = answers.parties;
-  const setParties = (list) => setAnswer('parties', { ...partiesA, parties: list });
+  const setParties = (list) => userSet('parties', { ...partiesA, parties: list });
 
   const renderQuestion = (q) => {
     const a = answers[q.id];
@@ -349,10 +438,10 @@ export default function DocBrief({ template, custom, onBack, onGenerate, busy })
     if (q.type === 'collections') {
       const toggle = (path) => {
         const has = a.choice.includes(path);
-        setAnswer(q.id, { ...a, text: '', choice: has ? a.choice.filter((x) => x !== path) : [...a.choice, path] });
+        userSet(q.id, { ...a, text: '', choice: has ? a.choice.filter((x) => x !== path) : [...a.choice, path] });
       };
       return (
-        <Question key={q.id} q={q} a={a} done={answered(q)} onChange={(v) => setAnswer(q.id, v)} extra={(
+        <Question key={q.id} q={q} a={a} done={answered(q)} onChange={(v) => userSet(q.id, v)} extra={(
           <div className="dbr-pills">
             {data.loading && <span className="dbr-note">Reading the project’s Data collections…</span>}
             {data.collections.map((c) => (
@@ -363,7 +452,7 @@ export default function DocBrief({ template, custom, onBack, onGenerate, busy })
                 </Pill>
               </Tooltip>
             ))}
-            <Pill on={a.text === 'none'} onClick={() => setAnswer(q.id, { ...a, choice: [], text: a.text === 'none' ? '' : 'none' })}>
+            <Pill on={a.text === 'none'} onClick={() => userSet(q.id, { ...a, choice: [], text: a.text === 'none' ? '' : 'none' })}>
               {data.collections.length ? 'None' : 'None — there are no Data collections yet'}
             </Pill>
           </div>
@@ -372,10 +461,10 @@ export default function DocBrief({ template, custom, onBack, onGenerate, busy })
     }
     if (q.type === 'preset') {
       return (
-        <Question key={q.id} q={q} a={a} done={answered(q)} onChange={(v) => setAnswer(q.id, v)} extra={(
+        <Question key={q.id} q={q} a={a} done={answered(q)} onChange={(v) => userSet(q.id, v)} extra={(
           <div className="dbr-pills">
             {presets.map((p) => (
-              <Pill key={p.id} on={a.choice[0] === p.id} onClick={() => setAnswer(q.id, { ...a, choice: [p.id] })}>
+              <Pill key={p.id} on={a.choice[0] === p.id} onClick={() => userSet(q.id, { ...a, choice: [p.id] })}>
                 {p.name}{p.id === activePresetId && <span className="dbr-rec">in use</span>}
               </Pill>
             ))}
@@ -383,7 +472,7 @@ export default function DocBrief({ template, custom, onBack, onGenerate, busy })
         )} />
       );
     }
-    return <Question key={q.id} q={q} a={a} done={answered(q)} onChange={(v) => setAnswer(q.id, v)} />;
+    return <Question key={q.id} q={q} a={a} done={answered(q)} onChange={(v) => userSet(q.id, v)} />;
   };
 
   return (
@@ -395,6 +484,7 @@ export default function DocBrief({ template, custom, onBack, onGenerate, busy })
         </button>
         <p className="dbr-eyebrow">{template ? template.label : 'Something else'}</p>
         <h1 className="dbr-title">Tell us about the document</h1>
+        <NetworkNote net={net} left={left.length} />
 
         {/* The five steps. Each is a button: the steps can be taken in any order. */}
         <ol className="dbr-steps">

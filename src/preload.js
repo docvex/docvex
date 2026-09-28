@@ -368,6 +368,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // Every call resolves (failures come back as { ok: false, error }).
   projectOpen: (args) => ipcRenderer.invoke('project:open', args),
   projectLocate: (projectId) => ipcRenderer.invoke('project:locate', projectId),
+  // The pseudonymisation vault (lib/pseudonymize/storage), encrypted in main.
+  vaultGet: (projectId) => ipcRenderer.invoke('vault:get', projectId),
+  vaultPut: (projectId, data) => ipcRenderer.invoke('vault:put', projectId, data),
   projectFiles: (args) => ipcRenderer.invoke('project:files', args),
   projectReconcile: (args) => ipcRenderer.invoke('project:reconcile', args),
   projectFileId: (args) => ipcRenderer.invoke('project:file-id', args),

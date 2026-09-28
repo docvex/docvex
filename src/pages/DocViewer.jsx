@@ -68,6 +68,7 @@ import { hydratePath } from '../lib/projectIndexClient';
 import { useChatFind } from '../lib/useChatFind';
 import { TEMPLATE_CATEGORIES, searchTemplates } from '../lib/docTemplates';
 import DocBrief from '../components/DocBrief';
+import { projectDirFor, loadNetwork, networkIsEmpty, suggestFromNetwork } from '../lib/briefFromNetwork';
 import SourcesCheckCard from '../components/SourcesCheckCard';
 import { checkText } from '../lib/sourceChecks';
 import { rewriteDocxParagraphs, readDocxParagraphs } from '../lib/docxRewrite';
@@ -15199,9 +15200,35 @@ const BLANK_PROBE_MAX_BYTES = 256 * 1024;
 // steps every Romanian legal document is built on, asked one step at a time,
 // tied to the project's Data collections and the Playbook presets. Its
 // Generate is what starts the draft.
+//
+// It UNDERSTANDS THE CASE first (lib/briefFromNetwork): what the live neural
+// network read in the project's files becomes a line saying what the case is
+// and "From your files" — the documents it most likely needs next, each with
+// the fact that calls for it. Picking one opens the brief already answered
+// from those files (the brief does that for any pick, a template or typed).
 function DocTemplateChooser({ onChosen }) {
   const adv = useMultitoolAdvisor();
-  const [brief, setBrief] = useState(null);   // { template } | { custom }
+  const { selectedProject } = useSelectedProject();
+  const { session } = useAuth();
+  const [brief, setBrief] = useState(null);   // { template, hint } | { custom, hint }
+  // { state: 'loading' | 'thinking' | 'done' | 'none' | 'error', situation, suggestions, files }
+  const [network, setNetwork] = useState({ state: 'loading', situation: '', suggestions: [], files: 0 });
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const dir = await projectDirFor(selectedProject, session?.user?.id);
+      const net = dir ? await loadNetwork(dir, selectedProject?.id).catch(() => null) : null;
+      if (cancelled) return;
+      if (networkIsEmpty(net)) { setNetwork({ state: 'none', situation: '', suggestions: [], files: 0 }); return; }
+      setNetwork((n) => ({ ...n, state: 'thinking', files: net.files.length }));
+      const res = await suggestFromNetwork(net, { projectId: selectedProject?.id }).catch((err) => ({ error: err?.message || String(err) }));
+      if (cancelled) return;
+      setNetwork(res?.error
+        ? { state: 'error', situation: '', suggestions: [], files: net.files.length }
+        : { state: 'done', situation: res.situation, suggestions: res.suggestions, files: net.files.length });
+    })();
+    return () => { cancelled = true; };
+  }, [selectedProject, session?.user?.id]);
   const [query, setQuery] = useState('');
   const [category, setCategory] = useState('top');
   const [busy, setBusy] = useState(false);
@@ -15234,6 +15261,7 @@ function DocTemplateChooser({ onChosen }) {
     [],
   );
   const describe = () => { if (q) setBrief({ custom: q }); };
+  const pickSuggestion = (sg) => { if (!busy) setBrief({ template: sg.template || null, custom: sg.custom || '', hint: sg.why }); };
 
   // ⌘/Ctrl+F lands in the search field, as it does everywhere else in the app.
   useEffect(() => {
@@ -15252,6 +15280,7 @@ function DocTemplateChooser({ onChosen }) {
       <DocBrief
         template={brief.template || null}
         custom={brief.custom || ''}
+        hint={brief.hint || ''}
         busy={busy}
         onBack={() => setBrief(null)}
         onGenerate={(shown, prompt) => start(shown, prompt)}
@@ -15267,6 +15296,8 @@ function DocTemplateChooser({ onChosen }) {
           Pick a template and the draft is written from a ready-made structure —
           or describe anything else.
         </p>
+
+        <NetworkSuggestions network={network} busy={busy} categoryLabel={categoryLabel} onPick={pickSuggestion} />
 
         {/* One field, two jobs: it filters the templates as you type, and
             whatever is in it can be handed to the drafter as a description
@@ -15391,6 +15422,59 @@ function DocTemplateChooser({ onChosen }) {
 }
 
 
+
+// "From your files" — the chooser's reading of the case (see DocTemplateChooser).
+function NetworkSuggestions({ network, busy, categoryLabel, onPick }) {
+  if (network.state === 'none') {
+    return <p className="dvt-network-note">Tag files for the AI scan in the Files tab and DocVex suggests what to draft from them.</p>;
+  }
+  if (network.state === 'error') return null;
+  const thinking = network.state === 'loading' || network.state === 'thinking';
+  if (!thinking && !network.suggestions.length && !network.situation) return null;
+  return (
+    <section className="dvt-network" aria-label="Suggested from your files">
+      <header className="dvt-network-head">
+        <span className="dvt-network-title">
+          <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8z" /></svg>
+          From your files
+        </span>
+        {network.files > 0 && <span className="dvt-network-count">{network.files} file{network.files === 1 ? '' : 's'} read by the neural network</span>}
+      </header>
+      {thinking ? (
+        <p className="dvt-network-situation is-busy"><span className="dvt-network-spin" aria-hidden="true" />Reading the case…</p>
+      ) : (
+        network.situation && <p className="dvt-network-situation">{network.situation}</p>
+      )}
+      {!thinking && network.suggestions.length > 0 && (
+        <div className="dvt-grid dvt-network-grid">
+          {network.suggestions.map((sg) => {
+            const names = (sg.from || []).map((r) => String(r).split('/').pop());
+            return (
+              <button
+                type="button"
+                key={sg.template?.id || sg.custom}
+                className="dvt-card dvt-card-network"
+                disabled={busy}
+                onClick={() => onPick(sg)}
+              >
+                <span className="dvt-card-head">
+                  <span className="dvt-card-cat">{sg.template ? (categoryLabel[sg.template.category] || '') : 'Something else'}</span>
+                </span>
+                <span className="dvt-card-label">{sg.template ? sg.template.label : sg.custom}</span>
+                {sg.why && <span className="dvt-card-blurb">{sg.why}</span>}
+                {names.length > 0 && (
+                  <span className="dvt-card-meta">
+                    {names.length === 1 ? names[0] : `${names[0]} +${names.length - 1}`}
+                  </span>
+                )}
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </section>
+  );
+}
 
 // ── Autofill picker ─────────────────────────────────────────────────────
 // The project's Files tab, in a modal over the viewer, so a record can be

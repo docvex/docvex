@@ -83,6 +83,8 @@ export const AI_FUNCTIONS = [
       { id: 'files-scan', surface: 'files', task: 'extract', model: 'claude-sonnet-5', what: 'Writes a short profile ("passport") of each file, cross-references the files, and builds the Data collections and the file graph.' },
       { id: 'insights-signatures', surface: 'insights', task: 'analyse', what: 'Compares signatures and stamps across documents.' },
       { id: 'insights-ask', surface: 'insights', task: 'analyse', what: 'The Contradictions section\'s "Suggest" asks which version is right.' },
+      { id: 'brief-suggest', surface: 'doc-viewer', task: 'suggest', what: 'The "What do you want to make?" screen reads what the neural network understood of the files and suggests the documents the case needs next.' },
+      { id: 'brief-prefill', surface: 'doc-viewer', task: 'suggest', what: 'Answers the drafting brief (parties, collections, questions) from what the neural network understood of the files.' },
       { id: 'text-regions', surface: 'pictures', task: 'ocr', what: 'Reads the text strips that local OCR has already located in a photo.' },
       { id: 'image-to-word', surface: 'pictures', task: 'extract', what: 'Rebuilds a photographed document as a Word file.' },
       { id: 'identity-autofill', surface: 'pictures', task: 'extract', what: 'Reads ID cards, passports and company documents into records.' },

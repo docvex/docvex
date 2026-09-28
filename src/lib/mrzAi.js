@@ -4,6 +4,8 @@
 // "<" or a letter. Only the strip's lines are sent (the whole text when the
 // lines can't be told apart), so the call is small.
 import { askProjectAi } from './projectAi';
+import { isCloudMediaAllowed } from './cloudMedia';
+import { isPseudonymizeOn } from './pseudonymizeSetting';
 import { MRZ_PROMPT, normalizeMrzReading, isMrzLine } from './roIdDocuments';
 
 const MODEL = 'claude-sonnet-4-6';
@@ -13,6 +15,11 @@ export async function readMrzWithAi(text, { projectId, projectName } = {}) {
   const lines = String(text || '').split(/\r?\n/).filter(isMrzLine);
   const input = lines.length >= 2 ? lines.join('\n') : String(text || '').slice(0, 4000);
   if (!input.trim()) return null;
+  // Part of an identity document: sent only with cloud reading allowed.
+  if (!isCloudMediaAllowed(projectId || undefined)) return null;
+  // Masked, the strip would reach the AI as [MRZ_01] and could not be read:
+  // no call is made (and none paid for) while this project masks MRZ reading.
+  if (isPseudonymizeOn(projectId, 'mrz')) return null;
   const res = await askProjectAi({
     messages: [{ role: 'user', content: `${MRZ_PROMPT}\n\nINPUT:\n${input}` }],
     tools: false, model: MODEL, projectName, usageProject: projectId, usageAction: 'mrz',

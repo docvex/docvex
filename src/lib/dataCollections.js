@@ -132,7 +132,7 @@ async function readFileForScan(file, { projectId, force }) {
       const mime = kind === 'video'
         ? (String(file.mimeType || '').startsWith('video/') ? file.mimeType : 'video/mp4')
         : (String(file.mimeType || '').startsWith('audio/') ? file.mimeType : (AUDIO_MIME[e] || 'audio/mpeg'));
-      const res = await transcribeAudio(localUrl(file.path), mime, file.name);
+      const res = await transcribeAudio(localUrl(file.path), mime, file.name, { projectId });
       const createdAt = Date.now();
       cap = { text: res.text, segments: res.segments, language: res.language, createdAt, original: { text: res.text, segments: res.segments } };
       saveCaptions(file.path, cap);
@@ -1135,7 +1135,7 @@ export async function scanProjectFiles(projectDir, { projectId, projectName, for
       const why = err?.message || 'unreadable';
       // Transcription not set up (or unreachable): every other recording
       // would fail the same way — don't load them all to find out.
-      if ((kind === 'video' || kind === 'audio') && /configured|reach the AI|signed in|OpenAI/i.test(why)) mediaDown = why;
+      if ((kind === 'video' || kind === 'audio') && /configured|reach the AI|signed in|OpenAI|switched off/i.test(why)) mediaDown = why;
       skipped.push({ name: file.name, rel, stamp, error: why });
       sayFile(n, file, 'Skipped — couldn\u2019t be read', 1);
     }

@@ -14,6 +14,7 @@
 
 import { askProjectAi } from './projectAi';
 import { recognizeCanvas, OCR_MAX_EDGE } from './ocr';
+import { isCloudMediaAllowed } from './cloudMedia';
 import { getAiFacet, saveAiFacet, stampFor, bestTextFor } from './aiData';
 import { loadPdfModule } from './pdfWorker';
 import { extractFileText } from './extractFileText';
@@ -76,9 +77,9 @@ async function decodeToCanvas(blob) {
   return canvas;
 }
 
-async function ocrImageBlob(blob) {
+async function ocrImageBlob(blob, { cloud = false } = {}) {
   const canvas = await decodeToCanvas(blob);
-  return recognizeCanvas(canvas);
+  return recognizeCanvas(canvas, undefined, { cloud });
 }
 
 // ── Reading a record off a photograph ───────────────────────────────────
@@ -193,7 +194,7 @@ export async function readIdentityFromImage(imageBlob, record, { jurisdiction, p
   if (!imageBlob) return { fields: {}, error: 'no_image' };
   let text = '';
   try {
-    text = await ocrImageBlob(imageBlob);
+    text = await ocrImageBlob(imageBlob, { cloud: isCloudMediaAllowed(projectId || undefined) });
   } catch (e) {
     // Distinguish "the browser could not decode this picture" from "the AI
     // could not read it" — they have completely different remedies, and the
@@ -274,7 +275,7 @@ export function canScanForIdentity(name, mime = '') {
   return kind !== 'media' && kind !== 'identity';
 }
 
-async function ocrPdfPages(blob) {
+async function ocrPdfPages(blob, { cloud = false } = {}) {
   const pdfjs = await loadPdfModule();
   const data = new Uint8Array(await blob.arrayBuffer());
   const doc = await pdfjs.getDocument({ data }).promise;
@@ -293,7 +294,7 @@ async function ocrPdfPages(blob) {
       ctx.fillStyle = '#ffffff';
       ctx.fillRect(0, 0, canvas.width, canvas.height);
       await page.render({ canvasContext: ctx, viewport }).promise;
-      const text = await recognizeCanvas(canvas);
+      const text = await recognizeCanvas(canvas, undefined, { cloud });
       if (text) out.push(text);
     }
     return out.join('\n\n');
@@ -326,7 +327,11 @@ async function sniffText(blob) {
 // ONCE and every later reading — this record, another record, another window —
 // is free until the file changes. Only with nothing saved does the scan run.
 // `force` reads it again (the Data tab's Recapture).
-export async function readSourceText(blob, name, { path, force = false, projectId } = {}) {
+// `cloudOcr` — send pictures and scanned pages to the AI's OCR. Left out, the
+// project's cloud-media switch decides (lib/cloudMedia, OFF by default): off,
+// they are read on this computer by PaddleOCR.
+export async function readSourceText(blob, name, { path, force = false, projectId, cloudOcr } = {}) {
+  const cloud = cloudOcr ?? isCloudMediaAllowed(projectId || undefined);
   if (!blob) return { error: 'no_image' };
   const kind = identitySourceKind(name, blob.type || '');
   if (kind === 'media') return { error: 'media' };
@@ -334,20 +339,20 @@ export async function readSourceText(blob, name, { path, force = false, projectI
   const stamp = path ? await stampFor(path) : null;
   const saved = path && !force ? bestTextFor(path, stamp) : '';
   const keep = (text) => {
-    if (path && text.trim()) saveAiFacet({ path, name, projectId }, 'ocr', { data: { text }, engine: 'claude', stamp });
+    if (path && text.trim()) saveAiFacet({ path, name, projectId }, 'ocr', { data: { text }, engine: cloud ? 'claude' : 'paddleocr', stamp });
     return text.trim() ? { text } : { error: 'no_text' };
   };
   try {
     if (kind === 'image') {
       if (saved) return { text: saved, cached: true };
-      return keep(await ocrImageBlob(blob));
+      return keep(await ocrImageBlob(blob, { cloud }));
     }
     if (kind === 'pdf') {
       const layer = await extractFileText(blob, name);
       if (layer?.text && layer.text.replace(/\s+/g, '').length > 40) return { text: layer.text };
       // No text layer worth the name: it is a scan.
       if (saved) return { text: saved, cached: true };
-      return keep(await ocrPdfPages(blob));
+      return keep(await ocrPdfPages(blob, { cloud }));
     }
     if (kind === 'doc') {
       const res = path ? await extractDocText(path) : null;
