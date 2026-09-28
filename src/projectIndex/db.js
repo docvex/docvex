@@ -16,6 +16,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { readJsonSync, writeJsonAtomicSync } from './atomic.js';
+import { sealJson, openJson, hasIndexKey } from './seal.js';
 
 export const SCHEMA_VERSION = 1;
 
@@ -112,6 +113,30 @@ export class IndexDb {
       getMeta: q('SELECT value FROM meta WHERE key = ?'),
       setMeta: q('INSERT INTO meta(key, value) VALUES(?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value'),
     };
+    this.sealExisting();
+  }
+
+  // Once a key is available, seal the rows an older build wrote in the clear
+  // (they would otherwise stay readable until next rewritten). Once per file.
+  sealExisting() {
+    if (!hasIndexKey() || this.getMeta('sealed') === '1') return;
+    try {
+      this.tx(() => {
+        const plain = (v) => !String(v ?? '').startsWith('enc1:');
+        for (const r of this.db.prepare('SELECT user, key, value FROM private').all()) {
+          if (plain(r.value)) this.db.prepare('UPDATE private SET value = ? WHERE user = ? AND key = ?').run(sealJson(JSON.parse(r.value)), r.user, r.key);
+        }
+        for (const r of this.db.prepare('SELECT hash, kind, facet FROM knowledge').all()) {
+          if (plain(r.facet)) this.db.prepare('UPDATE knowledge SET facet = ? WHERE hash = ? AND kind = ?').run(sealJson(JSON.parse(r.facet)), r.hash, r.kind);
+        }
+        for (const r of this.db.prepare('SELECT store, value FROM settings').all()) {
+          if (plain(r.value)) this.db.prepare('UPDATE settings SET value = ? WHERE store = ?').run(sealJson(JSON.parse(r.value)), r.store);
+        }
+        this.setMeta('sealed', '1');
+      });
+      // The cleartext may still sit in freed pages and the WAL.
+      try { this.db.exec('PRAGMA wal_checkpoint(TRUNCATE); VACUUM;'); } catch { /* next open */ }
+    } catch { /* a bad row: leave it, retried next open */ }
   }
 
   // Run `fn` inside one transaction — a reconcile's hundred upserts cost one
@@ -160,36 +185,43 @@ export class IndexDb {
   knowledgeFor(hash) {
     const out = {};
     for (const r of this.s.knowledgeForHash.all(hash)) {
-      try { out[r.kind] = { facet: JSON.parse(r.facet), local: !!r.local }; } catch { /* skip a bad row */ }
+      try { out[r.kind] = { facet: openJson(r.facet), local: !!r.local }; } catch { /* skip a bad row */ }
     }
     return out;
   }
-  knowledgeAll() { return this.s.knowledgeAll.all(); }
-  putKnowledge(hash, kind, facet, local) { this.s.putKnowledge.run(hash, kind, JSON.stringify(facet), local ? 1 : 0); }
+  // Rows with their facet already opened; a row that can't be read is left out.
+  knowledgeAll() {
+    const out = [];
+    for (const r of this.s.knowledgeAll.all()) {
+      try { out.push({ ...r, facet: openJson(r.facet) }); } catch { /* skip a bad row */ }
+    }
+    return out;
+  }
+  putKnowledge(hash, kind, facet, local) { this.s.putKnowledge.run(hash, kind, sealJson(facet), local ? 1 : 0); }
   clearKnowledge(hash, kind) { this.s.clearKnowledge.run(hash, kind); }
 
   getSetting(store) {
     const r = this.s.getSetting.get(store);
     if (!r) return null;
-    try { return { value: JSON.parse(r.value), at: Number(r.at) || 0 }; } catch { return null; }
+    try { return { value: openJson(r.value), at: Number(r.at) || 0 }; } catch { return null; }
   }
-  putSetting(store, value, at) { this.s.putSetting.run(store, JSON.stringify(value ?? null), at); }
+  putSetting(store, value, at) { this.s.putSetting.run(store, sealJson(value ?? null), at); }
 
   getPrivate(user, key) {
     const r = this.s.getPrivate.get(user, key);
     if (!r) return null;
-    try { return { value: JSON.parse(r.value), at: Number(r.at) || 0 }; } catch { return null; }
+    try { return { value: openJson(r.value), at: Number(r.at) || 0 }; } catch { return null; }
   }
   // An undefined value removes the key, which is how a caller deletes one.
   putPrivate(user, key, value, at) {
     // undefined OR null deletes: the renderer's stores delete by putting null.
     if (value === undefined || value === null) this.s.deletePrivate.run(user, key);
-    else this.s.putPrivate.run(user, key, JSON.stringify(value), at);
+    else this.s.putPrivate.run(user, key, sealJson(value), at);
   }
   listPrivate(user, prefix = '') {
     return this.s.listPrivate.all(user, prefix, prefix).map((r) => {
       let value = null;
-      try { value = JSON.parse(r.value); } catch { /* leave null */ }
+      try { value = openJson(r.value); } catch { /* leave null */ }
       return { key: r.key, value, at: Number(r.at) || 0 };
     });
   }

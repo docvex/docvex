@@ -373,10 +373,8 @@ export function createProjectIndexService({ userDataDir, broadcast = () => {}, o
     const byHash = new Map();
     for (const k of p.db.knowledgeAll()) {
       if (want && !want.has(k.kind)) continue;
-      let facet;
-      try { facet = JSON.parse(k.facet); } catch { continue; }
       if (!byHash.has(k.hash)) byHash.set(k.hash, {});
-      byHash.get(k.hash)[k.kind] = facet;
+      byHash.get(k.hash)[k.kind] = k.facet;
     }
     const items = [];
     for (const r of p.db.allFiles()) {

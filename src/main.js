@@ -9,6 +9,7 @@ import { updateElectronApp } from 'update-electron-app';
 import { registerPhoneUpload } from './phoneUploadServer';
 import { guessMimeFromName, isIgnoredLocalFilename, walkLocalDir } from './projectIndex/walk.js';
 import { createProjectIndexService } from './projectIndex/index.js';
+import { setIndexKey, sealBytes, openBytes } from './projectIndex/seal.js';
 
 // Resolve the path to Word's executable when Microsoft Word is
 // installed locally. Electron's `app.getApplicationNameForProtocol`
@@ -1844,7 +1845,7 @@ ipcMain.handle('app:wipe-local-data', async () => {
       failed.push(`${path.basename(target)}: ${err?.code || err?.message || err}`);
     }
   };
-  for (const name of ['project-index', 'vault', 'thumbnails', 'external-opens.json']) {
+  for (const name of ['project-index', 'vault', 'thumbnails', 'external-opens.json', 'index-key.bin']) {
     await rm(path.join(userData, name));
   }
   try {
@@ -2276,8 +2277,40 @@ function broadcastToAllWindows(channel, payload) {
     try { if (!w.isDestroyed()) w.webContents.send(channel, payload); } catch { /* closing */ }
   }
 }
+// The key sealing the index's sensitive columns (projectIndex/seal.js): 32
+// random bytes, kept in userData wrapped by the OS key store (safeStorage). A
+// key that exists but can't be unwrapped is NEVER replaced — that would orphan
+// every row sealed with it; the index then reads those rows as missing and
+// writes new ones in the clear until the key opens again. Where the OS offers
+// no encryption, nothing is sealed (as before).
+function loadIndexKey() {
+  try {
+    if (!safeStorage.isEncryptionAvailable()) return null;
+    const file = path.join(app.getPath('userData'), 'index-key.bin');
+    let wrapped = null;
+    try { wrapped = fs.readFileSync(file); } catch { /* first run */ }
+    if (wrapped) {
+      try { return Buffer.from(safeStorage.decryptString(wrapped), 'base64'); } catch { return null; }
+    }
+    const key = crypto.randomBytes(32);
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    const tmp = `${file}.${process.pid}.tmp`;
+    fs.writeFileSync(tmp, safeStorage.encryptString(key.toString('base64')));
+    fs.renameSync(tmp, file);
+    return key;
+  } catch {
+    return null;
+  }
+}
+let indexKeyLoaded = false;
+function ensureIndexKey() {
+  if (indexKeyLoaded || !app.isReady()) return;
+  indexKeyLoaded = true;
+  setIndexKey(loadIndexKey());
+}
 function projectIndexService() {
   if (!projectIndex) {
+    ensureIndexKey();
     projectIndex = createProjectIndexService({
       userDataDir: app.getPath('userData'),
       broadcast: broadcastToAllWindows,
@@ -4843,7 +4876,10 @@ app.whenReady().then(() => {
 
   async function readThumbFromDisk(key, ext, mime) {
     try {
-      const buffer = await fsp.readFile(thumbCacheFile(key, ext));
+      ensureIndexKey();
+      // Sealed with the index key (ID-card pictures end up in here); an
+      // entry that can't be opened is simply a cache miss.
+      const buffer = openBytes(await fsp.readFile(thumbCacheFile(key, ext)));
       if (!buffer?.length) return null;
       return { buffer, mime };
     } catch { return null; }
@@ -4852,7 +4888,8 @@ app.whenReady().then(() => {
   async function writeThumbToDisk(key, ext, buffer) {
     try {
       await fsp.mkdir(thumbDir(), { recursive: true });
-      await fsp.writeFile(thumbCacheFile(key, ext), buffer);
+      ensureIndexKey();
+      await fsp.writeFile(thumbCacheFile(key, ext), sealBytes(buffer));
       thumbWritesSinceSweep += 1;
       if (thumbWritesSinceSweep >= 500) {
         thumbWritesSinceSweep = 0;
