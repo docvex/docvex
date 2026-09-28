@@ -31,7 +31,7 @@
       <p class="lg-eyebrow">DocVex — Legal</p>
       <h1 class="lg-title">Security Policy</h1>
       <p class="lg-lead">Confidentiality is foundational for legal work. This page describes the layered safeguards DocVex applies — starting with the strongest one: your documents never leave your device by default.</p>
-      <p class="lg-updated">Last updated: 18 July 2026</p>
+      <p class="lg-updated">Last updated: 28 September 2026</p>
     </header>
 
     <div class="lg-layout">
@@ -70,9 +70,12 @@
           <h2>2. Local-first architecture</h2>
           <p class="lg-sub">The strongest control is absence.</p>
           <ul class="lg-list">
-            <li>Project files live in a folder on your device that you choose. There is <strong>no DocVex cloud file store</strong> — nothing to breach server-side.</li>
+            <li>Project files live in a folder on your device that you choose. There is <strong>no DocVex cloud file store</strong> by default. The optional per-project "Sync with account" keeps a copy in private EU storage readable only by that project's members; phone uploads through the DocVex cloud are deleted as soon as your computer has received them.</li>
             <li>File-organization metadata (a sidecar file with filenames and content hashes) stays inside that folder, on your device.</li>
-            <li>Content reaches an external processor only when you explicitly invoke a feature on it (for example an AI summary), and only the content needed for that request is transmitted.</li>
+            <li>Content reaches an external processor only when you explicitly invoke a feature on it (for example an AI summary) or switch on automatic understanding for a project, and only the content needed for that request is transmitted.</li>
+            <li><strong>Pseudonymisation</strong> — before text is sent to an AI provider, names, national ID numbers (CNP), tax codes, IBANs, phone numbers, e-mail and postal addresses are replaced on your computer with placeholders, and the answer is restored locally. The table linking placeholders to real values never leaves your computer. On by default; a project can switch it off.</li>
+            <li>Pictures and audio are read on your computer unless cloud reading is switched on for the project.</li>
+            <li>The app refuses to read, write or delete in system locations (the operating system, program folders, other users' profiles, the app's own data) and only writes in folders you have opened as a project.</li>
             <li>Deleted files move to a local recycle folder on your device, not to a server.</li>
           </ul>
         </section>
@@ -85,6 +88,7 @@
             <li><strong>At rest</strong> — data stored on our backend (hosted in the EU on Supabase/AWS) is encrypted at rest by the platform.</li>
             <li><strong>Application-layer encryption</strong> — OAuth tokens for connected Gmail/Outlook mailboxes are additionally encrypted with AES-256-GCM before storage, with the key held only in the serverless environment, never in the database or client.</li>
             <li><strong>Passwords</strong> — never stored in plaintext; handled as salted hashes by our authentication provider.</li>
+            <li><strong>On your computer</strong> — the pseudonymisation table, the app's private project data (AI conversations, text read out of documents, face measurements) and the thumbnail cache are encrypted with AES-256-GCM under a key protected by the operating system's key store (Windows DPAPI / macOS Keychain). Your case files themselves are ordinary files: protect them with full-disk encryption (BitLocker / FileVault).</li>
           </ul>
         </section>
 
@@ -105,7 +109,7 @@
           <ul class="lg-list">
             <li>Email/password and Google sign-in, using the <strong>PKCE OAuth flow</strong> — the standard that protects authorization codes on native apps.</li>
             <li>Sessions use short-lived access tokens with rotating refresh tokens.</li>
-            <li><strong>Erase data</strong> in account settings revokes refresh tokens globally — signing you out on every device, not just the current one.</li>
+            <li><strong>Erase data</strong> in account settings revokes refresh tokens globally — signing you out on every device — and deletes what DocVex keeps about you on that computer.</li>
             <li>Desktop deep-link callbacks are restricted to the app's registered protocol; external links opened by the app are restricted to http(s).</li>
           </ul>
         </section>
@@ -115,7 +119,7 @@
           <p class="lg-sub">The app you run is the app we shipped.</p>
           <ul class="lg-list">
             <li>Installers and updates are served exclusively from our official GitHub Releases and the Electron update service — no third-party download portals.</li>
-            <li>Windows updates install through the platform updater with verification against the official feed; macOS builds are signature-verified during packaging.</li>
+            <li>Windows updates install through the platform updater from the official feed; the macOS self-updater only installs a file that is an asset of DocVex’s own GitHub release and matches its published SHA-256 checksum. Builds are not yet signed with Authenticode / Developer ID certificates.</li>
             <li>The renderer runs with Electron's context isolation: pages have no direct access to the system; every native capability crosses a narrow, explicitly defined bridge.</li>
           </ul>
         </section>
@@ -155,7 +159,8 @@
             <li>Use a strong, unique password, and protect the devices where your project folders live — local-first means device security is data security.</li>
             <li>Keep the app updated; updates carry security fixes.</li>
             <li>Manage project membership deliberately: remove people who leave, and use roles/capabilities to limit what each member can do.</li>
-            <li>Back up your local project folders — DocVex holds no server copy to restore from.</li>
+            <li>Back up your local project folders — unless you switch on sync for a project, DocVex holds no server copy to restore from.</li>
+            <li>Turn on full-disk encryption on every computer that holds case files.</li>
           </ul>
           <p class="lg-note">This page describes controls current as of the date above; as an early-stage product, formal certifications (e.g. ISO 27001, SOC 2) have not yet been pursued. This document has not been reviewed by counsel and does not constitute legal advice.</p>
         </section>

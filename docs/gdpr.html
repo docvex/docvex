@@ -31,7 +31,7 @@
       <p class="lg-eyebrow">DocVex — Legal</p>
       <h1 class="lg-title">GDPR Compliance</h1>
       <p class="lg-lead">DocVex processes personal data in accordance with the EU General Data Protection Regulation. This page explains your rights, our roles and legal bases, and how to act on any of it.</p>
-      <p class="lg-updated">Last updated: 18 July 2026</p>
+      <p class="lg-updated">Last updated: 28 September 2026</p>
     </header>
 
     <div class="lg-layout">
@@ -73,6 +73,8 @@
           <p>For your account data (registration details, preferences, support communications, website enrollments), DocVex determines the purposes and means of processing and acts as the <strong>data controller</strong>. The <a href="privacy.html">Privacy Policy</a> is the controller-side notice.</p>
           <h3>DocVex as processor</h3>
           <p>For personal data contained in the content your organization manages through DocVex — chat messages, project data, documents you submit to AI features — your organization is the controller and DocVex processes that data only on its instructions, as the <strong>processor</strong>. Those obligations are set out in the <a href="dpa.html">Data Processing Agreement</a>.</p>
+          <h3>Sensitive data in legal files</h3>
+          <p>Legal documents routinely contain national identification numbers (CNP), identity documents, data about criminal proceedings (Art. 10) and other special categories (Art. 9). As controller, your organization needs a lawful basis for them — for CNPs, including the conditions of Art. 4 of Romanian Law no. 190/2018 — and, given the nature of this processing, will usually need a data-protection impact assessment (Art. 35). We provide the information for it on request (see the <a href="dpa.html">DPA</a>, Section 9).</p>
         </section>
 
         <section class="lg-card" id="bases">
@@ -134,6 +136,9 @@
             <li><strong>Access control by default</strong> — row-level security enforces project membership at the database layer; roles and capabilities restrict actions within a project.</li>
             <li><strong>Encryption</strong> — in transit everywhere, at rest for stored data, with additional application-layer encryption for mailbox tokens.</li>
             <li><strong>User-controlled deletion</strong> — erase and delete actions are self-service in the app, not a support ticket.</li>
+            <li><strong>Off by default</strong> — the features that store files in our cloud (sync with account, phone upload through the cloud) or send them to AI automatically are switched off until a project turns them on.</li>
+            <li><strong>Biometrics stay on the device</strong> — optional face matching computes face measurements only on your computer; they are never uploaded, sent to an AI provider or synced.</li>
+            <li><strong>Pseudonymisation</strong> — identifiers are replaced with placeholders before text reaches an AI provider (on by default; a project can switch it off), with the key kept encrypted on your device.</li>
           </ul>
         </section>
 
@@ -152,7 +157,7 @@
         <section class="lg-card" id="contact">
           <h2>10. Contact</h2>
           <p class="lg-sub">Data-protection questions.</p>
-          <p>For all GDPR matters, contact <a href="mailto:docvexteam@docvex.ro">docvexteam@docvex.ro</a>. We are not currently required to appoint a Data Protection Officer (Art. 37); if that changes, this page will name the DPO.</p>
+          <p>For all GDPR matters, contact <a href="mailto:docvexteam@docvex.ro">docvexteam@docvex.ro</a>. We are assessing whether the nature of the data processed through the Service requires a Data Protection Officer under Art. 37(1); once one is appointed, this page will name them. Until then, this address reaches the people responsible for data protection.</p>
           <p class="lg-note">The operating legal entity's registered details will be added to this page upon incorporation. This document has not yet been reviewed by counsel and does not constitute legal advice.</p>
         </section>
       </div>

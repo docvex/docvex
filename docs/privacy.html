@@ -31,7 +31,7 @@
       <p class="lg-eyebrow">DocVex — Legal</p>
       <h1 class="lg-title">Privacy Policy</h1>
       <p class="lg-lead">DocVex is built privacy-first: your project documents stay on your device, and we collect only what we need to run your account and the collaborative parts of the Service.</p>
-      <p class="lg-updated">Last updated: 18 July 2026</p>
+      <p class="lg-updated">Last updated: 28 September 2026</p>
     </header>
 
     <div class="lg-layout">
@@ -66,6 +66,8 @@
           <h2>1. Who we are &amp; what this policy covers</h2>
           <p class="lg-sub">Scope of this policy.</p>
           <p>This Privacy Policy explains how DocVex ("DocVex", "we") processes personal data when you use the DocVex desktop application and the docvex.ro website (together, the "Service"). For your own account data, DocVex acts as the data controller; where we process personal data contained in your team's content on behalf of your organization, we act as a processor under our <a href="dpa.html">Data Processing Agreement</a>.</p>
+          <h3>The controller</h3>
+          <p>DocVex is not yet incorporated. Until it is, the controller is the natural person who operates it, based in Romania, reachable at <a href="mailto:docvexteam@docvex.ro">docvexteam@docvex.ro</a>; their full name and postal address are given to anyone who asks at that address. When the company is registered, its name, registered office, CUI and trade register number will replace this paragraph.</p>
           <p>You can reach us about anything in this policy at <a href="mailto:docvexteam@docvex.ro">docvexteam@docvex.ro</a>.</p>
         </section>
 
@@ -105,15 +107,24 @@
           <h2>4. Your project files stay local</h2>
           <p class="lg-sub">The core architectural promise.</p>
           <p>Project documents live in a folder <strong>on your own device</strong> that you choose. DocVex has no cloud file store: your documents are not uploaded to our servers as part of normal operation, and we cannot access them. File metadata used to keep the folder organized (a small sidecar file with filenames and content hashes) also stays inside that folder on your device.</p>
-          <p>The exceptions are actions you explicitly invoke that require processing — for example asking an AI feature to summarize a document, which transmits the necessary content transiently as described in Section 5.</p>
+          <p>The exceptions are actions you explicitly invoke that require processing — for example asking an AI feature to summarize a document, which transmits the necessary content transiently as described in Section 5 — and three optional features, each off until you switch it on:</p>
+          <ul class="lg-list">
+            <li><strong>Sync with account</strong> — a project owner can choose to keep a copy of a project's folder in our EU storage so it can be opened on other devices. The copy is readable by the project's members only (not the public, and not other customers). It is per project, and the copy is deleted when sync is switched off or the project is deleted.</li>
+            <li><strong>Upload from a phone through the DocVex cloud</strong> — files pass through a private EU storage area only until your computer downloads them, and are then deleted. The local-network route stores nothing on our servers.</li>
+            <li><strong>Automatic understanding of new files</strong> — if you switch it on for a project, files added to that project are sent to the AI provider as they arrive, as described in Section 5.</li>
+          </ul>
+          <h3>Sensitive data in your files</h3>
+          <p>Legal files routinely contain national identification numbers (CNP), identity documents, and data about criminal proceedings. DocVex processes this data only on behalf of, and on the instructions of, the firm using it (see the <a href="dpa.html">Data Processing Agreement</a>). The firm, as controller, is responsible for having a lawful basis — including the conditions of Art. 9 and Art. 10 GDPR and, for CNPs, Art. 4 of Romanian Law no. 190/2018. To help, DocVex replaces identifiers with placeholders before text is sent to an AI provider (pseudonymisation — on by default in every project; a project can switch it off), and reads pictures on your device unless cloud reading is enabled for the project.</p>
+          <h3>Face matching (biometric data)</h3>
+          <p>The optional face-matching feature compares the photo on an identity document with faces in a project's pictures. Face measurements are <strong>biometric data</strong> under Art. 9 GDPR. They are computed and kept <strong>only on your device</strong>: they are never uploaded, never sent to an AI provider, and never included in account sync. Only the result (which pictures match) is saved in the project. The feature is off by default; the firm is responsible for having a lawful basis before using it — typically the establishment, exercise or defence of legal claims (Art. 9(2)(f)).</p>
         </section>
 
         <section class="lg-card" id="ai">
           <h2>5. AI features &amp; your content</h2>
           <p class="lg-sub">What is sent, when, and to whom.</p>
-          <p>AI features — document Q&amp;A, summaries, risk review, drafting, OCR text extraction, audio transcription, document generation, and the legal-feed briefing — are powered by third-party AI providers: <strong>Anthropic</strong> (Claude models) and, for audio transcription, <strong>OpenAI</strong> (Whisper).</p>
+          <p>AI features — document Q&amp;A, summaries, risk review, drafting, OCR text extraction, audio transcription, document generation, and the legal-feed briefing — are powered by third-party AI providers: <strong>Anthropic</strong> (Claude models) and, for audio transcription, <strong>OpenAI</strong> (Whisper). When you have DocVex build an Office file, the draft is created in Anthropic's file storage and code-execution environment and downloaded to your computer.</p>
           <ul class="lg-list">
-            <li>Content is transmitted to an AI provider <strong>only when you invoke an AI feature on it</strong> — never in the background.</li>
+            <li>Content is transmitted to an AI provider <strong>only when you invoke an AI feature on it</strong>, or when you have switched on automatic understanding of new files for a project (Section 4) — never otherwise in the background.</li>
             <li>We send the minimum needed: the selected document content, image region, audio track, or prompt.</li>
             <li>We use these providers through their business APIs, which do not use API content to train their models.</li>
             <li>What we keep afterwards: the results shown to you (some are cached on your device for convenience) and usage metadata (action, model, token counts) — not a server-side copy of your documents.</li>
@@ -134,9 +145,16 @@
                 <tr><td>Resend</td><td>Transactional email delivery</td><td>United States / EU</td></tr>
                 <tr><td>GitHub</td><td>Hosting the website, application downloads, and the update feed</td><td>United States</td></tr>
                 <tr><td>Google / Microsoft</td><td>Sign-in with Google; Gmail/Outlook sync — only if you connect them</td><td>United States / EU</td></tr>
+                <tr><td>Google</td><td>Maps of a company's public address (ANAF tab, when you open the map); typefaces on the website (Google Fonts)</td><td>United States</td></tr>
+                <tr><td>Electron (update.electronjs.org)</td><td>Update check for the Windows app: IP address, platform and version</td><td>United States</td></tr>
+                <tr><td>esm.sh</td><td>Delivers a code library to the website's sign-in and forms: IP address and browser</td><td>Global CDN</td></tr>
               </tbody>
             </table>
           </div>
+          <h3>Public legal portals</h3>
+          <p>The Legislation, Court files, Companies (ANAF) and CAEN tools send what you type into them — including a party name, file number or tax code — directly from your computer to the Romanian public service that answers it: legislatie.just.ro (Ministry of Justice), portal.just.ro (the courts' portal; its service is reached over plain HTTP, so a search can be seen on the network path), and ANAF's public web services. These are independent public authorities, not our processors; they receive your IP address and the search. Search the courts' portal by party name only where you have a reason to.</p>
+          <h3>Other things we keep on our servers</h3>
+          <p>If you import documents into the Playbook so DocVex learns your writing style, an excerpt of each (up to 12,000 characters) and the style description learned from them are stored with your account. Names, national ID numbers, IBANs, addresses and similar identifiers are replaced with placeholders on your computer before either is stored. Deleting a document or your account deletes them.</p>
           <p>The authoritative, maintained list — including how to object to changes — is in the <a href="dpa.html#subprocessors">Data Processing Agreement</a>.</p>
         </section>
 
@@ -152,11 +170,18 @@
           <ul class="lg-list">
             <li><strong>Account and collaboration data</strong> — kept while your account is active. Deleting your account removes your personal account data; messages you posted in shared projects may be retained for the team in anonymized or attributed form according to your organization's instructions.</li>
             <li><strong>Connected-mailbox tokens</strong> — deleted when you disconnect the mailbox or delete your account.</li>
-            <li><strong>Support reports</strong> — kept as long as needed to resolve the issue and for a reasonable period after.</li>
-            <li><strong>Enrollment submissions</strong> — kept until the request is handled and for a reasonable follow-up period.</li>
+            <li><strong>Support reports</strong> — kept as long as needed to resolve the issue and for a reasonable period after. A problem report attaches a screenshot of your screen only if you leave it attached; please remove it if client documents are visible.</li>
+            <li><strong>Synced project copies</strong> — kept while sync is on for that project; deleted when it is switched off or the project is deleted. Your private synced data (your own AI conversations) is deleted with your account.</li>
+            <li><strong>Phone uploads through the DocVex cloud</strong> — deleted as soon as your computer has received them; anything left over is swept after the upload session ends.</li>
+            <li><strong>Website sign-ups (waitlist, demo requests, newsletter)</strong> — deleted automatically 24 months after they were sent.</li>
+            <li><strong>In-app notifications</strong> — deleted automatically after 12 months.</li>
+            <li><strong>Project invitations</strong> — deleted automatically 90 days after they were accepted or expired.</li>
+            <li><strong>Messages you delete in chat</strong> — hidden at once and purged automatically after 30 days (a deleted message that still has replies is kept until they go).</li>
+            <li><strong>AI usage records</strong> (action, model, token counts — no content) — deleted automatically after 24 months.</li>
+            <li><strong>Phone-upload sessions</strong> — the session record is deleted automatically 30 days after it lapses.</li>
             <li><strong>Project files</strong> — on your device, under your control; we hold no copy to retain or delete.</li>
           </ul>
-          <p>You can erase locally cached app data and delete your account directly from your account settings.</p>
+          <p>These periods are enforced by a scheduled job on our servers every night. You can erase what DocVex keeps on your computer, and delete your account, directly from your account settings.</p>
         </section>
 
         <section class="lg-card" id="rights">
@@ -168,7 +193,7 @@
         <section class="lg-card" id="security">
           <h2>10. Security</h2>
           <p class="lg-sub">How data is protected.</p>
-          <p>We protect personal data with encryption in transit, encryption at rest, row-level security so members access only the projects they belong to, encrypted storage of mailbox tokens, and signed application releases. The full picture — including how to report a vulnerability — is in the <a href="security.html">Security Policy</a>.</p>
+          <p>We protect personal data with encryption in transit, encryption at rest, row-level security so members access only the projects they belong to, encrypted storage of mailbox tokens, and application releases published only through our official GitHub release channel, with macOS updates checked against their published checksum before they install. The full picture — including how to report a vulnerability — is in the <a href="security.html">Security Policy</a>.</p>
         </section>
 
         <section class="lg-card" id="children">

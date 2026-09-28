@@ -337,7 +337,7 @@ const state = {
   view: isRecovery ? 'recover' : (params.get('mode') === 'signin' ? 'signin' : 'signup'),
   step: 0,                    // 0 account · 1 profile · 2 confirm
   email: '', password: '', name: '', firm: '',
-  agree: false, news: true,
+  agree: false, news: false,
   error: '', notice: '', busy: false,
   confirmEmail: '', resent: false,
 };
@@ -370,8 +370,13 @@ function field({ key, label, type = 'text', placeholder, autocomplete, right = '
     `placeholder="${esc(placeholder || '')}" autocomplete="${autocomplete || 'off'}"></div>`
   );
 }
+// Google can create an account without the confirm step, so its button
+// carries the same terms in writing.
 function googleBtn(label) {
-  return `<button type="button" class="auv-google" data-act="google">${GOOGLE_SVG}${esc(label)}</button>`;
+  return `<button type="button" class="auv-google" data-act="google">${GOOGLE_SVG}${esc(label)}</button>` +
+    '<p class="auv-foot" style="font-size:12px;margin-top:10px">By continuing with Google you agree to the ' +
+    '<a href="terms.html" target="_blank" rel="noopener">Terms of Service</a>, confirm you are at least 16, ' +
+    'and have read the <a href="privacy.html" target="_blank" rel="noopener">Privacy Policy</a>.</p>';
 }
 const msgSlot = '<div id="auMsg"></div>';
 const orRule = '<div class="auv-or"><span>or</span></div>';
@@ -442,8 +447,8 @@ function viewSignup() {
         `<div class="auv-summary-row"><span>Email</span><strong>${esc(state.email || 'your email')}</strong></div>` +
       '</div>' +
       '<label class="auv-check"><input type="checkbox" data-check="agree">' +
-        '<span>I agree to the <a href="terms.html" target="_blank" rel="noopener">Terms of Service</a> ' +
-        'and <a href="privacy.html" target="_blank" rel="noopener">Privacy Policy</a>.</span></label>' +
+        '<span>I agree to the <a href="terms.html" target="_blank" rel="noopener">Terms of Service</a>, ' +
+        'confirm I am at least 16, and have read the <a href="privacy.html" target="_blank" rel="noopener">Privacy Policy</a>.</span></label>' +
       '<label class="auv-check" style="margin-top:13px"><input type="checkbox" data-check="news">' +
         '<span>Send me the <strong>Legal Newsfeed</strong> — a weekly briefing on Romanian legislation.</span></label>' +
       msgSlot +

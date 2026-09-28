@@ -31,7 +31,7 @@
       <p class="lg-eyebrow">DocVex — Legal</p>
       <h1 class="lg-title">Cookie Policy</h1>
       <p class="lg-lead">DocVex uses only the browser storage the Service needs to function — signing you in and remembering your preferences. No advertising cookies, no third-party trackers.</p>
-      <p class="lg-updated">Last updated: 18 July 2026</p>
+      <p class="lg-updated">Last updated: 28 September 2026</p>
     </header>
 
     <div class="lg-layout">
@@ -92,6 +92,10 @@
           <ul class="lg-list">
             <li><strong>Supabase</strong> — the site and app talk to our EU-hosted backend for sign-in and data sync; the session is stored locally as described above.</li>
             <li><strong>Google Fonts</strong> — the website loads its typefaces from Google Fonts, which involves a request to Google's servers. The desktop app does not depend on this at runtime.</li>
+            <li><strong>esm.sh</strong> — the website's sign-in and forms load the Supabase client library from the esm.sh CDN, which sees your IP address and browser.</li>
+            <li><strong>Google Maps</strong> — in the app, opening the map for a company's registered office (the ANAF tab) loads Google's map of that public address; Google sees your IP address and the address shown.</li>
+            <li><strong>Update check</strong> — the desktop app asks update.electronjs.org and GitHub for new releases, which sees your IP address, platform and app version.</li>
+            <li><strong>Public legal portals</strong> — the legislation, court-files, company (ANAF) and CAEN tools send what you search for straight to the Romanian public services that answer it (see the <a href="privacy.html#sharing">Privacy Policy</a>).</li>
             <li><strong>Google / Microsoft sign-in pages</strong> — if you use Google sign-in or connect a mailbox, those providers' own pages set their own cookies under their own policies.</li>
           </ul>
           <p>None of these are used by DocVex for advertising or cross-site tracking.</p>
