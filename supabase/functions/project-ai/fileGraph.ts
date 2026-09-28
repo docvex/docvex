@@ -33,10 +33,10 @@
 // the task restated AFTER the data (long-context prompts answer better with
 // the question at the end).
 import { jurisdictionPrompt } from "../_shared/jurisdictions.ts";
+import { claudeConfigured, claudeMessages } from "../_shared/claudeTransport.ts";
 
 type Json = Record<string, unknown>;
 export type GraphDeps = {
-  apiKey: string;
   pickModel: (requested: unknown, fallback: string) => string;
   json: (body: unknown, status?: number) => Response;
 };
@@ -224,17 +224,13 @@ const attr = (s: unknown) => esc(s).replace(/"/g, "&quot;");
 
 // ── The call ─────────────────────────────────────────────────────────────
 async function callTool(deps: GraphDeps, opts: { system: string; user: string; tool: Json; model: string; maxTokens: number }) {
-  const resp = await fetch("https://api.anthropic.com/v1/messages", {
-    method: "POST",
-    headers: { "x-api-key": deps.apiKey, "anthropic-version": "2023-06-01", "content-type": "application/json" },
-    body: JSON.stringify({
-      model: opts.model,
-      max_tokens: opts.maxTokens,
-      system: [{ type: "text", text: opts.system, cache_control: { type: "ephemeral" } }],
-      tools: [opts.tool],
-      tool_choice: { type: "tool", name: opts.tool.name },
-      messages: [{ role: "user", content: opts.user }],
-    }),
+  const resp = await claudeMessages({
+    model: opts.model,
+    max_tokens: opts.maxTokens,
+    system: [{ type: "text", text: opts.system, cache_control: { type: "ephemeral" } }],
+    tools: [opts.tool],
+    tool_choice: { type: "tool", name: opts.tool.name },
+    messages: [{ role: "user", content: opts.user }],
   });
   if (!resp.ok) throw new Error(`anthropic_${resp.status}: ${(await resp.text()).slice(0, 400)}`);
   const data = await resp.json();
@@ -310,7 +306,7 @@ function cleanGraph(g: Json, known: Set<string>) {
 
 // ── passport (MAP) ───────────────────────────────────────────────────────
 export async function handlePassport(body: Json, deps: GraphDeps): Promise<Response> {
-  if (!deps.apiKey) return deps.json({ ok: false, error: "ai_not_configured" });
+  if (!claudeConfigured()) return deps.json({ ok: false, error: "ai_not_configured" });
   const files = arr(body.files).map((f) => {
     const q = f as Json;
     return { id: s(q?.id, 200), name: s(q?.name, 300), method: s(q?.method, 40), text: typeof q?.text === "string" ? q.text.slice(0, MAX_FILE_CHARS) : "" };
@@ -375,7 +371,7 @@ function passportXml(p: Json) {
 }
 
 export async function handleCrossref(body: Json, deps: GraphDeps): Promise<Response> {
-  if (!deps.apiKey) return deps.json({ ok: false, error: "ai_not_configured" });
+  if (!claudeConfigured()) return deps.json({ ok: false, error: "ai_not_configured" });
   const seenIds = new Set<string>();
   const all = arr(body.passports).map((p) => p as Json).filter((p) => {
     const id = s(p?.id, 200);
