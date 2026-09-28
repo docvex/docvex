@@ -13,6 +13,7 @@ import {
   openOAuthUrl,
   quitApp,
 } from '../lib/platform';
+import { wipeLocalUserData } from '../lib/localWipe';
 
 // The OAuth callback: the custom protocol the OS routes back to main, which
 // forwards it as `oauth:callback-url` (see handleDeepLinkUrl below).
@@ -407,6 +408,8 @@ export function AuthProvider({ children }) {
     // Best-effort sign-out — the server-side delete already invalidated
     // the token, so signOut may itself error; not fatal for the caller.
     try { await supabase.auth.signOut(); } catch { /* non-fatal */ }
+    // The account is gone server-side; this computer's copy goes too.
+    try { await wipeLocalUserData(); } catch { /* non-fatal */ }
     return { error: null };
   };
 
@@ -425,6 +428,9 @@ export function AuthProvider({ children }) {
       catch { /* non-fatal — local wipe still runs */ }
     }
     const { error } = await supabase.auth.signOut({ scope: 'global' });
+    // Everything this computer keeps about the user — index databases,
+    // vaults, thumbnails, caches, every docvex key (lib/localWipe).
+    try { await wipeLocalUserData(); } catch { /* the targeted clean-up below still runs */ }
     try {
       Object.keys(localStorage)
         .filter((k) => (

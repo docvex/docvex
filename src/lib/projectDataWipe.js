@@ -27,7 +27,8 @@ import { clearCachedChat } from './chatCache';
 import { CAPTIONS_PREFIX } from './captionsHistory';
 import { METADATA_PREFIX } from './metadataHistory';
 import { OCR_HISTORY_PREFIX } from './extractionHistory';
-import { CONVERSATION_PREFIX } from './conversationHistory';
+import { CONVERSATION_PREFIX, listConversations, clearConversation } from './conversationHistory';
+import { normPath } from './projectIndexClient';
 
 // Per-file localStorage caches, all keyed `<prefix><absolute file path>`.
 // (The envelope cache has no exported constant — its prefix is inlined here
@@ -99,7 +100,17 @@ export async function wipeProjectFiles(dir) {
 // (they're cheap to rebuild and shared across projects, so a partial wipe would
 // be more surprising than a full one).
 export async function wipeProjectAiMemory(projectId, dir, { clearContext = true } = {}) {
-  const threads = purgeByPrefixUnder([CONVERSATION_PREFIX], dir);
+  let threads = purgeByPrefixUnder([CONVERSATION_PREFIX], dir);
+  // The threads now live in the project index's private store, not only in
+  // localStorage: clear every one under this folder there too.
+  try {
+    const root = normPath(dir);
+    for (const { path } of await listConversations()) {
+      if (!root || normPath(path).startsWith(`${root}/`)) {
+        if (clearConversation(path)) threads += 1;
+      }
+    }
+  } catch { /* the index isn't answering: the localStorage copies are gone */ }
   clearAiFileIndex();
   clearAiSearchAnswers();
   let contextCleared = false;

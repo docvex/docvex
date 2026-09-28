@@ -371,6 +371,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // The pseudonymisation vault (lib/pseudonymize/storage), encrypted in main.
   vaultGet: (projectId) => ipcRenderer.invoke('vault:get', projectId),
   vaultPut: (projectId, data) => ipcRenderer.invoke('vault:put', projectId, data),
+  wipeLocalData: () => ipcRenderer.invoke('app:wipe-local-data'),
   projectFiles: (args) => ipcRenderer.invoke('project:files', args),
   projectReconcile: (args) => ipcRenderer.invoke('project:reconcile', args),
   projectFileId: (args) => ipcRenderer.invoke('project:file-id', args),

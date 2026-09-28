@@ -1823,6 +1823,46 @@ ipcMain.handle('vault:put', async (_e, projectId, data) => {
     return { error: String(err?.message || err) };
   }
 });
+// ── Erase this computer's copy of the user's data (Account → Erase data /
+// Delete account). GDPR Art. 17: everything DocVex keeps under userData about
+// files and people goes — the project index databases (the private table with
+// advisor threads, cached extracted text, identity readings and face data),
+// the pseudonymisation vaults, the thumbnail cache (ID-card pictures), the
+// "Opened with DocVex" list — plus DocVex's temp files and the browser-side
+// caches (IndexedDB, Cache Storage). The user's own case folders are never
+// touched. The legislation archive is public law and is kept.
+ipcMain.handle('app:wipe-local-data', async () => {
+  const userData = app.getPath('userData');
+  const removed = [];
+  const failed = [];
+  closeProjectIndex();
+  const rm = async (target) => {
+    try {
+      await fsp.rm(target, { recursive: true, force: true, maxRetries: 3 });
+      removed.push(path.basename(target));
+    } catch (err) {
+      failed.push(`${path.basename(target)}: ${err?.code || err?.message || err}`);
+    }
+  };
+  for (const name of ['project-index', 'vault', 'thumbnails', 'external-opens.json']) {
+    await rm(path.join(userData, name));
+  }
+  try {
+    const tmp = app.getPath('temp');
+    await rm(path.join(tmp, 'docvex-open'));
+    for (const n of await fsp.readdir(tmp)) {
+      if (/^docvex-(snip|wa)/.test(n)) await rm(path.join(tmp, n));
+    }
+  } catch { /* temp unreadable: nothing of ours to find */ }
+  try {
+    await session.defaultSession.clearStorageData({ storages: ['indexdb', 'cachestorage', 'serviceworkers', 'shadercache'] });
+    await session.defaultSession.clearCache();
+  } catch (err) {
+    failed.push(`browser caches: ${err?.message || err}`);
+  }
+  return { ok: failed.length === 0, removed, failed };
+});
+
 ipcMain.on('tab-window:route', (e, payload) => {
   const w = BrowserWindow.fromWebContents(e.sender);
   const entry = w && tabWindows.get(w.id);

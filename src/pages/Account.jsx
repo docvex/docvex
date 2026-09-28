@@ -63,13 +63,13 @@ const DZ_CONFIRMS = {
   },
   erase: {
     title: 'Erase all account data?',
-    message: 'This signs you out from every device and removes locally cached account data. You can sign back in afterwards, but anything stored only on this machine will be gone.',
+    message: 'This signs you out from every device and erases what DocVex keeps on this computer: cached text read from your files, AI conversations, search history, thumbnails and settings. Your case folders and their documents are not touched. You can sign back in afterwards.',
     confirmLabel: 'Erase everything',
     busyLabel: 'Erasing…',
   },
   delete: {
     title: 'Delete your account?',
-    message: 'This cannot be undone. Your account, project memberships, and notifications are permanently removed; projects you solely own are orphaned and pending invitations you sent are cleared.',
+    message: 'This cannot be undone. Your account, memberships and notifications are removed, projects nobody else is in are deleted along with their cloud copies, and what DocVex keeps on this computer is erased. Projects shared with others stay with the team. Your case folders are not touched.',
     confirmLabel: 'Delete account',
     busyLabel: 'Deleting…',
     requireEmail: true,
