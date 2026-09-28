@@ -187,8 +187,16 @@ export async function rebuildProfile() {
   });
   if (res.error) return { error: res.error };
 
-  const text = String(res.text || '').trim().slice(0, MAX_PROFILE_CHARS);
+  let text = String(res.text || '').trim().slice(0, MAX_PROFILE_CHARS);
   if (!text) return { error: new Error('empty_profile') };
+  // The answer comes back re-identified; the profile is stored on the server,
+  // so any name it quotes goes back to its placeholder first.
+  try {
+    const { maskPersonalText } = await import('./pseudonymize/transport');
+    text = await maskPersonalText(text);
+  } catch {
+    return { error: new Error('vault_unavailable') };
+  }
 
   const now = new Date().toISOString();
   const { error: saveErr } = await supabase.from('writing_profiles').upsert({
