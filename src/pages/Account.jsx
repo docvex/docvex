@@ -9,6 +9,7 @@ import DangerZone, { DangerRow } from '../components/DangerZone';
 import StatusBadge from '../components/StatusBadge';
 import Tooltip from '../components/Tooltip';
 import { STATUS_OPTIONS, DEFAULT_STATUS_KEY, updateStatus } from '../lib/userStatus';
+import { downloadMyData } from '../lib/dataExport';
 import './Account.css';
 
 function formatDate(iso, withTime = false) {
@@ -78,6 +79,14 @@ const DZ_CONFIRMS = {
 
 export default function Account() {
   const { session, logout, eraseData, deleteAccount, linkGoogle, setPassword } = useAuth();
+  const [exporting, setExporting] = useState(false);
+  const onExport = async () => {
+    setExporting(true);
+    try {
+      const res = await downloadMyData();
+      if (!res.ok) notify?.({ category: 'system', variant: 'error', title: 'Could not export your data', body: String(res.error || ''), dedupeKey: 'account-export' });
+    } finally { setExporting(false); }
+  };
   const { notify } = useNotifications();
   const navigate = useNavigate();
   const [copied, setCopied] = useState(false);
@@ -544,6 +553,16 @@ export default function Account() {
             Upgrade plan
           </button>
         </Tooltip>
+      </section>
+
+      <section className="account-card">
+        <h2 className="account-card-title">Your data</h2>
+        <p className="account-plan-features" style={{ margin: '4px 0 12px' }}>
+          Download everything your account holds on DocVex&rsquo;s servers, and your AI conversations kept on this computer, as one JSON file. Your case files are not included &mdash; they are already ordinary files in your folders.
+        </p>
+        <button className="account-upgrade-btn" disabled={exporting} onClick={onExport}>
+          {exporting ? 'Preparing…' : 'Download my data'}
+        </button>
       </section>
 
       <DangerZone subtitle="Irreversible actions for your account. Proceed with care.">

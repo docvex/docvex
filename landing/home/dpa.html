@@ -165,7 +165,7 @@
             <li>Data minimisation by architecture: project files remain on Customer devices; AI processing is transient and user-initiated; biometric processing never leaves the device.</li>
             <li>Pseudonymisation by default: identifiers (names, CNP, CUI, IBAN, addresses, document numbers) are replaced with placeholders before text reaches an AI Sub-processor, with the key kept encrypted on the Customer's device.</li>
             <li>Secrets held in a managed vault; production access restricted to the DocVex team on a need-to-use basis.</li>
-            <li>Signed, verified application releases distributed only through official channels.</li>
+            <li>Application releases distributed only through the official GitHub release channel over HTTPS; the macOS self-updater verifies each download against its published SHA-256 checksum. (Code-signing certificates are being obtained; until then builds are not Authenticode / Developer ID signed.)</li>
           </ul>
           <p>The <a href="security.html">Security Policy</a> describes these measures in detail and is incorporated by reference; DocVex may improve measures over time but will not materially reduce the protection.</p>
         </section>

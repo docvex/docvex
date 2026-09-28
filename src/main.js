@@ -3045,6 +3045,44 @@ async function downloadToFile(url, dest, onProgress) {
   }
 }
 
+// The macOS self-updater installs ONLY a file that is an asset of one of this
+// app's own GitHub releases, and only when its bytes match the SHA-256 digest
+// GitHub publishes for that asset. The renderer names the asset; main looks it
+// up itself, so a compromised renderer can neither point it at another host
+// nor at a tampered file.
+const UPDATE_REPO = 'petreluca1105-dotcom/docvex';
+async function resolveUpdateAsset(url) {
+  let u;
+  try { u = new URL(url); } catch { return { error: 'Invalid download URL.' }; }
+  if (u.protocol !== 'https:' || u.hostname !== 'github.com'
+    || !u.pathname.startsWith(`/${UPDATE_REPO}/releases/download/`)) {
+    return { error: 'The update must come from DocVex\'s own GitHub releases.' };
+  }
+  const res = await fetch(`https://api.github.com/repos/${UPDATE_REPO}/releases?per_page=30`, {
+    headers: { Accept: 'application/vnd.github+json', 'User-Agent': 'DocVex-Updater' },
+  });
+  if (!res.ok) return { error: `Could not verify the update (GitHub HTTP ${res.status}).` };
+  const releases = await res.json();
+  for (const r of Array.isArray(releases) ? releases : []) {
+    if (r?.draft) continue;
+    for (const a of r?.assets || []) {
+      if (a?.browser_download_url === url) {
+        const m = /^sha256:([a-f0-9]{64})$/i.exec(String(a.digest || ''));
+        if (!m) return { error: 'This update has no published checksum, so it cannot be verified.' };
+        return { sha256: m[1].toLowerCase(), size: a.size };
+      }
+    }
+  }
+  return { error: 'That file is not part of a DocVex release.' };
+}
+async function sha256File(file) {
+  const hash = crypto.createHash('sha256');
+  await new Promise((resolve, reject) => {
+    fs.createReadStream(file).on('data', (d) => hash.update(d)).on('end', resolve).on('error', reject);
+  });
+  return hash.digest('hex');
+}
+
 // Run a command, resolving on exit 0 and rejecting otherwise.
 function runCommand(cmd, args) {
   return new Promise((resolve, reject) => {
@@ -3060,9 +3098,12 @@ ipcMain.handle('update:download-and-install', async (_evt, payload) => {
   const url = payload?.url;
   if (process.platform !== 'darwin') return { ok: false, error: 'Auto-install is only supported on macOS here.' };
   if (!app.isPackaged) return { ok: false, error: 'Auto-install only works in the installed app.' };
-  if (typeof url !== 'string' || !/^https?:\/\//i.test(url)) {
+  if (typeof url !== 'string' || !/^https:\/\//i.test(url)) {
     return { ok: false, error: 'No valid download URL for this build.' };
   }
+  let expected;
+  try { expected = await resolveUpdateAsset(url); } catch (err) { expected = { error: `Could not verify the update: ${err?.message || err}` }; }
+  if (expected.error) return { ok: false, error: expected.error };
   const currentApp = currentMacAppBundle();
   if (!currentApp) return { ok: false, error: "Couldn't locate the installed app bundle." };
 
@@ -3078,6 +3119,10 @@ ipcMain.handle('update:download-and-install', async (_evt, payload) => {
     await downloadToFile(url, zipPath, (percent) => {
       sendUpdateStatus({ state: 'downloading', percent });
     });
+    // 1b. Verify it is exactly the file GitHub published for this release.
+    if ((await sha256File(zipPath)) !== expected.sha256) {
+      throw new Error('The downloaded update does not match its published checksum; it was not installed.');
+    }
 
     // 2. Extract. ditto restores the framework symlinks + exec bits the zip
     //    stored (make-mac-zips.mjs preserves them as real symlinks).

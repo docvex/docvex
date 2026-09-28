@@ -115,7 +115,7 @@
           <p class="lg-sub">The app you run is the app we shipped.</p>
           <ul class="lg-list">
             <li>Installers and updates are served exclusively from our official GitHub Releases and the Electron update service — no third-party download portals.</li>
-            <li>Windows updates install through the platform updater with verification against the official feed; macOS builds are signature-verified during packaging.</li>
+            <li>Windows updates install through the platform updater from the official feed; the macOS self-updater only installs a file that is an asset of DocVex’s own GitHub release and matches its published SHA-256 checksum. Builds are not yet signed with Authenticode / Developer ID certificates.</li>
             <li>The renderer runs with Electron's context isolation: pages have no direct access to the system; every native capability crosses a narrow, explicitly defined bridge.</li>
           </ul>
         </section>

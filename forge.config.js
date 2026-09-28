@@ -171,6 +171,15 @@ module.exports = {
         //             pushed to the repo (next release commits it).
         setupIcon: 'src/favicon.ico',
         iconUrl: 'https://raw.githubusercontent.com/petreluca1105-dotcom/docvex/main/src/favicon.ico',
+        // Authenticode signing (Setup.exe and the app inside the package).
+        // Set WINDOWS_CERTIFICATE_FILE (.pfx) + WINDOWS_CERTIFICATE_PASSWORD,
+        // or WINDOWS_SIGN_WITH_PARAMS for a cloud / hardware-token signer
+        // (passed to signtool as-is). Unset = unsigned, as before.
+        ...(process.env.WINDOWS_CERTIFICATE_FILE ? {
+          certificateFile: process.env.WINDOWS_CERTIFICATE_FILE,
+          certificatePassword: process.env.WINDOWS_CERTIFICATE_PASSWORD,
+        } : {}),
+        ...(process.env.WINDOWS_SIGN_WITH_PARAMS ? { signWithParams: process.env.WINDOWS_SIGN_WITH_PARAMS } : {}),
       },
     },
     {
