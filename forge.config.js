@@ -215,6 +215,14 @@ module.exports = {
             config: 'vite.preload.config.mjs',
             target: 'preload',
           },
+          {
+            // The background helper (a utility process main.js forks): the
+            // project index and .doc parsing run here, off the main process.
+            // Built next to main.js as backgroundWorker.js.
+            entry: 'src/backgroundWorker.js',
+            config: 'vite.main.config.mjs',
+            target: 'main',
+          },
         ],
         renderer: [
           {

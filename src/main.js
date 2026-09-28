@@ -1,4 +1,4 @@
-import { app, BrowserWindow, Menu, Tray, ipcMain, shell, autoUpdater, dialog, protocol, nativeImage, screen, session, desktopCapturer, safeStorage } from 'electron';
+import { app, BrowserWindow, Menu, Tray, ipcMain, shell, autoUpdater, dialog, protocol, nativeImage, screen, session, desktopCapturer, safeStorage, utilityProcess } from 'electron';
 import path from 'node:path';
 import fs from 'node:fs';
 import fsp from 'node:fs/promises';
@@ -1935,6 +1935,10 @@ ipcMain.handle('app:write-temp-file', async (_e, { name, bytes } = {}) => {
 
 ipcMain.handle('doc:extract-text', async (_e, filePath) => {
   if (typeof filePath !== 'string' || !filePath) return { error: 'no_path' };
+  // Parsed in the background helper: a large .doc froze every window while
+  // word-extractor worked through it on this process.
+  const viaHelper = callBackground('extractDoc', { path: filePath });
+  if (viaHelper) return viaHelper;
   try {
     const { default: WordExtractor } = await import('word-extractor');
     const doc = await new WordExtractor().extract(filePath);
@@ -2249,15 +2253,78 @@ function registerOpenWithDocVexVerb() {
 // lives in the index and, portably, under `.docvex/` in the case folder.
 // The service is created on first use — nothing here runs on the startup
 // path before the first window.
-let projectIndex = null;
 function broadcastToAllWindows(channel, payload) {
   for (const w of BrowserWindow.getAllWindows()) {
     try { if (!w.isDestroyed()) w.webContents.send(channel, payload); } catch { /* closing */ }
   }
 }
-function projectIndexService() {
-  if (!projectIndex) {
-    projectIndex = createProjectIndexService({
+
+// The index runs in the BACKGROUND HELPER (src/backgroundWorker.js, an Electron
+// utility process): its SQLite is synchronous and a reconcile walks and hashes
+// whole folders, which on the main process froze every window of the app.
+// `projectIndexService()` hands back an object with the service's own methods,
+// each forwarded to the helper. Should the helper not start (a build without
+// it), the service runs in-process as before.
+const PROJECT_INDEX_METHODS = [
+  'projectOpen', 'projectLocate', 'projectFiles', 'projectReconcile', 'projectFileId', 'projectPathForId',
+  'knowledgeGet', 'knowledgePut', 'knowledgeClear', 'knowledgeList', 'settingsGet', 'settingsPut',
+  'privateGet', 'privatePut', 'privateList', 'registerProjectFile', 'projectIdOfFolder',
+];
+let backgroundHelper = null; // { child, pending: Map, nextId, closing: Promise|null } | false once it failed
+function startBackgroundHelper() {
+  if (backgroundHelper !== null) return backgroundHelper || null;
+  const modulePath = path.join(__dirname, 'backgroundWorker.js');
+  try {
+    if (!fs.existsSync(modulePath)) throw new Error('backgroundWorker.js not built');
+    const child = utilityProcess.fork(modulePath, [], { serviceName: 'DocVex background' });
+    const helper = { child, pending: new Map(), nextId: 1, closing: null, closed: null };
+    child.on('message', (msg) => {
+      if (!msg || typeof msg !== 'object') return;
+      if (msg.type === 'result') {
+        const done = helper.pending.get(msg.id);
+        if (done) { helper.pending.delete(msg.id); done(msg.result); }
+      } else if (msg.type === 'broadcast') {
+        broadcastToAllWindows(msg.channel, msg.payload);
+      } else if (msg.type === 'projectDir') {
+        registerLocalfileRoot(msg.dir);
+      } else if (msg.type === 'closed') {
+        helper.closed?.();
+      }
+    });
+    child.on('exit', () => {
+      // Crashed or killed: answer everything waiting, and start afresh on the
+      // next call (the index reopens its projects from disk).
+      for (const done of helper.pending.values()) done({ ok: false, error: 'background_helper_exited' });
+      helper.pending.clear();
+      helper.closed?.();
+      if (backgroundHelper === helper) backgroundHelper = null;
+    });
+    child.postMessage({ type: 'init', userDataDir: app.getPath('userData') });
+    backgroundHelper = helper;
+    return helper;
+  } catch (err) {
+    console.warn('[background] helper unavailable, running in-process:', err?.message || err);
+    backgroundHelper = false;
+    return null;
+  }
+}
+function callBackground(method, arg) {
+  const helper = startBackgroundHelper();
+  if (!helper) return null;
+  return new Promise((resolve) => {
+    const id = helper.nextId++;
+    helper.pending.set(id, resolve);
+    try { helper.child.postMessage({ type: 'call', id, method, arg: arg ?? null }); } catch (err) {
+      helper.pending.delete(id);
+      resolve({ ok: false, error: err?.message || String(err) });
+    }
+  });
+}
+
+let inProcessIndex = null;
+function inProcessIndexService() {
+  if (!inProcessIndex) {
+    inProcessIndex = createProjectIndexService({
       userDataDir: app.getPath('userData'),
       broadcast: broadcastToAllWindows,
       // A project's folder is the user's own case folder: serve it over
@@ -2265,12 +2332,34 @@ function projectIndexService() {
       onProjectDir: registerLocalfileRoot,
     });
   }
-  return projectIndex;
+  return inProcessIndex;
 }
-function closeProjectIndex() {
-  if (!projectIndex) return;
-  try { projectIndex.close(); } catch { /* quitting anyway */ }
-  projectIndex = null;
+let projectIndexProxy = null;
+function projectIndexService() {
+  if (!startBackgroundHelper()) return inProcessIndexService();
+  if (!projectIndexProxy) {
+    projectIndexProxy = {};
+    for (const m of PROJECT_INDEX_METHODS) projectIndexProxy[m] = (arg) => callBackground(m, arg);
+  }
+  return projectIndexProxy;
+}
+// Flush and stop the index. Resolves once the helper says it has written
+// what it holds (ids.json etc.), or after `timeoutMs`.
+function closeProjectIndex({ timeoutMs = 1500 } = {}) {
+  if (inProcessIndex) {
+    try { inProcessIndex.close(); } catch { /* quitting anyway */ }
+    inProcessIndex = null;
+  }
+  const helper = backgroundHelper || null;
+  if (!helper) return Promise.resolve();
+  if (!helper.closing) {
+    helper.closing = new Promise((resolve) => {
+      const t = setTimeout(resolve, timeoutMs);
+      helper.closed = () => { clearTimeout(t); resolve(); };
+      try { helper.child.postMessage({ type: 'close' }); } catch { resolve(); }
+    });
+  }
+  return helper.closing;
 }
 
 // The contract's calls, one channel each. The service answers
@@ -4417,7 +4506,26 @@ const stopPurgeTimer = () => {
 };
 
 // Tear the watcher + purge timer down on quit so we don't leave handles dangling.
-app.on('before-quit', () => { stopWatcher(); stopPurgeTimer(); closeProjectIndex(); });
+// The background helper holds the index's unwritten state (ids.json …): quit
+// waits for it to flush — once, and never more than 1.5s. An update install
+// quits on its own terms, so there it is only asked to flush.
+let quitAfterIndexFlush = false;
+let quittingForUpdate = false;
+try { autoUpdater.on('before-quit-for-update', () => { quittingForUpdate = true; }); } catch { /* no updater on this platform */ }
+app.on('before-quit', (e) => {
+  stopWatcher();
+  stopPurgeTimer();
+  if (quitAfterIndexFlush || quittingForUpdate || !backgroundHelper) {
+    closeProjectIndex();
+    return;
+  }
+  e.preventDefault();
+  quitAfterIndexFlush = true;
+  closeProjectIndex().finally(() => {
+    try { backgroundHelper?.child?.kill(); } catch { /* already gone */ }
+    app.quit();
+  });
+});
 // --------------------------------------------------------------------------
 
 app.whenReady().then(() => {
