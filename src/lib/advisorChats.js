@@ -47,7 +47,7 @@ function relTime(ms) {
  * `prefix` / `activePrefix` are the localStorage keys, `label` the word a
  * tab's first line starts with ("Advisor", "Research").
  */
-export function createChatStore({ prefix, activePrefix, label }) {
+export function createChatStore({ prefix, activePrefix, label, describe }) {
   let state = { key: '', threads: [], active: null, closed: [] };
   const listeners = new Set();
   let saveTimer = 0;
@@ -151,12 +151,21 @@ export function createChatStore({ prefix, activePrefix, label }) {
   }
   // The two lines a tab shows (the sidebar's and the rail's): what it is and
   // when, then its title.
+  // `describe(t)` (optional) may say what a chat IS — { tone, siteName,
+  // ownKind, title } (Research: a direct search drawn as a Legislation tab).
   function meta(t, { busy = false } = {}) {
     const when = t?.updatedAt ? relTime(t.updatedAt) : '';
-    return {
+    const base = {
       kind: busy ? `${label} · thinking…` : `${label}${when ? ` · ${when}` : ''}`,
       title: t?.title || 'Unnamed chat',
       tone: 'var(--accent)',
+    };
+    const own = describe ? describe(t) : null;
+    if (!own) return base;
+    return {
+      ...base,
+      ...own,
+      kind: busy ? `${own.siteName || label} · searching…` : [own.siteName, own.ownKind].filter(Boolean).join(' · ') || base.kind,
     };
   }
 
@@ -164,17 +173,5 @@ export function createChatStore({ prefix, activePrefix, label }) {
 }
 
 // ── The Advisor's chats (the names every caller already uses) ──
-export const advisorStore = createChatStore({ prefix: CHATS_PREFIX, activePrefix: ACTIVE_PREFIX, label: 'Advisor' });
-export const subscribeChats = advisorStore.subscribe;
-export const chatsState = advisorStore.getState;
-export const chatsStorageKey = advisorStore.storageKey;
-export const bindChats = advisorStore.bind;
-export const setChats = advisorStore.setChats;
-export const selectChat = advisorStore.select;
-export const openNewChat = advisorStore.openNew;
-export const closeChat = advisorStore.close;
-export const closeOtherChats = advisorStore.closeOthers;
-export const reopenClosedChat = advisorStore.reopenClosed;
-export const toggleChatPin = advisorStore.togglePin;
-export const moveChat = advisorStore.move;
-export const chatMeta = advisorStore.meta;
+// (The Advisor tab's own store was removed with the tab on 2026-09-28; the
+// factory above is what Research's chats are made of — lib/researchChats.)

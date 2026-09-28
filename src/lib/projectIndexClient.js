@@ -54,6 +54,7 @@ export const SETTINGS_STORES = {
   scanTags: 'scan-tags',
   folderColors: 'folder-colors',
   web: 'web',
+  fileGroups: 'collections',
 };
 
 // ── The bridge ──────────────────────────────────────────────────────────────

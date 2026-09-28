@@ -41,7 +41,6 @@ export const AI_PROVIDERS = [
 
 // Where an AI use is reached from — the surfaces to unify later.
 export const AI_SURFACES = {
-  advisor: { name: 'Advisor tab', route: '/ai' },
   research: { name: 'Research tab', route: '/research' },
   'doc-viewer': { name: 'Doc Viewer (advisor + quick tools)', route: '/doc-viewer' },
   files: { name: 'Files tab (AI scan, search)', route: '/files' },
@@ -77,9 +76,8 @@ export const AI_FUNCTIONS = [
     note: 'Carries most of the app\'s AI. Default model claude-opus-4-7; generating Office files uses claude-sonnet-4-6. The model picker allows claude-opus-5-5, claude-sonnet-5, claude-opus-4-8, claude-opus-4-7, claude-sonnet-4-6 and claude-haiku-4-5. Usage is logged to project_ai_usage.',
     models: ['claude-opus-4-7', 'claude-sonnet-4-6', 'claude-opus-5-5', 'claude-sonnet-5', 'claude-opus-4-8', 'claude-haiku-4-5'],
     uses: [
-      { id: 'chat', surface: 'advisor', task: 'chat', what: 'A chat that sees the whole project — files, data collections, team chat and the timeline. Creates files, edits existing ones (with Undo), cites its sources as chips and offers clickable answer choices.' },
-      { id: 'doc-advisor', surface: 'doc-viewer', task: 'draft', what: 'Drafts and revises documents, writing each change as a new version. Every document it writes is checked against the connected legal portals, with one automatic correction turn if a source contradicts it.' },
-      { id: 'paragraph-edit', surface: 'doc-viewer', task: 'draft', what: 'Rewrites a single paragraph.' },
+      { id: 'viewer', surface: 'doc-viewer', task: 'chat', isNew: true, what: 'The file viewer\'s advisor, on the UNIFIED AI (lib/aiEngine, surface viewer): Auto, the portal records a question names, the project\'s files (switch), the open file, legislation marked in the answer — plus creating files (write_document / ask_user, the Playbook rules and writing style on a draft) and editing them (paragraphs in place, edit blocks with Undo). Every version it writes is checked against the portals (the card only; no automatic correction turn).' },
+      { id: 'paragraph-edit', surface: 'doc-viewer', task: 'draft', what: 'Rewrites a picked paragraph (unified AI: paragraphFrame in lib/aiEngine), with the turn\'s data.' },
       { id: 'constructor-rewrite', surface: 'doc-viewer', task: 'draft', what: 'Rewrites a paragraph through the Constructor.' },
       { id: 'complete-data', surface: 'doc-viewer', task: 'extract', what: 'Fills in missing data.' },
       { id: 'files-scan', surface: 'files', task: 'extract', model: 'claude-sonnet-5', what: 'Writes a short profile ("passport") of each file, cross-references the files, and builds the Data collections and the file graph.' },
@@ -94,9 +92,10 @@ export const AI_FUNCTIONS = [
       { id: 'design-system', surface: 'design', task: 'suggest', what: 'Powers the Design system tab\'s AI composer.' },
       { id: 'legislation-search', surface: 'legislation', task: 'suggest', what: 'When a plain-words search finds nothing, suggests what the Romanian act would be called.' },
       { id: 'ai-file-index', surface: 'files', task: 'summarise', model: 'claude-haiku-4-5', what: 'The Files AI search uses one-time file descriptions (aiFileIndex).' },
-      { id: 'research', surface: 'research', task: 'chat', isNew: true, what: "Research's AI (rebuilt from scratch, lib/researchAi): the question, the chat so far and, when ticked, the selected project's files. No rules, no portal results pasted in; every step has a time limit (Auto 8 s, the project's files 12 s, the answer 2 min). A line that is only an identifier is answered by the portal instead." },
+      { id: 'research', surface: 'research', task: 'chat', isNew: true, what: "Research's AI, on the UNIFIED AI (lib/aiEngine, surface research): Auto, the portal records a question names (acts, court files, companies, CAEN codes), the project's files (switch) and legislation marked in the answer. It may not create or edit files. No standing rules; every step has a time limit. A line that is only an identifier is answered by the portal instead." },
       { id: 'research-summary', surface: 'research', task: 'summarise', isNew: true, what: 'The AI summary of an exact match (an act, a court file, a company, a CAEN code) — the whole record, summarised once on request by the model the composer names, kept in the chat.' },
-      { id: 'research-route', surface: 'research', task: 'route', model: 'claude-haiku-4-5', isNew: true, what: 'Auto: picks the model for each Research question with the routing prompt.' },
+      { id: 'ai-route', surface: 'research', task: 'route', model: 'claude-haiku-4-5', isNew: true, what: 'Auto (lib/aiEngine): picks the model for each question in Research and the file viewer — a quick local check first, the routing prompt only when it cannot tell.' },
+      { id: 'ai-warm', surface: 'research', task: 'route', isNew: true, what: 'Cache warm-up (lib/aiEngine warmTurn): while a question is typed, its prefix (the open file, the project’s files) is written to the prompt cache with max_tokens 0 — nothing generated. Research and the file viewer.' },
     ],
   },
   {

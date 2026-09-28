@@ -373,3 +373,65 @@
 .debug-ai-pill.is-local { --tone: var(--cat-system); }
 .debug-ai-privacy { margin: 24px 0 0; font-size: 12px; line-height: 1.6; color: var(--text-secondary); max-width: 100ch; }
 .debug-ai-privacy b { color: var(--text-primary); }
+
+/* ── Legislation detection — the archive (DebugLegalArchive) and the AI
+   settings (DebugAiSettings): the catalogue's cards, plus verbatim text. ── */
+.debug-arc-switch { margin: 6px 0 16px; }
+.debug-arc-item {
+  margin-bottom: 10px; padding: 14px 16px;
+  border: 1px solid var(--border); border-radius: 12px;
+  background: var(--bg-card);
+}
+.debug-arc-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 8px; }
+details.debug-arc-code > summary { cursor: pointer; list-style: none; margin-bottom: 0; }
+details.debug-arc-code[open] > summary { margin-bottom: 8px; }
+.debug-arc-title { margin: 0; font-size: 13px; font-weight: 650; color: var(--text-primary); }
+.debug-arc-when { font-size: 10.4px; color: var(--text-muted); }
+.debug-arc-head > .debug-arc-btn { margin-left: auto; }
+.debug-arc-btn {
+  height: 22px; padding: 0 10px;
+  border: 1px solid var(--border); border-radius: 999px;
+  background: transparent; color: var(--text-secondary);
+  font: inherit; font-size: 10.4px; font-weight: 600; cursor: pointer;
+}
+.debug-arc-btn:hover { color: var(--text-primary); border-color: var(--border-strong); }
+.debug-arc-text {
+  margin: 0; padding: 10px 12px;
+  border: 1px solid var(--border); border-radius: 8px;
+  background: var(--bg-elevated); color: var(--text-secondary);
+  font-family: var(--font-body); font-size: 12px; line-height: 1.6;
+  white-space: pre-wrap; overflow-wrap: anywhere;
+  max-height: 520px; overflow: auto;
+}
+.debug-arc-text.is-code { font-family: ui-monospace, monospace; font-size: 10.4px; line-height: 1.5; white-space: pre; overflow-wrap: normal; }
+.debug-arc-list { margin: 0; padding: 0 0 0 20px; display: flex; flex-direction: column; gap: 8px; }
+.debug-arc-list li { font-size: 12.4px; line-height: 1.55; color: var(--text-primary); }
+.debug-arc-list .debug-arc-when { display: block; }
+.debug-arc-quote { white-space: pre-wrap; overflow-wrap: anywhere; }
+.debug-arc-re {
+  display: block; padding: 7px 9px;
+  border: 1px solid var(--border); border-radius: 8px;
+  background: var(--bg-elevated); color: var(--text-secondary);
+  font-size: 10px; line-height: 1.5;
+  overflow-wrap: anywhere; white-space: pre-wrap;
+}
+.debug-arc-sub { margin: 0; font-size: 10.4px; font-weight: 600; color: var(--warning); }
+.debug-ref-pill.is-gone { background: var(--danger-soft); color: var(--danger); }
+.debug-set-table { width: 100%; border-collapse: collapse; margin-bottom: 14px; font-size: 12px; }
+.debug-set-table th {
+  text-align: left; padding: 6px 10px;
+  font-size: 10.4px; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase;
+  color: var(--text-muted); border-bottom: 1px solid var(--border);
+}
+.debug-set-table td { padding: 8px 10px; border-bottom: 1px solid var(--border); vertical-align: top; color: var(--text-secondary); }
+.debug-set-table td b { color: var(--text-primary); font-weight: 650; margin-right: 6px; }
+.debug-set-table td > span:not(.debug-ref-pill) { display: block; margin-top: 2px; font-size: 11.5px; color: var(--text-muted); line-height: 1.45; }
+.debug-set-table td.is-yes { color: var(--success); font-weight: 650; }
+.debug-set-table td.is-no { color: var(--text-muted); }
+.debug-set-table code, .debug-set-facts code, .debug-icons-count code {
+  font-size: 10.4px; padding: 0 5px; margin-right: 4px;
+  border: 1px solid var(--border); border-radius: 5px; background: var(--bg-elevated);
+}
+.debug-set-facts { display: grid; grid-template-columns: max-content 1fr; gap: 6px 16px; margin: 0 0 16px; font-size: 12px; }
+.debug-set-facts dt { color: var(--text-muted); }
+.debug-set-facts dd { margin: 0; color: var(--text-primary); }

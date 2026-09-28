@@ -6,10 +6,12 @@ import { prefetchProjects } from '../lib/projectListPrefetch';
 import Sidebar from './Sidebar';
 import UpdateProgressBar from './UpdateProgressBar';
 import PhoneIncomingNotifier from './PhoneIncomingNotifier';
+import LiveNetworkRunner from './LiveNetworkRunner';
 import UpdateRestartModal from './UpdateRestartModal';
 import SwitchProjectLoader from './SwitchProjectLoader';
 import ContentShell from './SplitView';
 import CursorSpotlight from './CursorSpotlight';
+import LawDetect from './LawDetect';
 import { useAuth } from '../context/AuthContext';
 import { useSelectedProject } from '../context/SelectedProjectContext';
 import { isTabWindow } from '../lib/platform';
@@ -33,10 +35,9 @@ export function isProjectScopedRoute(pathname) {
   if (pathname === '/clients' || pathname.startsWith('/clients/')) return true;
   if (pathname === '/todos' || pathname.startsWith('/todos/')) return true;
   if (pathname === '/chat' || pathname.startsWith('/chat/')) return true;
-  if (pathname === '/events' || pathname.startsWith('/events/')) return true;
+  if (pathname === '/network' || pathname.startsWith('/network/')) return true;
   if (pathname === '/generate' || pathname.startsWith('/generate/')) return true;
   if (pathname === '/automate' || pathname.startsWith('/automate/')) return true;
-  if (pathname === '/ai' || pathname.startsWith('/ai/')) return true;
   if (pathname === '/projects' || pathname === '/projects/') return false;
   if (pathname === '/projects/new') return false;
   if (pathname.startsWith('/projects/')) {
@@ -56,7 +57,7 @@ export function isProjectScopedRoute(pathname) {
 // '/projects' (the Hub) is here too: it's a full-screen launcher with the rail
 // slid out, so a rounded card frame around it read as a floating panel inside
 // an empty window rather than the surface filling it.
-const FLUSH_CONTENT_ROUTES = new Set(['/', '/research', '/newsletter', '/legislation', '/caen', '/portal-just', '/anaf', '/firme', '/bpi', '/ancpi', '/rejust', '/unbr', '/eurlex', '/roadmap', '/playbook', '/versions', '/mail', '/admin', '/settings', '/design', '/debug', '/files', '/chat', '/events', '/ai', '/projects']);
+const FLUSH_CONTENT_ROUTES = new Set(['/', '/research', '/newsletter', '/legislation', '/caen', '/portal-just', '/anaf', '/firme', '/bpi', '/ancpi', '/rejust', '/unbr', '/eurlex', '/roadmap', '/playbook', '/versions', '/mail', '/admin', '/settings', '/design', '/debug', '/files', '/chat', '/network', '/projects']);
 
 // The project Overview / settings page (/projects/:id, no further segment)
 // also renders full-bleed — it carries its own Versions-style masthead, so it
@@ -384,6 +385,8 @@ export default function AppShell() {
                 A real element moved by a direct transform write (not a CSS-var
                 `::after`) to avoid a document-wide style recalc on every move. */}
             <CursorSpotlight follow={spotlightOn} />
+            {/* Legislation, detected in every text of the window (the app's main feature). */}
+            <LawDetect />
             {/* On project-scoped routes the page content is wrapped in a rounded
                 "sheet" panel. ContentShell renders it as a single pane with the
                 in-pane nav chrome (left rail + header). Dropped while switching
@@ -411,6 +414,8 @@ export default function AppShell() {
         <UpdateProgressBar />
         {/* Files a phone sent while Import was closed, posted as toasts to accept or reject. */}
         <PhoneIncomingNotifier />
+        {/* The live neural network: new files understood as they arrive (lib/liveNetwork). */}
+        {!isTabWindow && <LiveNetworkRunner />}
         {/* Once the update finishes downloading + staging ('downloaded'),
             prompt for the restart that actually applies it. Shell-level so
             it appears wherever the user is, not only on /versions. */}

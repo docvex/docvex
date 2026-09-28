@@ -17,6 +17,12 @@
   text-align: left; cursor: pointer;
   transition: background 120ms ease, border-color 120ms ease;
 }
+/* Two lines or more: HALF the corner radius (a quarter of the one-line pill's
+   26px height) — the Design system's pill rule; set by useMultilinePills. */
+.ai-choice.is-multiline { border-radius: 6.5px; }
+/* Pills in a wrapping row keep their OWN heights (no stretching to the row's
+   tallest) and stand CENTRED vertically on it. */
+.ai-choices { align-items: center; }
 .ai-choice:hover {
   background: color-mix(in srgb, var(--accent) 18%, transparent);
   border-color: color-mix(in srgb, var(--accent) 60%, transparent);

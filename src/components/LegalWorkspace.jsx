@@ -2,8 +2,8 @@ import React, { useCallback, useEffect, useLayoutEffect, useRef, useState, useSy
 import './LegalWorkspace.css';
 import LegalTabs, { RailToggle, LEGAL_TABS } from './LegalTabs';
 import { useTabSetting, InfoButton } from './LegalOmnibox';
-import { useGo, useBrowserKeys, AddressRow, TabRail, TabStrip, TabMenu, NewTabPage, SerpPage, SerpScopes, HistoryPage, ClearHistoryButton, useSerp } from './LegalBrowser';
-import { curPage, applyPage, consumeExpected, arrive, arrivalLabel, reportItems, registerReloader, endSwitch, selectTab, browserState, subscribeBrowser } from '../lib/legalBrowser';
+import { useGo, useBrowserKeys, AddressRow, TabRail, TabStrip, TabMenu, NewTabPage, SerpPage, SerpScopes, HistoryPage, ClearHistoryButton, useSerp, ROOT_ROUTES } from './LegalBrowser';
+import { curPage, applyPage, consumeExpected, arrive, arrivalLabel, reportItems, registerReloader, endSwitch, selectTab, browserState, subscribeBrowser, showRoot, isRootOn } from '../lib/legalBrowser';
 import { listArchive } from '../lib/legislation';
 import PageMasthead from './PageMasthead';
 import { useChatFind } from '../lib/useChatFind';
@@ -482,9 +482,9 @@ export default function LegalWorkspace({
     return () => { ro?.disconnect(); window.removeEventListener('resize', place); };
   }, [barShown]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // THE RAIL: not drawn while the only tab is the search tab (a new tab) —
-  // a list of one blank tab says nothing.
-  const soleSearch = s.tabs.length === 1 && page.type === 'new';
+  // THE RAIL is always there now: it holds the PLATFORMS (the Newsletter first,
+  // then every platform — components/LegalBrowser PlatformItems) above the tabs.
+  const soleSearch = false;
   // The app sidebar's Legislation dropdown already lists the tabs while it
   // is expanded (and the sidebar is not collapsed): the page's own rail of
   // the same tabs is not drawn then.
@@ -512,6 +512,17 @@ export default function LegalWorkspace({
     const scroller = pageRef.current?.closest('.sv-single-scroll, .main-content');
     if (scroller) scroller.scrollTop = 0;
   }, [pageKey]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // A PLATFORM'S OWN PAGE reached by its address (the Newsletter from a
+  // notification, a planned source's route): shown in a tab of its own
+  // (showRoot) unless the tab on show is already it.
+  useEffect(() => {
+    const root = ROOT_ROUTES.get(pathname);
+    if (!root) return;
+    const b = browserState();
+    const cur = curPage(b.tabs.find((t) => t.id === b.active));
+    if (!isRootOn(cur, pathname)) showRoot(pathname, root, go);
+  }, [pathname]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const [menu, setMenu] = useState(null);
   const openMenu = useCallback((id, x, y) => setMenu({ id, x, y }), []);

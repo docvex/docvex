@@ -907,21 +907,21 @@ body.dv-ocr-resizing .dv-split-resize::after { background: var(--accent); }
 .dv-tabbar-scroll {
   position: absolute; z-index: 3;
   top: 3.2px; bottom: 3.2px; right: 1.6px;
-  width: 4.8px; border-radius: 999px;
+  width: var(--ds-scrollbar-size, 4.8px); border-radius: var(--ds-scrollbar-radius, 999px);
   background: transparent;
   transition: background 120ms ease;
 }
 .dv-files-recent-list:hover .dv-tabbar-scroll { background: color-mix(in srgb, var(--text-primary) 7%, transparent); }
 .dv-tabbar-thumb {
   position: absolute; left: 0; right: 0;
-  border-radius: 999px;
-  background: var(--scrollbar-thumb);
-  min-height: 19.2px;
+  border-radius: var(--ds-scrollbar-radius, 999px);
+  background: var(--ds-scrollbar-thumb, var(--scrollbar-thumb));
+  min-height: var(--ds-scrollbar-min, 19.2px);
   cursor: grab;
   transition: background 120ms ease;
 }
-.dv-tabbar-thumb:hover { background: color-mix(in srgb, var(--scrollbar-thumb) 65%, var(--text-primary)); }
-.dv-tabbar-thumb:active { cursor: grabbing; background: color-mix(in srgb, var(--scrollbar-thumb) 45%, var(--text-primary)); }
+.dv-tabbar-thumb:hover { background: var(--ds-scrollbar-thumb-hover); }
+.dv-tabbar-thumb:active { cursor: grabbing; background: var(--ds-scrollbar-thumb-active); }
 /* ── Open-file tiles ────────────────────────────────────────────────────
    Each open file is rendered like a Files-page item (thumbnail / type glyph on
    top, name below) inside the footer's "Open files" rail. App tokens so it
@@ -2859,7 +2859,7 @@ body.dv-ocr-resizing .dv-doc-words { transition: none; }
   display: flex; flex-direction: column; align-items: center; gap: 10px;
   /* Room for the first / last thumbnail's outline and shadow, which a scroller
      clips at its edge, and 10px between the thumbnails and the scrollbar. */
-  padding: 8px 10px 8px 8px; overflow-y: auto; overflow-x: hidden; scrollbar-width: thin;
+  padding: 8px 10px 8px 8px; overflow-y: auto; overflow-x: hidden;
   /* …and the same room when the list scrolls the current page into view. */
   scroll-padding: 8px 0;
 }
@@ -3152,7 +3152,7 @@ body.dv-ocr-resizing .dv-doc-words { transition: none; }
 .dv-paralaw-list {
   list-style: none; margin: 0; padding: 0;
   display: flex; flex-direction: column; gap: 4px;
-  max-height: 232px; overflow-y: auto; scrollbar-width: thin;
+  max-height: 232px; overflow-y: auto;
 }
 .dv-paralaw-row {
   display: flex; align-items: flex-start; gap: 8px;
@@ -4155,7 +4155,6 @@ button.dv-ocr-history-thumb.is-active img { box-shadow: 0 0 0 1.6px var(--accent
 .dv-sheet-tabs {
   flex: none; display: flex; gap: 1.6px; overflow-x: auto;
   padding: 6.4px 9.6px 0; border-bottom: 1px solid var(--border);
-  scrollbar-width: thin;
 }
 .dv-sheet-tab {
   flex: none; padding: 4.8px 10.4px; cursor: pointer; font: inherit; font-size: 9.6px; font-weight: 600;
@@ -7213,3 +7212,18 @@ button.dv-snip-entry-thumb { cursor: pointer; }
   content: attr(data-label) !important;
   font-style: normal; padding: 0; margin: 0; min-width: 0; height: auto; line-height: inherit;
 }
+
+/* Under an AI reply: which model answered, the portal records it read and
+   whether the project's files were in view (AnswerByline — the byline
+   Research prints, pages/Research.css .rs-byline). */
+.dv-ai-byline {
+  margin: 6px 0 0;
+  font-size: 11.5px; line-height: 1.45;
+  color: var(--text-muted);
+}
+.dv-ai-byline b { font-weight: 600; color: var(--text-secondary); }
+
+/* The answer's byline shows only while that reply is hovered (as Research's). */
+.bubble > .bubble-c > .dv-ai-byline { opacity: 0; transition: opacity 160ms ease; }
+.bubble:hover > .bubble-c > .dv-ai-byline,
+.bubble:focus-within > .bubble-c > .dv-ai-byline { opacity: 1; }

@@ -291,7 +291,7 @@
 .ai-hub .flag-redline .ins { color: var(--success); font-weight: 600; }
 
 /* ─── ASK — chat ─── */
-.ai-hub .chat { display: flex; flex-direction: column; gap: 14.4px; }
+.ai-hub .chat { display: flex; flex-direction: column; gap: 8px; /* was 14.4px — tighter between the user's and the AI's boxes, at the user's request */ }
 .ai-hub .bubble { display: flex; gap: 10.4px; align-items: flex-start; }
 .ai-hub .bubble.me { flex-direction: row-reverse; }
 .ai-hub .bubble-av { width: 25.6px; height: 25.6px; border-radius: 7.2px; flex-shrink: 0; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 0.64rem; }

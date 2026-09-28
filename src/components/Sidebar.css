@@ -479,7 +479,7 @@
    `:double-button`, etc.) so platform-default arrows from any
    combination of pseudo-state never sneak back in. */
 .sidebar-nav::-webkit-scrollbar {
-  width: 6.4px;
+  width: var(--ds-scrollbar-size, 6.4px);
 }
 
 .sidebar-nav::-webkit-scrollbar-track,
@@ -488,8 +488,9 @@
 }
 
 .sidebar-nav::-webkit-scrollbar-thumb {
-  background: color-mix(in srgb, var(--scrollbar-thumb) 45%, transparent);
-  border-radius: 3.2px;
+  /* The design system's thumb, faded on the rail. */
+  background: color-mix(in srgb, var(--ds-scrollbar-thumb, var(--scrollbar-thumb)) 45%, transparent);
+  border-radius: var(--ds-scrollbar-radius, 3.2px);
 }
 
 /* Zero out every arrow-button variant. Some platforms paint the top
@@ -2351,3 +2352,20 @@
    open chat while it thinks): the rail's small spinning ring before its
    first line. */
 .nav-cat-spin.nav-dot.is-spin { width: 9px; height: 9px; margin-right: 5px; align-self: center; }
+
+/* ── RESEARCH, APART (2026-09-28): its own card above the rail — a gap
+   between them and its own ground, so the two never read as one surface.
+   The rail starts under it (--research-card-h, measured by Sidebar.jsx on
+   the slot). An open chat list grows the card up to a cap, then scrolls. */
+.sidebar.sidebar-research {
+  /* Drawn as the main app sidebar (the .sidebar rule: its frosted ground,
+     border, corners, shadow and padding) — only its height is its own. */
+  bottom: auto;
+  max-height: 42vh;
+}
+.sidebar.sidebar-research .sidebar-nav { overflow-y: auto; }
+.sidebar:not(.sidebar-research) { top: calc(var(--research-card-h, 0px) + var(--rail-gap, 6.4px)); }
+/* No ground around the Research row and its open chat list (the faint box
+   .nav-fold.is-cat draws elsewhere) — in the Research card the list simply
+   hangs under the row. */
+.sidebar.sidebar-research .nav-fold.is-cat { padding: 0; background: none; border-color: transparent; }

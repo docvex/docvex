@@ -374,3 +374,10 @@
   .ed-headline { font-size: 1rem; }
   .ed-lead { font-size: 0.8rem; }
 }
+
+/* Inside the Legislation tab's frame (LegalWorkspace): a small head over the
+   briefing, the search at the filters row's right end. */
+.ed-in-lws .ed-head { display: flex; align-items: baseline; gap: 12px; margin: 4px 0 10px; }
+.ed-in-lws .ed-head-title { margin: 0; font-family: var(--font-display); font-size: 22px; font-weight: 700; color: var(--text-primary); }
+.ed-in-lws .ed-head-meta { font-size: 12px; color: var(--text-muted); }
+.ed-in-lws .ed-search { margin-left: auto; }

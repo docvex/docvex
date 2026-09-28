@@ -756,3 +756,12 @@
 .dsg-fieldsdoc.is-plain .dv-field.is-chip:not(.is-filled):not(.is-preview):not(.is-active)::before {
   content: attr(data-label) !important; font-style: normal; padding: 0; margin: 0; min-width: 0; height: auto; line-height: inherit;
 }
+
+/* The Scrollbar sample — plain scrolling boxes; the scrollbar is the app's
+   own (index.css, --ds-scrollbar-* tokens), nothing is styled here. */
+.dsg-scroll-box { width: 220px; height: 150px; overflow-y: auto; border: 1px solid var(--ds-hairline, var(--border)); border-radius: var(--ds-row-radius, 8px); }
+.dsg-scroll-box.is-x { height: auto; overflow-y: hidden; overflow-x: auto; align-self: flex-start; }
+.dsg-scroll-row { padding: 6px 10px; font-size: 12px; color: var(--text-secondary); border-bottom: 1px solid var(--ds-hairline, var(--border)); }
+.dsg-scroll-row:last-child { border-bottom: 0; }
+.dsg-scroll-strip { display: flex; gap: 6px; padding: 10px; width: max-content; }
+.dsg-scroll-chip { padding: 3px 9px; border-radius: 999px; font-size: 11px; color: var(--text-secondary); background: color-mix(in srgb, var(--text-primary) 5%, transparent); }

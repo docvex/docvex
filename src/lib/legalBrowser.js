@@ -167,7 +167,7 @@ export function pageMeta(p) {
   if (p.route === '/caen' && /^Class\b/.test(p.kind || '')) p = { ...p, kind: `Rev. ${(/Rev\. (\d)/.exec(p.kind) || [])[1] || 3}` };
   const kind = p.kind ? `${pl?.short || ''}${pl ? ' · ' : ''}${p.kind}` : (pl?.short || 'Legislation');
   return {
-    kind, title: p.title || 'Opening…', tone: pl?.tone || 'var(--accent)', addr: p.addr || '', site: pl?.site || '',
+    kind, title: p.title || 'Opening…', tone: pl?.tone || p.tone || 'var(--accent)', addr: p.addr || '', site: pl?.site || p.site || '',
     // The kind line with the platform named by its SOURCE ADDRESS instead of
     // its short name ("anaf.ro · SRL", "legislatie.just.ro · LEGE") — the
     // app sidebar's list.
@@ -320,6 +320,18 @@ export const searchTabOf = (s = state) => s.tabs.find(isSearchTab) || null;
 export function openSearch(go) {
   const blank = searchTabOf();
   if (blank) selectTab(blank.id, go); else newTab(go);
+}
+
+// A PLATFORM'S OWN PAGE in a tab (the list's fixed items — lib/legalSources):
+// the Newsletter, a source not connected yet. A tab already showing it is
+// brought forward; else the blank search tab turns into it, or a new tab
+// opens. `root` marks the page as the platform itself, not an item on it.
+export const isRootOn = (p, route) => !!p && p.type === 'item' && p.route === route && !!p.root;
+export function showRoot(route, { kind = '', title = '', tone = '', site = '' } = {}, go) {
+  const open = state.tabs.find((t) => isRootOn(curPage(t), route));
+  if (open) { selectTab(open.id, go); return; }
+  const page = { type: 'item', route, url: route, itemId: null, kind, title, addr: '', root: true, tone, site };
+  if (isSearchTab(activeTab())) navigateActive(page, go); else openInNewTab(page, go);
 }
 
 /** Go to `page` in the active tab (forward history is dropped). */

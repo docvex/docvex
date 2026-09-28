@@ -1,0 +1,11 @@
+/* The AI composer's model picker + Project files switch (components/AiControls),
+   sized to the composer's buttons (25.6px, .dvx-composer-btn). */
+.ai-ctrls { display: inline-flex; align-items: center; gap: 6px; }
+.ai-ctrls-model { display: inline-flex; align-items: center; }
+.ai-ctrls-model .lg-kind { height: 25.6px; }
+.ai-ctrls-files.tgl, .ai-ctrls-files .tgl { height: 25.6px; box-sizing: border-box; }
+.ai-ctrls-style { display: inline-flex; align-items: center; }
+.ai-ctrls .ai-ctrls-style .lg-kind { height: 25.6px; }
+/* In Research's mini header the style picker stands right before the search
+   (the search's own margin-left:auto is used up by this one). */
+.lgt-line2 .ai-ctrls-style.is-bar { margin-left: auto; }

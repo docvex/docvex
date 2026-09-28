@@ -37,6 +37,8 @@ import {
 // (lib/dataCollections: OCR, captions, face matching) is imported on press.
 const isCollectionFile = (name) => /\.dvc$/i.test(String(name || '').trim());
 import { loadScanTags, setScanTags, isScanTagged, subscribeScanTags, relInProject as scanRel } from '../../lib/scanTags';
+import { loadFileGroups, subscribeFileGroups, addFileGroups, addToFileGroup, renameFileGroup, removeFileGroup, removeFromFileGroup, findSamePairs, proposeGroups, clustersOf, SAME_KINDS } from '../../lib/fileGroups';
+import { sha256Of, dhashOf, hamming, shingles, likeness } from '../../lib/fileSimilarity';
 import { getPrefetchedProjectFiles } from '../../lib/projectFilesPrefetch';
 import { prefetchMetadata } from '../../lib/metadataPrefetch';
 import { extractTextOnImport } from '../../lib/autoExtract';
@@ -46,7 +48,7 @@ import { useScanState, setScanState, requestScanStop, scanStopRequested, clearSc
 import './ProjectScoped.css';
 import './ProjectFiles.css';
 
-import { hasExtractedText, subscribeAiData } from '../../lib/aiData';
+import { hasExtractedText, subscribeAiData, bestTextFor, getAiFacet } from '../../lib/aiData';
 import { loadCaptions } from '../../lib/captionsHistory';
 import { subscribeIndex } from '../../lib/projectIndexClient';
 
@@ -139,6 +141,42 @@ const parentRel = (rel) => { const i = rel.lastIndexOf('/'); return i >= 0 ? rel
 const lastSegment = (rel) => rel.slice(rel.lastIndexOf('/') + 1);
 // `p`'s path inside `root`, as written (forward slashes), '' for the root
 // itself, null for anything outside it.
+// WHAT A COLLECTION IS JUDGED BY (lib/fileGroups findSamePairs): the bytes,
+// the text — saved extracted text first, else read now from a Word / PDF /
+// text file (≤15 MB; kept for the session by path + size + time) — what the AI
+// scan understood, the pictures' look, the identity-document readers.
+const GROUP_TEXT = new Map();
+const GROUP_TEXT_EXT = /\.(docx?|pdf|txt|md|rtf|odt|html?|csv)$/i;
+async function groupTextOf(f) {
+  const saved = bestTextFor(f.path);
+  if (saved) return saved;
+  const u = getAiFacet(f.path, 'understanding')?.data;
+  if (!GROUP_TEXT_EXT.test(f.name) || f.size > 15 * 1024 * 1024) return u?.text || '';
+  const key = `${f.path}|${f.size}|${f.mtime}`;
+  if (GROUP_TEXT.has(key)) return GROUP_TEXT.get(key);
+  let text = '';
+  try {
+    const { extractFileText } = await import('../../lib/extractFileText');
+    text = (await extractFileText(await readLocalBlob(f.path), f.name))?.text || '';
+  } catch { text = ''; }
+  GROUP_TEXT.set(key, text);
+  return text;
+}
+async function groupingDeps(signal) {
+  const RO = await import('../../lib/roIdDocuments');
+  return {
+    hash: sha256Of, dhash: dhashOf, hamming, shingles, likeness, signal,
+    textOf: groupTextOf,
+    understandingOf: (f) => getAiFacet(f.path, 'understanding')?.data || null,
+    decodeCnp: RO.decodeCnp, parseMrz: RO.parseMrz,
+  };
+}
+const groupFileOf = (root, lf) => {
+  const rel = relOfPath(root, lf?.path);
+  if (!rel || rel.split('/').some((seg) => seg.startsWith('.'))) return null;
+  return { rel, path: lf.path, name: lf.name, size: Number(lf.sizeBytes) || 0, mtime: lf.mtimeIso ? Date.parse(lf.mtimeIso) || 0 : 0 };
+};
+
 function relOfPath(root, p) {
   const r = String(root || '').replace(/\\/g, '/').replace(/\/+$/, '');
   const q = String(p || '').replace(/\\/g, '/').replace(/\/+$/, '');
@@ -335,6 +373,42 @@ export default function ProjectFiles({ embedded = false } = {}) {
     setScanTagsState(loadScanTags(localFolder || ''));
     return subscribeScanTags((dir) => { if (dir === localFolder) setScanTagsState(loadScanTags(localFolder)); });
   }, [localFolder]);
+  // COLLECTIONS (lib/fileGroups): custom folders pointing at files anywhere
+  // in the project; the one open (its id) takes the grid's place.
+  const [fileGroups, setFileGroupsState] = useState(() => loadFileGroups(''));
+  const [openGroupId, setOpenGroupId] = useState(null);
+  const [collectBusy, setCollectBusy] = useState(false);
+  useEffect(() => {
+    setFileGroupsState(loadFileGroups(localFolder || ''));
+    return subscribeFileGroups((dir) => { if (dir === localFolder) setFileGroupsState(loadFileGroups(localFolder)); });
+  }, [localFolder]);
+  // Browsing anywhere else closes the collection.
+  useEffect(() => { setOpenGroupId(null); }, [folderStack, filesTab, localFolder]);
+  // How the open collection's files connect — the neural network's links
+  // (lib/dataCollections loadScanGraph) and its duplicate sets — read when it
+  // opens and whenever its files change; `key` says which collection it is for.
+  const [groupGraph, setGroupGraph] = useState({ key: '', pairs: [] });
+  useEffect(() => {
+    const g = openGroupId ? fileGroups.find((c) => c.id === openGroupId) : null;
+    if (!g || !localFolder) return undefined;
+    const key = `${g.id}|${g.rels.join('|')}`;
+    let dead = false;
+    (async () => {
+      const byRel = new Map();
+      for (const lf of localFilesRef.current) {
+        const f = groupFileOf(localFolder, lf);
+        if (f) byRel.set(f.rel, f);
+      }
+      const list = g.rels.map((r) => byRel.get(r)).filter(Boolean);
+      if (list.length < 2) return; // the listing isn't here yet: keep what is known
+      let pairs = [];
+      try { pairs = await findSamePairs(list, await groupingDeps()); } catch { pairs = []; }
+      if (!dead) setGroupGraph({ key, pairs });
+    })();
+    return () => { dead = true; };
+    // …and again once the project's files have loaded (opened before the
+    // listing arrived, it had nothing to compare).
+  }, [openGroupId, fileGroups, localFolder, projectId, localFiles.length]);
   // Path of a just-created folder the workspace should select (not open) —
   // set after an archive is extracted.
   const [selectTargetPath, setSelectTargetPath] = useState(null);
@@ -2203,7 +2277,31 @@ export default function ProjectFiles({ embedded = false } = {}) {
 
   // Surface the bin as the first item in every folder (it opens the one
   // project-wide view regardless of where you are in the tree).
-  const draftFolders = [binEntryItem, ...realDraftFolders];
+  // The COLLECTIONS stand at the project's root, after the Trash: a custom
+  // icon each (FilesWorkspace CollectionGlyph), opened into their own page.
+  // Its first four files, for the tile's 2×2 grid of thumbnails.
+  const localByRel = new Map();
+  if (!folderStack.length && fileGroups.length) {
+    for (const lf of viewLocalFiles) {
+      const r = typeof lf?.path === 'string' ? relOfPath(localFolder, lf.path) : null;
+      if (r) localByRel.set(r, lf);
+    }
+  }
+  const groupEntries = folderStack.length ? [] : fileGroups.map((c) => ({
+    previewItems: c.rels.map((r) => localByRel.get(r)).filter(Boolean).slice(0, 4).map(toDraftItem),
+    id: `collection:${c.id}`,
+    kind: 'folder',
+    name: c.name,
+    empty: !c.rels.length,
+    status: 'synced',
+    collectionEntry: true,
+    collectionId: c.id,
+    binCount: c.rels.length,
+    sizeLabel: `${c.rels.length} file${c.rels.length === 1 ? '' : 's'}`,
+    modifiedLabel: c.at ? formatDate(new Date(c.at).toISOString()) : '',
+    sortTime: c.at || 0,
+  }));
+  const draftFolders = [binEntryItem, ...groupEntries, ...realDraftFolders];
 
   // Files deleted as part of a folder share a `folderGroup`; collapse each
   // group into ONE folder item (Windows-style) so the bin shows the deleted
@@ -2254,6 +2352,132 @@ export default function ProjectFiles({ embedded = false } = {}) {
 
   // Breadcrumb. In the bin view, the crumb chain is Home › Trash (clicking
   // Home exits back to drafts).
+  const openGroup = openGroupId ? fileGroups.find((c) => c.id === openGroupId) || null : null;
+  // The project's files by their path inside it — what a collection points at.
+  const projectFileItems = () => {
+    const map = new Map();
+    for (const lf of viewLocalFiles) {
+      if (typeof lf?.path !== 'string') continue;
+      const rel = relOfPath(localFolder, lf.path);
+      if (!rel || rel.split('/').some((seg) => seg.startsWith('.'))) continue;
+      map.set(rel, toDraftItem(lf));
+    }
+    return map;
+  };
+  // AN OPEN COLLECTION is drawn BY THE FILES GRID ITSELF: its files are the
+  // grid's items (so clicking, double-clicking, the right-click menu, multi-
+  // select, the rubber band, drag and drop, the keys, rename and delete behave
+  // exactly as anywhere in Files), laid out in SECTIONS (`collectionLayout`,
+  // ids per section): Duplicates and Linked files — every group on its own
+  // ground — then the other files. A file in two sections is two items
+  // (`<section>:<id>`). Its menu adds "Remove from collection".
+  let collectionItems = null;
+  let collectionLayout = null;
+  if (openGroup && filesTab === 'drafts') {
+    const byRel = projectFileItems();
+    const present = openGroup.rels.filter((r) => byRel.has(r));
+    // The pairs re-checked just now, else the ones it was made with.
+    const graphNow = groupGraph.key.startsWith(`${openGroup.id}|`) && groupGraph.pairs.length ? groupGraph : { pairs: openGroup.pairs || [] };
+    const { sections: kinds, loose, why } = clustersOf(present, graphNow);
+    collectionItems = [];
+    const mk = (sec, rel, tie) => {
+      const base = byRel.get(rel);
+      const it = { ...base, id: `${sec}:${base.id}`, tie, collectionRel: rel, collectionId: openGroup.id };
+      collectionItems.push(it);
+      return it.id;
+    };
+    const sections = kinds.map(({ kind, groups }) => ({
+      key: kind,
+      label: SAME_KINDS[kind].label,
+      icon: SAME_KINDS[kind].icon,
+      boxed: true,
+      tie: { label: SAME_KINDS[kind].tie, tone: SAME_KINDS[kind].tone },
+      groups: groups.map((g) => g.map((r) => mk(kind[0], r, { why: why.get(`${kind}|${r}`) || '' }))),
+    }));
+    if (loose.length) {
+      sections.push({ key: 'files', label: sections.length ? 'Other files' : 'Files', icon: 'file-doc', boxed: false, groups: [loose.map((r) => mk('f', r, null))] });
+    }
+    const counts = kinds.map(({ kind, groups }) => `${groups.length} ${kind === 'exact' ? `set${groups.length === 1 ? '' : 's'} of exact duplicates` : kind === 'content' ? `set${groups.length === 1 ? '' : 's'} with the same content` : `document${groups.length === 1 ? '' : 's'} in parts`}`);
+    const missing = openGroup.rels.length - present.length;
+    collectionLayout = {
+      id: openGroup.id,
+      name: openGroup.name,
+      sub: [
+        `${present.length} file${present.length === 1 ? '' : 's'}`,
+        ...counts,
+        openGroup.source === 'ai' ? 'grouped by DocVex' : '',
+        missing ? `${missing} no longer in the project` : '',
+      ].filter(Boolean).join(' · '),
+      sections,
+    };
+  }
+
+  // COLLECT (the footer): the selected items become ONE collection (a folder
+  // brings everything under it); with nothing selected, the NEURAL NETWORK
+  // groups the project — the scan's typed links between files (lib/
+  // dataCollections loadScanGraph) and the duplicate files (identical bytes, or
+  // one name with a copy mark), joined into connected groups, each named after
+  // the Data collection covering most of it (lib/fileGroups proposeGroups).
+  const fxCollect = async (selected = []) => {
+    if (!localFolder || collectBusy) return;
+    const relOf = (path) => relOfPath(localFolder, path);
+    if (selected.length) {
+      const rels = new Set();
+      for (const it of selected) {
+        if (it.collectionEntry || it.binEntry || it.incoming) continue;
+        if (it.kind === 'folder' && it._dir?.path) {
+          const base = relOf(it._dir.path);
+          for (const lf of viewLocalFiles) {
+            const r = relOf(lf.path);
+            if (r && base != null && (base === '' || r.startsWith(`${base}/`))) rels.add(r);
+          }
+        } else if (it._raw?.path) {
+          const r = relOf(it._raw.path);
+          if (r) rels.add(r);
+        }
+      }
+      if (!rels.size) return;
+      const n = fileGroups.length + 1;
+      addFileGroups(localFolder, [{ name: `Collection ${n}`, rels: [...rels], source: 'manual' }]);
+      notify({ category: 'file', variant: 'success', title: 'Collection made', body: `${rels.size} file${rels.size === 1 ? '' : 's'} grouped in “Collection ${n}” — at the top of Home. Right-click it to rename.`, dedupeKey: 'fx-collect' });
+      return;
+    }
+    setCollectBusy(true);
+    try {
+      const all = viewLocalFiles.map((lf) => groupFileOf(localFolder, lf)).filter((f) => f && !isCollectionFile(f.name));
+      const pairs = await findSamePairs(all, await groupingDeps());
+      const exists = new Set(fileGroups.flatMap((c) => c.rels));
+      const byRel = new Map(all.map((f) => [f.rel, f]));
+      const titleOf = (rel) => {
+        const f = byRel.get(rel);
+        const u = f ? getAiFacet(f.path, 'understanding')?.data : null;
+        if (!u) return '';
+        const who = u.idDocument?.holder || u.subject || '';
+        return [u.documentType, who].filter(Boolean).join(' — ').slice(0, 80);
+      };
+      const proposals = proposeGroups({ pairs, exists, titleOf });
+      if (!proposals.length) {
+        notify({
+          category: 'file', variant: 'info', title: 'Nothing new to group',
+          body: 'No exact duplicates, no files with the same content in another format and no documents in several parts were found that aren’t already in a collection.',
+          dedupeKey: 'fx-collect',
+        });
+        return;
+      }
+      addFileGroups(localFolder, proposals.map((g) => ({ ...g, source: 'ai' })));
+      const n = (k) => proposals.filter((g) => g.kind === k).length;
+      notify({
+        category: 'file', variant: 'success', title: `${proposals.length} collection${proposals.length === 1 ? '' : 's'} made`,
+        body: [n('exact') && `${n('exact')} of exact duplicates`, n('content') && `${n('content')} of the same content in other formats`, n('document') && `${n('document')} of one document in parts`].filter(Boolean).join(', ') + ' — at the top of Home.',
+        dedupeKey: 'fx-collect',
+      });
+    } catch (e) {
+      notify({ category: 'file', variant: 'error', title: 'Couldn’t make collections', body: e?.message || 'Something went wrong while grouping the files.', dedupeKey: 'fx-collect' });
+    } finally {
+      setCollectBusy(false);
+    }
+  };
+
   const fxCrumbs = filesTab === 'trash'
     ? [
         { label: 'Home', path: '__drafts' },
@@ -2262,12 +2486,14 @@ export default function ProjectFiles({ embedded = false } = {}) {
     : [
         { label: 'Home', path: '__root' },
         ...folderStack.map((seg, i) => ({ label: seg.name, path: `__stack:${i}` })),
+        ...(openGroup ? [{ label: openGroup.name, path: '__collection' }] : []),
       ];
-  const fxCanUp = filesTab !== 'drafts' ? true : folderStack.length > 0;
+  const fxCanUp = filesTab !== 'drafts' ? true : (folderStack.length > 0 || !!openGroup);
 
   // ── Workspace action handlers ─────────────────────────────────────────
   const fxOpen = (item) => {
     if (item.binEntry) { setFilesTab('trash'); return; }        // open the recycle bin
+    if (item.collectionEntry) { setOpenGroupId(item.collectionId); return; } // open a collection
     if (item.kind === 'folder') {
       // Double-clicking any folder — including a WhatsApp export — browses its
       // contents. The export's reconstructed conversation is reachable from the
@@ -2332,20 +2558,25 @@ export default function ProjectFiles({ embedded = false } = {}) {
   };
   const fxCrumbNav = (path) => {
     if (path === '__drafts') { setFilesTab('drafts'); return; } // leave the bin
-    if (path === '__bin') return;
+    if (path === '__bin' || path === '__collection') return;
+    if (openGroup) setOpenGroupId(null);
     if (path === '__root') handleNavigateCrumb(-1);
     else if (typeof path === 'string' && path.startsWith('__stack:')) handleNavigateCrumb(Number(path.slice(8)));
   };
   const fxUp = () => {
     if (filesTab !== 'drafts') { setFilesTab('drafts'); return; }
+    if (openGroup) { setOpenGroupId(null); return; }
     handleNavigateCrumb(folderStack.length - 2);
   };
   const fxRename = (item, newName) => {
     if (item?.pending) return;
+    if (item?.collectionEntry) { renameFileGroup(localFolder, item.collectionId, newName); return; }
     if (item.kind === 'folder') { if (item._dir?.name) handleRenameFolder(item._dir, (newName || '').trim()); return; }
     handleRenameLocalFile(item._raw, newName);
   };
   const fxDelete = (item) => {
+    // A collection: the grouping goes, never a file.
+    if (item?.collectionEntry) { removeFileGroup(localFolder, item.collectionId); return; }
     // A waiting phone file isn't a project file yet: "delete" means reject it.
     if (item?.incoming) { fxIncoming(item, 'reject'); return; }
     // Already on its way somewhere (renamed, moved, created) — hands off.
@@ -2725,7 +2956,14 @@ export default function ProjectFiles({ embedded = false } = {}) {
         fmtBytesFull(fxTotalBytes),
         fxUpdatedLabel ? `Updated ${fxUpdatedLabel}` : null,
       ].filter(Boolean).join(' · ');
-  const filesMasthead = filesTab === 'drafts' ? (inFolder ? {
+  // An open COLLECTION names itself in the page's own header (the same
+  // masthead a folder gets): its name as the title, what is in it under it.
+  const filesMasthead = collectionLayout ? {
+    eyebrow: 'Project files',
+    access: 'Home › Collection',
+    title: collectionLayout.name,
+    kicker: collectionLayout.sub,
+  } : filesTab === 'drafts' ? (inFolder ? {
     eyebrow: 'Project files',
     // The folder's location — Home plus any folders above it in the stack.
     access: ['Home', ...folderStack.slice(0, -1).map((s) => s.name)].join(' › '),
@@ -2812,8 +3050,8 @@ export default function ProjectFiles({ embedded = false } = {}) {
     onUp: fxUp,
     canBack: fxCanUp,
     canUp: fxCanUp,
-    folders: reuseList('folders', filesTab === 'drafts' ? draftFolders : binFolderItems),
-    items: reuseList('items', filesTab === 'drafts' ? [...incomingItems, ...draftItems] : binFileItems),
+    folders: reuseList('folders', collectionLayout ? [] : filesTab === 'drafts' ? draftFolders : binFolderItems),
+    items: reuseList('items', collectionItems || (filesTab === 'drafts' ? [...incomingItems, ...draftItems] : binFileItems)),
     onIncoming: fxIncoming,
     loading: filesTab === 'trash' ? trashLoading : localLoading,
     onOpen: fxOpen,
@@ -2837,8 +3075,22 @@ export default function ProjectFiles({ embedded = false } = {}) {
     onEraseScanMemory: (hasLocalFolderApi && filesTab === 'drafts' && Boolean(localFolder)) ? fxEraseScanMemory : undefined,
     // The Graph view (File explorer · Graph): what the AI scan read and linked.
     graphSource: (hasLocalFolderApi && localFolder) ? { dir: localFolder, projectId } : null,
+    // Collections (lib/fileGroups): the footer's Collect, the open one's page.
+    onCollect: (hasLocalFolderApi && filesTab === 'drafts' && Boolean(localFolder)) ? fxCollect : undefined,
+    collectBusy,
+    collectionLayout,
+    onRemoveFromCollection: (items) => {
+      const byGroup = new Map();
+      for (const it of items || []) {
+        if (!it?.collectionId || !it.collectionRel) continue;
+        if (!byGroup.has(it.collectionId)) byGroup.set(it.collectionId, []);
+        byGroup.get(it.collectionId).push(it.collectionRel);
+      }
+      for (const [id, rels] of byGroup) removeFromFileGroup(localFolder, id, rels);
+    },
     onOpenPath: (path, name) => openDocViewerWindow({ path, name: name || String(path).split(/[\\/]/).pop(), mime: '' }),
     scanTaggedCount: scanTags.size,
+    scanDir: localFolder || null,
     scanState: filesScan,
     renameTargetPath,
     onRenameTargetConsumed: () => setRenameTargetPath(null),
@@ -2867,7 +3119,15 @@ export default function ProjectFiles({ embedded = false } = {}) {
     // — drafts only, and only with a bound local folder.
     onPasteItems: (filesTab === 'drafts' && Boolean(localFolder)) ? (items, ...rest) => handlePasteItems((items || []).filter((i) => !i?.incoming), ...rest) : undefined,
     onPasteCut: (filesTab === 'drafts' && Boolean(localFolder)) ? handlePasteCut : undefined,
-    onMoveItems: (filesTab === 'drafts' && Boolean(localFolder)) ? (items, ...rest) => handleMoveItems((items || []).filter((i) => !i?.incoming), ...rest) : undefined,
+    onMoveItems: (filesTab === 'drafts' && Boolean(localFolder)) ? (items, target, ...rest) => {
+      // Dropped on a COLLECTION: the files join it (nothing moves on disk).
+      if (target?.collectionEntry) {
+        const rels = (items || []).map((i) => (i?._raw?.path ? relOfPath(localFolder, i._raw.path) : null)).filter(Boolean);
+        if (rels.length) addToFileGroup(localFolder, target.collectionId, rels);
+        return;
+      }
+      handleMoveItems((items || []).filter((i) => !i?.incoming), target, ...rest);
+    } : undefined,
     onMoveToCrumb: (filesTab === 'drafts' && Boolean(localFolder)) ? fxMoveToCrumb : undefined,
     // Undo / redo (footer buttons + Ctrl+Z / Ctrl+Y).
     onUndo: handleUndo,

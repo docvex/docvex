@@ -66,35 +66,34 @@ html.is-tray-menu, html.is-tray-menu body { background: transparent; }
   overflow: hidden;
 }
 
-/* ── Global scrollbar styling ─────────────────────────────────────────────
-   Transparent track + a solid-token thumb. The token (--scrollbar-thumb)
-   is defined per-theme in tokens.css so the scrollbar reads correctly on
-   both Cream (dark-ink thumb on cream bg) and Ink (light-cream thumb on
-   ink bg) without per-surface overrides. */
-* {
-  scrollbar-width: thin;
-  scrollbar-color: var(--scrollbar-thumb) transparent;
-}
-
+/* ── THE SCROLLBAR — ONE recipe, app-wide, from the Design system's tokens
+   (--ds-scrollbar-*, styles/designSystem.css; the tab's **Scrollbar**
+   section and its token table). Change a token and every scrollbar follows.
+   Only the ::-webkit-scrollbar recipe is used: in Chromium, setting the
+   standard `scrollbar-width` / `scrollbar-color` on an element switches it
+   off for that element — so NOTHING in the app may set them (except
+   `scrollbar-width: none` to hide a bar). The custom overlay scrollbars
+   (the chat thread's, the Doc Viewer's open files) read the same tokens. */
 ::-webkit-scrollbar {
-  width: 6.4px;
-  height: 6.4px;
-  background: transparent;
+  width: var(--ds-scrollbar-size, 6.4px);
+  height: var(--ds-scrollbar-size, 6.4px);
+  background: var(--ds-scrollbar-track, transparent);
 }
 
 ::-webkit-scrollbar-track,
 ::-webkit-scrollbar-corner {
-  background: transparent;
+  background: var(--ds-scrollbar-track, transparent);
 }
 
 ::-webkit-scrollbar-thumb {
-  background: var(--scrollbar-thumb);
-  border-radius: 3.2px;
+  background: var(--ds-scrollbar-thumb, var(--scrollbar-thumb));
+  border-radius: var(--ds-scrollbar-radius, 3.2px);
+  min-height: var(--ds-scrollbar-min, 19.2px);
 }
+::-webkit-scrollbar-thumb:hover { background: var(--ds-scrollbar-thumb-hover, var(--ds-scrollbar-thumb, var(--scrollbar-thumb))); }
+::-webkit-scrollbar-thumb:active { background: var(--ds-scrollbar-thumb-active, var(--ds-scrollbar-thumb-hover, var(--scrollbar-thumb))); }
 
-/* Hide the up/down arrow buttons that WebKit renders on some platforms.
-   The thumb is the only affordance worth keeping; arrows make a thin
-   scrollbar look cluttered. */
+/* No arrow buttons: the thumb is the only affordance worth keeping. */
 ::-webkit-scrollbar-button {
   display: none;
 }

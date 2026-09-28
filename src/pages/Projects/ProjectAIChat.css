@@ -783,17 +783,17 @@
   position: absolute;
   top: 0;
   right: 0;
-  width: 4.8px;
-  border-radius: 999px;
-  background: var(--scrollbar-thumb);
+  width: var(--ds-scrollbar-size, 4.8px);
+  border-radius: var(--ds-scrollbar-radius, 999px);
+  background: var(--ds-scrollbar-thumb, var(--scrollbar-thumb));
   pointer-events: auto; /* but the thumb itself is draggable */
   cursor: pointer;
   transition: width 120ms ease, background 120ms ease;
 }
 .ai-chat-page .aichat-scrollbar-thumb:hover,
 .ai-chat-page .aichat-scrollbar-thumb:active {
-  width: 7.2px;
-  background: color-mix(in srgb, var(--scrollbar-thumb) 75%, var(--text-primary));
+  width: calc(var(--ds-scrollbar-size, 4.8px) + 2.4px);
+  background: var(--ds-scrollbar-thumb-hover);
 }
 /* The New-chat header — a STATIC row at the top of the rail, outside the
    scroller, so the chat items scroll under it. Side insets match the list's
@@ -1161,17 +1161,17 @@
   position: absolute;
   top: 0;
   right: 0;
-  width: 4.8px;
-  border-radius: 999px;
-  background: var(--scrollbar-thumb);
+  width: var(--ds-scrollbar-size, 4.8px);
+  border-radius: var(--ds-scrollbar-radius, 999px);
+  background: var(--ds-scrollbar-thumb, var(--scrollbar-thumb));
   pointer-events: auto;
   cursor: pointer;
   transition: width 120ms ease, background 120ms ease;
 }
 .ai-chat-page .aichat-msg-scrollbar-thumb:hover,
 .ai-chat-page .aichat-msg-scrollbar-thumb:active {
-  width: 7.2px;
-  background: color-mix(in srgb, var(--scrollbar-thumb) 75%, var(--text-primary));
+  width: calc(var(--ds-scrollbar-size, 4.8px) + 2.4px);
+  background: var(--ds-scrollbar-thumb-hover);
 }
 .ai-chat-page .aichat-scroll .chat {
   /* Full-width column: AI messages anchor to the left edge and own messages to
@@ -1978,8 +1978,13 @@
 .ai-chat-page:not(.dv-advisor-chat) .aichat-rail.is-tabrail {
   position: sticky;
   top: var(--airail-top, 56px);
+  /* Down to the PAGE'S BOTTOM, one --rail-gap above it (the sidebar's gap
+     rule): the height is written by Research.jsx on scroll / resize, wherever
+     the list stands (in the flow or stuck). ABOVE the page's bottom fade
+     (.sv-single-body::after, z 5) and below the mini header (z 30). */
   height: var(--airail-h, 70vh);
   align-self: flex-start;
+  z-index: 20;
 }
 .ai-chat-page:not(.dv-advisor-chat) .aichat-resizer { align-self: stretch; }
 .ai-chat-page:not(.dv-advisor-chat) .aichat-thread-col { min-height: var(--airail-h, 70vh); }
@@ -2021,7 +2026,11 @@
 }
 .ai-chat-page:not(.dv-advisor-chat) .aichat-shell.rail-hidden,
 .ai-chat-page:not(.dv-advisor-chat) .aichat-shell.is-resizing { overflow-x: clip; }
-.ai-chat-page:not(.dv-advisor-chat) .aichat-resizer { flex: 0 0 var(--ds-list-gap, 20px); }
+.ai-chat-page:not(.dv-advisor-chat) .aichat-resizer { flex: 0 0 var(--rail-gap, 6.4px); }
+/* Hidden, the list's space is taken back by the rail's own margin (the page
+   works it out with the band's former width) — keep that width there so the
+   hidden layout is unchanged. */
+.ai-chat-page:not(.dv-advisor-chat) .aichat-shell.rail-hidden .aichat-resizer { flex-basis: var(--ds-list-gap, 20px); }
 .ai-chat-page:not(.dv-advisor-chat) .aichat-thread-col > .vb-composer-wrap {
   /* Sticks one inset above the window's foot, above the bottom fade. */
   bottom: var(--ds-page-inset, 6.4px);
@@ -2098,7 +2107,6 @@
 .ai-chat-page:not(.dv-advisor-chat) .aichat-shell.rail-hidden .aichat-rail { visibility: hidden; transition: margin-left 320ms cubic-bezier(0.16, 1, 0.3, 1), opacity 200ms ease, visibility 0s 320ms; }
 .ai-chat-page:not(.dv-advisor-chat) .aichat-shell.rail-hidden .aichat-thread-col > .vb-composer-wrap {
   margin-left: calc(var(--rail-gap, 6.4px) - var(--content-left-gap, 17.6px));
-  padding-left: calc(12px + var(--content-left-gap, 17.6px) - var(--rail-gap, 6.4px));
 }
 
 /* ── An EMPTY CHAT fits the window: no scrolling ───────────────────────────
@@ -2114,20 +2122,21 @@
   min-height: 0;
   height: var(--aifit-h, 60vh);
 }
-.ai-chat-page.is-empty-chat:not(.dv-advisor-chat) .aichat-rail.is-tabrail { height: var(--aifit-h, 60vh); }
+
 .ai-chat-page.is-empty-chat:not(.dv-advisor-chat) .aichat-main { flex: 1 1 auto; min-height: 0; }
 .ai-chat-page:not(.dv-advisor-chat) .aichat-convo-empty .lss-card { padding: 0 28px; }
 
-/* A TIGHT left side in the composer bar: the text ("Message DocVex AI…")
-   starts ~8px from the bar's edge (the bar's 6.4px + the text's hairline
-   1.6px) and the attach button is drawn 4.8px further left — its glyph sits
-   4.8px inside its hit area — so the glyph lines up with the text. */
-.ai-chat-page:not(.dv-advisor-chat) .aichat-thread-col > .vb-composer-wrap { padding-left: 6.4px; }
-.ai-chat-page:not(.dv-advisor-chat) .aichat-shell.rail-hidden .aichat-thread-col > .vb-composer-wrap {
-  padding-left: calc(6.4px + var(--content-left-gap, 17.6px) - var(--rail-gap, 6.4px));
-}
-.ai-chat-page:not(.dv-advisor-chat) .aichat-thread-col > .vb-composer-wrap .dvx-composer-textarea { padding-left: 1.6px; }
-.ai-chat-page:not(.dv-advisor-chat) .aichat-thread-col > .vb-composer-wrap .dvx-composer-toolbar { margin-left: -4.8px; }
+/* The composer bar's LEFT gap matches its RIGHT one (12px, the bar's
+   padding): the text and the first control start as far from the left edge
+   as the send button ends from the right. */
+.ai-chat-page:not(.dv-advisor-chat) .aichat-thread-col > .vb-composer-wrap { padding-left: 12px; }
+/* The SAME padding whether the chat list is shown or hidden — the bar's
+   inner spacing never changes with the list (only where the bar starts). */
+/* Beside a SHOWN list the whole column — the messages and the composer bar —
+   stands the same gap from the list as the list stands from the app sidebar
+   (--rail-gap): the resizer band between them is that wide (above). */
+.ai-chat-page:not(.dv-advisor-chat) .aichat-thread-col > .vb-composer-wrap .dvx-composer-textarea { padding-left: 0; }
+.ai-chat-page:not(.dv-advisor-chat) .aichat-thread-col > .vb-composer-wrap .dvx-composer-toolbar { margin-left: 0; }
 
 /* Prompts to start with, under the empty chat's greeting — the reply pills
    (components/AiChoices' .ai-choice) as an UNEVEN GRID: wrapping, each pill
@@ -2142,10 +2151,57 @@
   flex-direction: row; flex-wrap: wrap; justify-content: center; align-content: flex-start;
   gap: 7px 6px;
   margin-top: 14px; padding: 14px 4px 28px;
-  overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin;
+  overflow-y: auto; overscroll-behavior: contain;
   pointer-events: auto;
   -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 22px, #000 calc(100% - 40px), transparent 100%);
   mask-image: linear-gradient(to bottom, transparent 0, #000 22px, #000 calc(100% - 40px), transparent 100%);
 }
-.ai-chat-page .aichat-convo-empty .aichat-starters .ai-choice { max-width: 46ch; text-align: left; }
+.ai-chat-page .aichat-convo-empty .aichat-starters .ai-choice { max-width: 46ch; text-align: center; /* centred inside the pill, at the user's request */ }
 .ai-chat-page .aichat-starters-end { flex: 0 0 100%; height: 1px; }
+
+/* The list ENDS AT ITS LAST CHAT: the drop strip after it (.lgb-rail-end,
+   24px in the Legislation rail) is only a sliver here. */
+.ai-chat-page:not(.dv-advisor-chat) .aichat-rail.is-tabrail .lgb-rail-end { flex: 0 0 4px; }
+
+/* The thread's LEFT gap lines its text up with the composer bar's text below
+   (the bar's border + its 12px padding) — the old 26.6px lined up with a
+   composer that is gone. */
+.ai-chat-page:not(.dv-advisor-chat) .aichat-main { padding-left: calc(var(--ds-bar-border, 1.5px) + 12px); }
+
+/* The gap UNDER THE MINI HEADER matches the chat list's gap from the app
+   sidebar (--rail-gap): the list stands that far under the header, in the
+   page's flow as when stuck (Research.jsx measures --airail-top the same). */
+.ai-chat-page:not(.dv-advisor-chat) .lgt-bar.aichat-bar { margin-bottom: var(--rail-gap, 6.4px); }
+
+/* The chat list's CARD only while STUCK (`.is-stuck`, measured in
+   Research.jsx) — as the mini header paints its ground only when pinned. In
+   the page's flow it stands on the page ground: no fill, border, shadow or
+   blur (the border kept, transparent, so nothing moves when it appears). */
+.ai-chat-page:not(.dv-advisor-chat) .aichat-rail.is-tabrail:not(.is-stuck) {
+  background: transparent;
+  border-color: transparent;
+  box-shadow: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+.ai-chat-page:not(.dv-advisor-chat) .aichat-rail.is-tabrail {
+  transition: margin-left 320ms cubic-bezier(0.16, 1, 0.3, 1), opacity 200ms ease,
+              background-color 260ms ease, border-color 260ms ease, box-shadow 260ms ease;
+}
+.ai-chat-page:not(.dv-advisor-chat) .aichat-shell.is-resizing .aichat-rail.is-tabrail { transition: none; }
+
+/* While the chat list has NO card (not stuck), a DIVIDER stands between it and
+   the conversation: the resize band's hairline, centred in the gap between
+   them (the band's own ::before, at its 50%). Hidden with the list, and once
+   the list's card is drawn. */
+.ai-chat-page:not(.dv-advisor-chat) .aichat-shell:not(.rail-hidden):has(> .aichat-rail.is-tabrail:not(.is-stuck)) > .aichat-resizer::before {
+  opacity: 1;
+  background: var(--ds-hairline, var(--border));
+}
+
+/* With the chat list HIDDEN the thread moves out with the composer bar: it
+   starts one --rail-gap from the app sidebar (the bar's own margin, above), so
+   the messages' text stays lined up with the bar's text. */
+.ai-chat-page:not(.dv-advisor-chat) .aichat-shell.rail-hidden .aichat-main {
+  margin-left: calc(var(--rail-gap, 6.4px) - var(--content-left-gap, 17.6px));
+}

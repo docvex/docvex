@@ -113,3 +113,8 @@
 .sg-stage.is-fail { color: var(--danger); }
 .fx-scan-btn.is-done { color: var(--success); }
 .fx-scan-btn.is-failed { color: var(--danger); }
+
+/* The live neural network's controls (LiveSection). */
+.sg-live > li.is-off { opacity: 0.45; pointer-events: none; }
+.sg-live-status { color: var(--text-secondary); }
+.sg-live-status.is-busy { color: var(--accent); }

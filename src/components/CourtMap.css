@@ -59,7 +59,7 @@ html[data-reduce-motion="true"] .cmap-panel { animation: none; }
   font: inherit; font-size: 11.2px; font-weight: 600; color: var(--accent); cursor: pointer;
 }
 .cmap-close:hover { background: var(--accent-soft); }
-.cmap-panel-list { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 8px 14px 12px; scrollbar-width: thin; text-align: left; }
+.cmap-panel-list { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 8px 14px 12px; text-align: left; }
 .cmap-group + .cmap-group { margin-top: 10px; }
 .cmap-group-name {
   display: block; border: 0; background: none; padding: 0; margin: 0 0 4px;

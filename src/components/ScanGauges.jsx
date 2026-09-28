@@ -4,6 +4,7 @@ import { useMorphPill } from './useMorphPill';
 import { perfAllows } from '../lib/perf';
 import Toggle from './Toggle';
 import { SCAN_FEATURES, loadScanFeatures, saveScanFeatures } from '../lib/scanFeatures';
+import { useLiveNetwork, setLiveSettings } from '../lib/liveNetwork';
 import './RefPill.css';
 import './ScanGauges.css';
 
@@ -329,7 +330,46 @@ export function ScanHover({ scan, idle, children }) {
 // into a CARD — the morph pill's menu state — holding a switch for each thing
 // the scan can do (lib/dataCollections SCAN_FEATURES, kept per device), Read
 // everything again, the Scan button (Stop while scanning) and Erase memory.
-function ScanCard({ scan, taggedCount, onScan, onErase, close }) {
+// THE LIVE NEURAL NETWORK's controls (lib/liveNetwork): the CONSENT to send
+// new files to the AI as they arrive (per project, on this device, off by
+// default), the second consent for recordings, and PAUSE / RESUME.
+function LiveSection({ dir }) {
+  const live = useLiveNetwork(dir);
+  if (!dir || !live) return null;
+  const { on, recordings, paused } = live.settings;
+  const status = paused
+    ? (live.pending ? `Paused \u2014 ${live.pending} file${live.pending === 1 ? '' : 's'} waiting.` : on ? 'Paused \u2014 new files are tagged and wait.' : 'Paused.')
+    : live.working
+      ? 'Reading the files\u2026'
+      : live.pending
+        ? `${live.pending} file${live.pending === 1 ? '' : 's'} about to be read\u2026`
+        : !on
+          ? 'Off \u2014 only files and folders you tag are read, as soon as you tag them.'
+          : 'Watching for new files.';
+  return (
+    <>
+      <div className="sg-menu-label">Live neural network</div>
+      <ul className="sg-feats sg-live">
+        <li>
+          <Toggle on={on} onChange={(v) => setLiveSettings(dir, { on: v, ...(v ? { paused: false } : {}) })} label="Understand new files automatically" />
+          <span className="sg-feat-note">
+            Every file added to this project from now on (imported, sent from a phone, dropped into the folder or synced) is read and sent to the AI (Anthropic, not used for training) within seconds, then linked into the network. Files already here are read when you tag them — a tagged folder: everything in it, and whatever is added to it later. This device only.
+          </span>
+        </li>
+        <li className={on ? '' : 'is-off'}>
+          <Toggle on={on && recordings} onChange={(v) => on && setLiveSettings(dir, { recordings: v })} label="Include audio & video" />
+          <span className="sg-feat-note">Recordings are transcribed by OpenAI: slower, and paid per minute.</span>
+        </li>
+        <li>
+          <Toggle on={!paused} onChange={(v) => setLiveSettings(dir, { paused: !v })} label={paused ? 'Paused' : 'Running'} />
+          <span className={`sg-feat-note sg-live-status${!paused && (live.working || live.pending) ? ' is-busy' : ''}`}>{status}</span>
+        </li>
+      </ul>
+    </>
+  );
+}
+
+function ScanCard({ scan, taggedCount, onScan, onErase, close, dir }) {
   const [features, setFeatures] = useState(loadScanFeatures);
   const [force, setForce] = useState(false);
   const [erasing, setErasing] = useState(false);   // first press of Erase memory
@@ -346,7 +386,7 @@ function ScanCard({ scan, taggedCount, onScan, onErase, close }) {
       <div className="dv-refpill is-full sg-menu-head" style={{ '--refpill-tone': 'var(--accent)' }}>
         <span className="dv-refpill-kind">AI scan</span>
         <span className="dv-refpill-head">
-          {running ? (STAGE_NAMES[scan.stage] || 'Scanning') : taggedCount ? `${taggedCount} item${taggedCount === 1 ? '' : 's'} tagged` : 'Nothing tagged yet'}
+          {running ? `${scan.live ? 'Live \u00b7 ' : ''}${STAGE_NAMES[scan.stage] || 'Scanning'}` : taggedCount ? `${taggedCount} item${taggedCount === 1 ? '' : 's'} tagged` : 'Nothing tagged yet'}
         </span>
         <span className="dv-refpill-line">
           {running
@@ -356,6 +396,7 @@ function ScanCard({ scan, taggedCount, onScan, onErase, close }) {
               : 'Right-click a file or folder \u2192 Tag for AI scan.'}
         </span>
       </div>
+      <LiveSection dir={dir} />
       {!running && (
         <>
           <div className="sg-menu-label">What the scan does</div>
@@ -411,14 +452,14 @@ function ScanCard({ scan, taggedCount, onScan, onErase, close }) {
   );
 }
 
-export function ScanButton({ scan, taggedCount = 0, onScan, onErase, children }) {
+export function ScanButton({ scan, taggedCount = 0, onScan, onErase, dir = null, children }) {
   const running = !!scan && !scan.finished;
   const morph = useMorphPill({
     hoverContent: scan
       ? <ScanGaugeCard scan={scan} bare />
       : (taggedCount ? 'AI scan \u2014 click for options' : 'AI scan \u2014 tag files first (right-click \u2192 Tag for AI scan)'),
     menuItems: [],
-    menuHeader: (close) => <ScanCard scan={scan} taggedCount={taggedCount} onScan={onScan} onErase={onErase} close={close} />,
+    menuHeader: (close) => <ScanCard scan={scan} taggedCount={taggedCount} onScan={onScan} onErase={onErase} close={close} dir={dir} />,
     className: 'sg-pill',
     placement: 'left',
     stickyMenu: true,

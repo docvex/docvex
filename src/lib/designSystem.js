@@ -51,6 +51,14 @@ export const DS_TOKENS = [
   { name: '--ds-bar-border', label: 'Bar border', group: 'Bars', kind: 'length', value: '1.5px', drives: 'The hairline round a pinned bar (reserved transparent while it is in flow).' },
   { name: '--ds-bar-frost', label: 'Bar frost', group: 'Bars', kind: 'percent', value: '66%', drives: 'How opaque the page colour is behind a pinned bar; the blur shows through the rest.' },
   { name: '--ds-bar-blur', label: 'Bar blur', group: 'Bars', kind: 'length', value: '6.4px', drives: 'The backdrop blur of a pinned bar.' },
+  // Scrollbar — every scrollbar in the app (index.css's one recipe + the overlay ones)
+  { name: '--ds-scrollbar-size', label: 'Scrollbar width', group: 'Scrollbar', kind: 'length', value: '6.4px', drives: 'How thick every scrollbar is — the page, lists, the side panels, the chat thread and the Doc Viewer.' },
+  { name: '--ds-scrollbar-radius', label: 'Scrollbar corner radius', group: 'Scrollbar', kind: 'length', value: '3.2px', drives: 'The rounding of the thumb (half the width = fully round ends).' },
+  { name: '--ds-scrollbar-min', label: 'Scrollbar thumb, shortest', group: 'Scrollbar', kind: 'length', value: '19.2px', drives: 'How short the thumb may get on a very long page.' },
+  { name: '--ds-scrollbar-thumb', label: 'Scrollbar thumb', group: 'Scrollbar', kind: 'color', value: 'var(--scrollbar-thumb)', drives: 'The thumb at rest (per theme: ink on Cream, cream on Ink).' },
+  { name: '--ds-scrollbar-thumb-hover', label: 'Scrollbar thumb, hovered', group: 'Scrollbar', kind: 'color', value: 'color-mix(in srgb, var(--scrollbar-thumb) 70%, var(--text-primary))', drives: 'The thumb under the pointer.' },
+  { name: '--ds-scrollbar-thumb-active', label: 'Scrollbar thumb, dragged', group: 'Scrollbar', kind: 'color', value: 'color-mix(in srgb, var(--scrollbar-thumb) 50%, var(--text-primary))', drives: 'The thumb while it is held.' },
+  { name: '--ds-scrollbar-track', label: 'Scrollbar track', group: 'Scrollbar', kind: 'color', value: 'transparent', drives: 'The groove the thumb runs in (none by default).' },
   // Controls
   { name: '--ds-control-h', label: 'Control height', group: 'Controls', kind: 'length', value: '24px', drives: 'Search boxes, view toggles, tool buttons, the field rows in a bar.' },
   { name: '--ds-control-radius', label: 'Control corner radius', group: 'Controls', kind: 'length', value: '4.8px', drives: 'The corners of those controls.' },

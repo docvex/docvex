@@ -295,7 +295,6 @@ html[data-reduce-motion="true"] .lgb-rail.is-easing { transition: none; }
   flex: 1 1 auto; min-height: 0;
   display: flex; flex-direction: column; min-width: 0;
   overflow-y: auto; overscroll-behavior: contain;
-  scrollbar-width: thin;
 }
 .lgb-rail-div { flex: none; height: 1px; margin: 2px 9.6px 7px; background: var(--ds-hairline, var(--border)); }
 .lgb-rail-end { flex: 1 0 24px; }
@@ -670,7 +669,6 @@ html[data-reduce-motion="true"] .lgb-menu { animation: none; }
   padding-bottom: 0;
   min-height: 0;
   overflow-y: auto;
-  scrollbar-width: thin;
 }
 .lgb-root.is-search .lgb-rail {
   position: relative; top: auto;
@@ -782,3 +780,17 @@ html[data-reduce-motion="true"] .lgb-menu { animation: none; }
   .lgb-plat { grid-template-columns: 1fr; }
   .lgb-plat-site { grid-row: auto; }
 }
+
+/* The PLATFORMS at the top of the tabs list (PlatformItems): a small label,
+   then one item per platform in its colour; the ones not connected yet
+   faded. The rail items' own look (.lg-rail-item). */
+.lgb-rail-sub {
+  flex: none; margin: 2px 9.6px 4px;
+  font-size: var(--ds-label-size, 0.6rem); letter-spacing: var(--ds-label-tracking, 0.06em);
+  text-transform: uppercase; font-weight: 700; color: var(--text-muted);
+}
+.lgb-plat .lgb-dot { flex: none; }
+.lgb-plat .lg-rail-num { color: var(--tone); }
+.lgb-plat.is-stub { opacity: 0.6; }
+.lgb-plat.is-stub:is(:hover, .is-active) { opacity: 1; }
+.lgb-plat.is-stub .lg-rail-num { color: var(--text-secondary); }

@@ -66,7 +66,7 @@
 .cn-search-input::placeholder { color: var(--text-muted); }
 
 .cn-tree,
-.cn-side > .cn-list { overflow-y: auto; scrollbar-width: thin; min-height: 0; margin: 0 -4px; padding: 0 4px; }
+.cn-side > .cn-list { overflow-y: auto; min-height: 0; margin: 0 -4px; padding: 0 4px; }
 .cn-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 1px; }
 .cn-list .cn-list { margin-top: 1px; }
 .cn-row {
@@ -396,7 +396,7 @@
 .cn-ol-side {
   position: sticky; top: calc(var(--chrome-inset, 6.4px) + var(--lg-bar-h, 40px) + 16px);
   max-height: calc(100vh - var(--titlebar-h, 0px) - 80px);
-  overflow-y: auto; scrollbar-width: thin;
+  overflow-y: auto;
 }
 .cn-ol-rail {
   display: flex; flex-direction: column; gap: 1px;
@@ -540,7 +540,7 @@
 .cn-at-entry {
   position: sticky; top: calc(var(--chrome-inset, 6.4px) + var(--lg-bar-h, 40px) + 16px);
   max-height: calc(100vh - var(--titlebar-h, 0px) - 80px);
-  overflow-y: auto; scrollbar-width: thin;
+  overflow-y: auto;
   pointer-events: auto;
   /* Floating over the atlas: the bar's surface (frosted page ground, the
      flat hairline, no shadow), so the tiles under it don't read through. */

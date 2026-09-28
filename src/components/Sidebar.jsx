@@ -13,7 +13,7 @@ import { toLayoutPx } from '../lib/appZoom';
 import { hasNewBrief, onNewsletterChanged } from '../lib/legalFeed';
 import { LEGAL_TAB_PATHS, LEGAL_TABS } from './LegalTabs';
 import './RefPill.css';
-import { advisorStore, bindChats, isBlankChat } from '../lib/advisorChats';
+import { isBlankChat } from '../lib/advisorChats';
 import { researchStore, RESEARCH_SCOPE } from '../lib/researchChats';
 import { subscribeRunner as subscribeResearchRun, runnerState as researchRunState, anyRunning as researchAnyRunning, isThreadBusy as researchThreadBusy } from '../lib/researchRunner';
 import { subscribeBrowser, browserState, curPage, pageMeta, selectTab, closeTab, openSearch, isSearchTab, moveTab, flushBrowser } from '../lib/legalBrowser';
@@ -238,12 +238,11 @@ const canPopOut = canOpenTabWindow && !isTabWindow;
 // hovering shows its name as the custom tooltip; a RIGHT-CLICK morphs that
 // tooltip into a menu — Open, and Pop out (the tab in a window of its own,
 // main window only). The host is display: contents, so it adds no box.
-const ADVISOR_OPEN_KEY = 'docvex.sidebar.advisorOpen';
 // Whether Research's dropdown (its chats) is open.
 const RESEARCH_OPEN_KEY = 'docvex.sidebar.researchOpen';
-// An Advisor chat's hover pill — the same highlight pill: what it is, its
+// A Research chat's hover pill — the same highlight pill: what it is, its
 // title, the last thing said in it, what a click does.
-function chatTabPill(t, m, label = 'Advisor') {
+function chatTabPill(t, m, label = 'Research') {
   const last = [...(t.messages || [])].reverse().find((x) => String(x.text || '').trim());
   const said = last ? String(last.text).replace(/```[\s\S]*?```/g, '').replace(/\s+/g, ' ').trim() : '';
   return (
@@ -318,15 +317,16 @@ const ChatIcon = (
   </svg>
 );
 
-// A vertical timeline — a rail with two event nodes, each with its entry
-// beside it — the project Timeline surface. (Keep in step with SplitView's
-// NAV_ICONS.events.)
-const TimelineIcon = (
+// Nodes joined by links — the Neural network tab (the graph of the files the
+// AI scan read). (Keep in step with SplitView's NAV_ICONS.network.)
+const NetworkIcon = (
   <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-    <path d="M6 3v2M6 9v6M6 19v2"/>
-    <circle cx="6" cy="7" r="2"/>
-    <circle cx="6" cy="17" r="2"/>
-    <path d="M11 7h9M11 17h6"/>
+    <circle cx="5" cy="6" r="2"/>
+    <circle cx="19" cy="6" r="2"/>
+    <circle cx="12" cy="12" r="2.2"/>
+    <circle cx="6" cy="19" r="2"/>
+    <circle cx="18" cy="18" r="2"/>
+    <path d="M6.7 7.2 10.3 10.8M17.3 7.2 13.7 10.8M10.4 13.4 7.4 17.5M13.7 13.4 16.5 16.6"/>
   </svg>
 );
 
@@ -444,10 +444,6 @@ function Sidebar({ collapsed = false, offstage = false, onHubNav }) {
   const { selectedProjectId, selectedProject } = useSelectedProject();
   const { hasUpdate, currentVersion, latestVersion } = useUpdates();
 
-  // AI-advisor activity (dispatched by the /ai page): busy while a turn is
-  // thinking, unread once a reply landed in a non-open conversation. Drives
-  // the dot on the Advisor nav item.
-  const [advisorActivity, setAdvisorActivity] = React.useState({ busy: false, unread: false });
   // Research's running work (lib/researchRunner — it carries on when the page
   // is left): a spinner on the Research row while anything runs, and on each
   // chat tab that is working.
@@ -458,16 +454,6 @@ function Sidebar({ collapsed = false, offstage = false, onHubNav }) {
   const scanRunning = useAnyScanRunning();
   // …and, for a moment after it ends, how it ended: a tick or a red dot.
   const scanOutcome = useScanOutcome();
-  React.useEffect(() => {
-    // Keep the same object when nothing changed, so a repeated signal (the page
-    // re-announcing "busy") doesn't re-render the whole rail.
-    const onEvt = (e) => setAdvisorActivity((s) => {
-      const next = { ...s, ...(e.detail || {}) };
-      return Object.keys(next).every((k) => next[k] === s[k]) && Object.keys(s).length === Object.keys(next).length ? s : next;
-    });
-    window.addEventListener('docvex:advisor-activity', onEvt);
-    return () => window.removeEventListener('docvex:advisor-activity', onEvt);
-  }, []);
 
   // Which semver field the pending update bumps — drives the Versions pill
   // colour (major = red, minor = amber, patch = green).
@@ -548,16 +534,9 @@ function Sidebar({ collapsed = false, offstage = false, onHubNav }) {
     },
     { to: '/files', label: 'Files', icon: FilesIcon, dot: scanRunning ? 'spin' : scanOutcome === 'ok' ? 'tick' : scanOutcome ? 'fail' : null },
     { to: '/chat', label: 'Chat', icon: ChatIcon },
-    { to: '/events', label: 'Timeline', icon: TimelineIcon },
-    {
-      to: '/ai',
-      label: 'Advisor',
-      icon: AiIcon,
-      // Busy = a turn is thinking; done = a reply waits in a conversation.
-      dot: advisorActivity.busy ? 'busy' : advisorActivity.unread ? 'done' : null,
-      // Its chats are TABS, listed under it like Legislation's (lib/advisorChats).
-      fold: 'advisor',
-    },
+    // The graph of what the AI scan read (components/FileGraph) — moved out of
+    // the Files tab into a tab of its own.
+    { to: '/network', label: 'Neural network', icon: NetworkIcon },
     { to: '/roadmap', label: 'Roadmap', icon: RoadmapIcon },
   ] : [];
 
@@ -567,21 +546,16 @@ function Sidebar({ collapsed = false, offstage = false, onHubNav }) {
       to: '/', label: 'Activity', icon: ActivityIcon, end: true,
       badge: unreadCount > 0 ? (unreadCount > 9 ? '9+' : String(unreadCount)) : null,
     },
-    // The Newsletter (pages/Newsletter) — what has just changed in the law,
-    // DocVex's own briefing. An entry of its own (it used to be the first of
-    // the Legislation tabs).
-    {
-      to: '/newsletter', label: 'Newsletter', icon: NewsletterIcon, end: true,
-      // "New brief" pill — cleared when the user opens the Newsletter.
-      pill: newBrief ? { kind: 'brief', text: 'new' } : null,
-    },
     // Legislation: the national legislative portal (pages/Legislation), the
     // CAEN nomenclature (pages/Caen) and the other sources, tabs of one entry.
     // Each keeps its own route, so the entry is active on all of them.
     {
       to: '/legislation', label: 'Legislation', icon: LegislationIcon, end: true,
-      activeOn: LEGAL_TAB_PATHS,
+      activeOn: [...LEGAL_TAB_PATHS, '/newsletter'],
       fold: 'legal',
+      // The Newsletter is the first item of the Legislation tab now: its "new
+      // brief" pill stands on this row (cleared when the Newsletter is opened).
+      pill: newBrief ? { kind: 'brief', text: 'new' } : null,
     },
     ...(session ? [{ to: '/mail', label: 'Mail', icon: MailIcon, end: true }] : []),
     { to: '/playbook', label: 'Playbook', icon: PlaybookIcon, end: true },
@@ -720,15 +694,13 @@ function Sidebar({ collapsed = false, offstage = false, onHubNav }) {
     window.dispatchEvent(new CustomEvent('docvex:legal-listed', { detail: { listed: legalListed } }));
   }, [legalListed]);
 
-  // THE CHAT DROPDOWNS — the Advisor's chats (lib/advisorChats, per project)
-  // and Research's (lib/researchChats, per user) as tabs, the Legislation
+  // THE CHAT DROPDOWN — Research's chats (lib/researchChats, per user; the
+  // store is lib/advisorChats' factory) as tabs, the Legislation
   // dropdown's twin to the letter: pinned first, the blank "New chat" not
   // listed (the entry's row opens it), drag to reorder, × to close, the row
   // click opening a new chat while on the page. One hook, one renderer
-  // (useChatFold / renderChatEntry), two stores.
-  useEffect(() => { bindChats(session?.user?.id || '_anonymous', selectedProjectId); }, [session?.user?.id, selectedProjectId]);
+  // (useChatFold / renderChatEntry).
   useEffect(() => { researchStore.bind(session?.user?.id || '_anonymous', RESEARCH_SCOPE); }, [session?.user?.id]);
-  const advisorFold = useChatFold(advisorStore, { openKey: ADVISOR_OPEN_KEY, setEvent: 'docvex:advisor-list-set', listedEvent: 'docvex:advisor-listed', flag: '__docvexAdvisorListed' });
   const researchFold = useChatFold(researchStore, { openKey: RESEARCH_OPEN_KEY, setEvent: 'docvex:research-list-set', listedEvent: 'docvex:research-listed', flag: '__docvexResearchListed' });
 
   // What survives the fold: Settings alone. Not "the first item" — if Settings
@@ -748,7 +720,6 @@ function Sidebar({ collapsed = false, offstage = false, onHubNav }) {
   // category group).
   const renderNavItem = ({ to, label, icon, end, badge, pill, dot, onClick, onWarm, activeOn, fold }) => (
     fold === 'legal' ? renderLegalEntry({ to, label, icon, end, badge, pill, dot, onClick, onWarm, activeOn })
-      : fold === 'advisor' ? renderAdvisorEntry({ to, label, icon, end, badge, pill, dot, onClick, onWarm, activeOn })
       : fold === 'research' ? renderResearchEntry({ to, label, icon, end, badge, pill, dot, onClick, onWarm, activeOn })
         : renderNavItemRow({ to, label, icon, end, badge, pill, dot, onClick, onWarm, activeOn }, null)
   );
@@ -999,7 +970,7 @@ function Sidebar({ collapsed = false, offstage = false, onHubNav }) {
                       onDragEnd={() => setDrag(null)}
                     >
                       <TabMenuPill
-                        hover={chatTabPill(t, m, store.label)}
+                        hover={m.direct ? legalTabPill({ ...m, kind: m.ownKind }, null) : chatTabPill(t, m, store.label)}
                         onOpen={() => openChat(t.id)}
                         popRoute={item.to}
                         popTitle={m.title}
@@ -1011,7 +982,12 @@ function Sidebar({ collapsed = false, offstage = false, onHubNav }) {
                         >
                           <span className="label nav-sub-text">
                             <span className="nav-sub-kind">{tBusy ? <span className="nav-dot is-spin nav-cat-spin" aria-label="Working" /> : null}<FadeText className="nav-cat-kindtext">
-                              <span className="nav-cat-site" style={{ '--tone': t.unreadAt ? 'var(--success)' : m.tone }}>{store.label}</span>{m.kind.slice(store.label.length)}
+                              {/* A DIRECT SEARCH reads as a Legislation tab (its platform's
+                                  address in its colour · the item's kind); an AI
+                                  conversation in the ACCENT (lib/researchChats describe). */}
+                              {m.direct
+                                ? <><span className="nav-cat-site" style={{ '--tone': m.tone }}>{m.siteName}</span>{m.ownKind ? ` · ${m.ownKind}` : ''}</>
+                                : <><span className="nav-cat-site" style={{ '--tone': t.unreadAt ? 'var(--success)' : 'var(--accent)' }}>{store.label}</span>{m.kind.slice(store.label.length)}</>}
                             </FadeText></span>
                             <FadeText className="nav-sub-title">{m.title}</FadeText>
                           </span>
@@ -1034,7 +1010,6 @@ function Sidebar({ collapsed = false, offstage = false, onHubNav }) {
       </div>
     );
   };
-  const renderAdvisorEntry = (item) => renderChatEntry(item, advisorFold, { busy: advisorActivity.busy, focusEvent: 'docvex:advisor-focus', listName: "The Advisor's chats" });
   const renderResearchEntry = (item) => renderChatEntry(item, researchFold, { busy: (id) => researchThreadBusy(researchRun, id), focusEvent: 'docvex:research-focus', listName: "Research's chats" });
 
   // Cursor-following spotlight: write the pointer position (sidebar-relative,
@@ -1058,6 +1033,18 @@ function Sidebar({ collapsed = false, offstage = false, onHubNav }) {
   // snapping. The per-button highlight below stays immediate so hovered items
   // light up instantly. The loop self-parks once settled and restarts on move.
   const navRef = useRef(null);
+  // The Research card's height, on the slot: the rail starts under it.
+  const researchCardRef = useRef(null);
+  useLayoutEffect(() => {
+    const card = researchCardRef.current;
+    const slot = card?.parentElement;
+    if (!card || !slot) return undefined;
+    const put = () => slot.style.setProperty('--research-card-h', `${card.offsetHeight}px`);
+    put();
+    const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(put) : null;
+    ro?.observe(card);
+    return () => { ro?.disconnect(); slot.style.removeProperty('--research-card-h'); };
+  }, []);
   const glowDotRef = useRef(null);
   const shineDotRef = useRef(null);
   const SPOT_EASE = 0.28; // per-60fps-frame ease — higher = snappier follow
@@ -1164,6 +1151,27 @@ function Sidebar({ collapsed = false, offstage = false, onHubNav }) {
   }), []);
 
   return (
+    <>
+    {/* ── RESEARCH — its own card ABOVE the rail, apart from it (a gap
+        between, its own ground), at the user's request: the two are not one
+        surface. It carries the `sidebar` class for the rail's item rules
+        (Sidebar.css scopes them under .sidebar) and is sized and placed by
+        `.sidebar.sidebar-research`; its height is measured into
+        --research-card-h on the slot, which is where the rail starts. ── */}
+    <nav
+      className={`sidebar sidebar-research${collapsed ? ' is-collapsed' : ''}`}
+      ref={researchCardRef}
+      aria-label="Research"
+      inert={offstage || undefined}
+    >
+      <ul className="sidebar-nav">
+        <li className="sidebar-cat sidebar-cat--lead">
+          <div className="sidebar-cat-items">
+            {renderNavItem({ to: '/research', label: 'Research', icon: ResearchIcon, end: true, fold: 'research', dot: researchBusy ? 'spin' : null })}
+          </div>
+        </li>
+      </ul>
+    </nav>
     <nav
       className={`sidebar${collapsed ? ' is-collapsed' : ''}`}
       ref={navRef}
@@ -1175,15 +1183,6 @@ function Sidebar({ collapsed = false, offstage = false, onHubNav }) {
       <span className="sidebar-glow" aria-hidden="true"><span className="sidebar-glow-dot" ref={glowDotRef} /></span>
       <span className="sidebar-shine" aria-hidden="true"><span className="sidebar-shine-dot" ref={shineDotRef} /></span>
       <ul className="sidebar-nav">
-        {/* ── Research — first in the rail and OUTSIDE every section (no
-            heading): the Legislation search and the Advisor as one search
-            engine (pages/Research). Both tabs stay where they are. ── */}
-        <li className="sidebar-cat sidebar-cat--lead">
-          <div className="sidebar-cat-items">
-            {renderNavItem({ to: '/research', label: 'Research', icon: ResearchIcon, end: true, fold: 'research', dot: researchBusy ? 'spin' : null })}
-          </div>
-        </li>
-
         {/* ── DocVex — the user's own feeds (formerly "Personal"). ── */}
         <li className="sidebar-cat">
           <span className="sidebar-cat-label">
@@ -1361,6 +1360,7 @@ function Sidebar({ collapsed = false, offstage = false, onHubNav }) {
       </div>
 
     </nav>
+    </>
   );
 }
 

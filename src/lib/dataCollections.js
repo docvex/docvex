@@ -157,7 +157,7 @@ const str = (v, max = 2000) => String(v ?? '').trim().slice(0, max);
 
 // ── Step 2: understand each file (batched; kept per file) ───────────────
 const MRZ_RULES_TEXT = `MRZ rules (an identity document's strip of capitals and "<"): ${MRZ_PROMPT.split('\n').filter((l) => /^\d\./.test(l)).join(' ')} Schema: {"last_name","first_names","date_of_birth":"YYYY-MM-DD","gender":"M|F","expiration_date":"YYYY-MM-DD","nationality":"ROU"}.`;
-const UNDERSTAND_PROMPT = `You are reading files from a legal case folder (mostly Romanian). For EACH file below, say what it is and what it establishes.
+export const UNDERSTAND_PROMPT = `You are reading files from a legal case folder (mostly Romanian). For EACH file below, say what it is and what it establishes.
 Answer ONLY with JSON: {"files":[{"i":<file number>,"summary":"2-4 sentences: what the file is and what it says","subject":"the main person, company, property, event or matter it is about","facts":[{"label":"short name of the fact","value":"the fact, exactly as the file states it"}],"entities":["every person, company, institution, property or case number named"],"dates":[{"date":"DD.MM.YYYY or as written","event":"what happened then"}],"idDocument":null}]}
 "idDocument": ONLY when the file IS an identity document carrying its holder's photo (carte electronică de identitate, carte de identitate, CIP, buletin de identitate booklet, an interwar identity paper, passport, driving licence, residence permit): {"holder":"the holder's full name as written","type":"CEI | CI | CIP | BI | passport | driving licence | residence permit | other","mrz":<its machine-readable zone parsed by the MRZ rules below, or null>}; otherwise null.
 ${MRZ_RULES_TEXT}
@@ -317,27 +317,67 @@ function passportOf(e, id) {
 }
 
 // -> { graph: { links, timeline, facts }, groups (for the web), calls, errors }
+// A group that is an earlier group PLUS a few new or changed files is not
+// cross-referenced whole again: the earlier answers stand for the files they
+// covered (none of which changed), and only the new files go to the model,
+// with the covered files they share the most names / identifiers with
+// (`DELTA_MATES`). A file arriving in a 40-file group costs a call of ~12
+// passports instead of 40 - the live network's usual case.
+const DELTA_MAX = 8;
+const DELTA_MATES = 12;
+const stampKey = (e) => `${e.stamp?.size ?? ''}|${e.stamp?.mtime ?? ''}`;
+function deltaPlan(g, prevGroups) {
+  if (!prevGroups) return null;
+  const stampOf = new Map(g.map((e) => [e.rel, stampKey(e)]));
+  const parts = [];
+  const covered = new Set();
+  for (const part of Object.values(prevGroups)) {
+    // Only answers that name their files, all still in this group and
+    // unchanged since.
+    if (!Array.isArray(part?.files) || !part.files.length) continue;
+    if (!part.files.every((f) => stampOf.get(f.rel) === f.stamp)) continue;
+    parts.push(part);
+    part.files.forEach((f) => covered.add(f.rel));
+  }
+  if (!parts.length) return null;
+  const fresh = g.filter((e) => !covered.has(e.rel));
+  if (!fresh.length || fresh.length > DELTA_MAX) return null;
+  const freshKeys = new Set(fresh.flatMap((e) => [...keysOf(e)]));
+  const mates = g.filter((e) => covered.has(e.rel))
+    .map((e) => ({ e, n: [...keysOf(e)].filter((k) => freshKeys.has(k)).length }))
+    .sort((a, b) => b.n - a.n)
+    .slice(0, DELTA_MATES)
+    .map((x) => x.e);
+  return { parts, ask: [...fresh, ...mates] };
+}
+const mergeParts = (parts) => ({
+  links: parts.flatMap((p) => p.links || []),
+  timeline: parts.flatMap((p) => p.timeline || []),
+  facts: parts.flatMap((p) => p.facts || []),
+});
+
 async function crossReference(entries, prevGroups, ctx, { say, stop }) {
   const groups = graphGroups(entries);
   const kept = {};
   const todo = [];
   for (const g of groups) {
     const sig = groupSig(g);
-    if (prevGroups?.[sig]) kept[sig] = prevGroups[sig]; else todo.push({ sig, g });
+    if (prevGroups?.[sig]) kept[sig] = prevGroups[sig]; else todo.push({ sig, g, plan: deltaPlan(g, prevGroups) });
   }
   let done = 0; let calls = 0;
   const errors = [];
-  const run = async ({ sig, g }) => {
+  const run = async ({ sig, g, plan }) => {
     if (stop()) return;
-    const ids = g.map((e, n) => `F${n + 1}`);
-    const relOf = new Map(g.map((e, n) => [ids[n], e.rel]));
-    const res = await crossrefPassports({ passports: g.map((e, n) => passportOf(e, ids[n])), usageProject: ctx.projectId });
+    const ask = plan ? plan.ask : g;
+    const ids = ask.map((e, n) => `F${n + 1}`);
+    const relOf = new Map(ask.map((e, n) => [ids[n], e.rel]));
+    const res = await crossrefPassports({ passports: ask.map((e, n) => passportOf(e, ids[n])), usageProject: ctx.projectId });
     calls += 1;
     done += 1;
     say({ stage: 'links', index: done, total: todo.length, overall: 0.78 + 0.17 * (done / Math.max(1, todo.length)), step: `Cross-referenced ${done} of ${todo.length} group${todo.length === 1 ? '' : 's'}`, fileFrac: done / Math.max(1, todo.length) });
     if (res.error) { errors.push(String(res.error?.message || res.error)); return; }
     const rels = (list) => cleanList(list).map((id) => relOf.get(id)).filter(Boolean);
-    kept[sig] = {
+    const answer = {
       links: cleanList(res.graph.links).map((l) => ({
         from: relOf.get(l.from_file_id), to: relOf.get(l.to_file_id), type: l.connection_type,
         why: str(l.explanation, 1200), evidence: cleanList(l.evidence).map((x) => str(x, 200)), confidence: Number(l.confidence) || 0,
@@ -345,6 +385,10 @@ async function crossReference(entries, prevGroups, ctx, { say, stop }) {
       timeline: cleanList(res.graph.timeline).map((t) => ({ date: str(t?.date, 40), event: str(t?.event, 400), sources: rels(t?.file_ids) })).filter((t) => t.sources.length),
       facts: cleanList(res.graph.facts).map((f) => ({ subject: str(f?.subject, 200), label: str(f?.label, 120), value: str(f?.value, 600), sources: rels(f?.file_ids) })).filter((f) => f.sources.length),
     };
+    const merged = plan ? mergeParts([...plan.parts, answer]) : answer;
+    // The files it covers, with their stamps: what lets a later group that
+    // only ADDS files reuse it (deltaPlan).
+    kept[sig] = { ...merged, files: g.map((e) => ({ rel: e.rel, stamp: stampKey(e) })) };
   };
   if (todo.length) say({ stage: 'links', index: 0, total: todo.length, overall: 0.78, step: 'Cross-referencing the files', fileFrac: 0 });
   // Two at a time: each call is tens of seconds of the model writing.
@@ -371,7 +415,7 @@ async function crossReference(entries, prevGroups, ctx, { say, stop }) {
 }
 
 // For checks outside the app (scratch harness), nothing else.
-export const scanInternals = { passportBatch, crossReference, graphGroups, connectChunked, chunkEntries };
+export const scanInternals = { passportBatch, crossReference, graphGroups, connectChunked, chunkEntries, deltaPlan };
 
 // ── The web of information ──────────────────────────────────────────────
 // What the scan knows is kept with the project, in its settings store `web`
@@ -494,9 +538,9 @@ const COLLECTION_SHAPE = `{"title":"short name of the subject","subject":"person
 // what a contract's clauses are filled from). The AI fills it from the files,
 // with only these keys; a value already in the record is never overwritten.
 const RECORD_KEYS = `person: ${fieldsFor('person').map((f) => `${f.key} (${f.label})`).join(', ')}; org: ${fieldsFor('org').map((f) => `${f.key} (${f.label})`).join(', ')}`;
-const RECORD_RULE = `For a collection about ONE person or ONE company add "record": {"kind":"person" or "org","fields":{"<key>":"value"}} using ONLY these keys, each value exactly as a file states it (dates as DD.MM.YYYY), leaving out what no file states: ${RECORD_KEYS}. ${AUTHORITY_RULE}`;
+export const RECORD_RULE = `For a collection about ONE person or ONE company add "record": {"kind":"person" or "org","fields":{"<key>":"value"}} using ONLY these keys, each value exactly as a file states it (dates as DD.MM.YYYY), leaving out what no file states: ${RECORD_KEYS}. ${AUTHORITY_RULE}`;
 
-const CONNECT_PROMPT = `Below is what was understood from each file of a legal case folder. Connect them: group the files into DATA COLLECTIONS — one per real-world subject (a person, a company, a property, a vehicle, a contract, an incident, a court case…) that two or more files are about, or that one file covers in depth. A file may belong to several collections. Do not invent anything: every fact must come from the listed files.
+export const CONNECT_PROMPT = `Below is what was understood from each file of a legal case folder. Connect them: group the files into DATA COLLECTIONS — one per real-world subject (a person, a company, a property, a vehicle, a contract, an incident, a court case…) that two or more files are about, or that one file covers in depth. A file may belong to several collections. Do not invent anything: every fact must come from the listed files.
 Answer ONLY with JSON: {"collections":[${COLLECTION_SHAPE}]}
 ${RECORD_RULE}
 Write in the language most of the files are in. Order collections by importance.`;
@@ -623,7 +667,7 @@ async function connectChunked(entries, cols, ctx, { stop, step } = {}) {
 // The AI sees only the new / changed files and a card per collection: its
 // title, subject, the start of its summary and the names it holds. Collections
 // sharing no name with the new files are listed by title alone.
-const INTEGRATE_PROMPT = `A legal case folder was already organised into DATA COLLECTIONS (one per real-world subject). New files were added. For each new file decide which existing collections it belongs to (it may belong to several, or none), and start NEW collections only for subjects no existing collection covers. Every fact must come from the new files. Do not repeat facts the collection already states.
+export const INTEGRATE_PROMPT = `A legal case folder was already organised into DATA COLLECTIONS (one per real-world subject). New files were added. For each new file decide which existing collections it belongs to (it may belong to several, or none), and start NEW collections only for subjects no existing collection covers. Every fact must come from the new files. Do not repeat facts the collection already states.
 Answer ONLY with JSON: {"updates":[{"collection":"C<number>","sources":[{"i":<new file number>,"role":"what it adds, one sentence"}],"facts":[{"label":"…","value":"…","sources":[<new file numbers>]}],"timeline":[{"date":"…","event":"…","sources":[<new file numbers>]}],"connections":[{"from":<new file number>,"to":<new file number>,"why":"…"}],"summary":"the collection's summary rewritten to include what the new files add — or \\"\\" when it needs no change"}],"created":[${COLLECTION_SHAPE}]}
 In "created", file numbers are the new files' numbers. An update may also carry "record" with the fields the new files add. ${RECORD_RULE}
 Write in the language of the collections.`;
@@ -814,6 +858,7 @@ function raceScan(promise, ms, stop) {
   });
 }
 const NOT_REMEMBERED = new Set(['ai_failed', 'timed_out']);
+const COLLECTION_CACHE = new Map();   // path -> { stamp: 'size|mtime', value: parsed collection }
 
 // ── The KNOWLEDGE GRAPH (the Files tab's Graph view, components/FileGraph) ──
 // Every file the scan has read as a node, every typed link it found as an
@@ -911,7 +956,10 @@ export async function eraseScanMemory(projectDir, { projectId } = {}) {
 // → { collections, created, updated, removed, read, added, upToDate, skipped } or { error }
 // `tags` (lib/scanTags) — the files tagged for the scan: only those are read,
 // and a file untagged since the last scan leaves the collections as if removed.
-export async function scanProjectFiles(projectDir, { projectId, projectName, force = false, onProgress, isCancelled, tags = null, features: askedFeatures = null } = {}) {
+// `only` (a Set of paths inside the project) - the LIVE network's pass
+// (lib/liveNetwork): of the files not yet known to the web, only these are
+// read; files the web knows are still checked, so edits and removals count.
+export async function scanProjectFiles(projectDir, { projectId, projectName, force = false, onProgress, isCancelled, tags = null, only = null, features: askedFeatures = null } = {}) {
   const features = { ...DEFAULT_SCAN_FEATURES, ...(askedFeatures || {}) };
   if (!projectDir) return { error: 'no_folder' };
   const say = (p) => { try { onProgress?.(p); } catch { /* ignore */ } };
@@ -920,16 +968,38 @@ export async function scanProjectFiles(projectDir, { projectId, projectName, for
   say({ stage: 'list', overall: 0.01, step: 'Listing the files', fileFrac: 0 });
   const listing = await localFolderApi.listAll(projectDir);
   if (listing?.error) return { error: listing.error };
-  const files = (listing.files || []).filter((f) => f?.path && scanKindOf(f.name, f.mimeType) !== 'collection'
-    && (!tags || isScanTagged(tags, relInProject(projectDir, f.path))));
-  if (!files.length) return { error: tags ? 'none_tagged' : 'empty' };
-
-  // What was saved about each file is read synchronously below, from the
-  // index's copy — which knows the project's files once it has been hydrated.
-  if (projectId) await hydrateProject(projectId, { dir: projectDir }).catch(() => {});
-  else await hydratePaths(files.map((f) => f.path)).catch(() => {});
   const web = force ? null : await readWeb(projectDir, projectId);
   const known = web?.files || {};
+  const files = (listing.files || []).filter((f) => {
+    if (!f?.path || scanKindOf(f.name, f.mimeType) === 'collection') return false;
+    const rel = relInProject(projectDir, f.path);
+    if (tags && !isScanTagged(tags, rel)) return false;
+    return !only || !!known[rel] || only.has(rel);
+  });
+  if (!files.length) return { error: tags ? 'none_tagged' : 'empty' };
+
+  // FAST PATH: every listed file is known to the web with the same stamp and
+  // no known file has gone - nothing to read, connect or cross-reference, and
+  // no collection to read back (the live network runs this after changes in
+  // the folder, most of which don't touch the scanned files).
+  if (web && !force && !features.faces && (web.graph || !features.links)) {
+    const rels = new Set(files.map((f) => relInProject(projectDir, f.path)));
+    const unchanged = files.every((f) => {
+      const k = known[relInProject(projectDir, f.path)];
+      return k && k.size === (f.sizeBytes ?? null) && k.mtime === (f.mtimeIso ?? null);
+    });
+    if (unchanged && Object.keys(known).every((rel) => rels.has(rel))) {
+      return {
+        collections: cleanList(web.collections).map((c) => ({ title: c.title, filename: c.file, path: resolveInProject(projectDir, c.file) })),
+        created: 0, updated: 0, removed: 0, read: 0, added: 0, upToDate: true, faceMatches: 0, faceErrors: [], links: null, linkCalls: 0, linkErrors: [], skipped: [],
+      };
+    }
+  }
+
+  // What was saved about each file is read synchronously below, from the
+  // index's copy - which knows the project's files once it has been hydrated.
+  if (projectId) await hydrateProject(projectId, { dir: projectDir }).catch(() => {});
+  else await hydratePaths(files.map((f) => f.path)).catch(() => {});
 
   // 1 + 2. What each file is — from the web, from the file's AI data, or read
   // and understood now. Only the last costs anything.
@@ -1081,11 +1151,20 @@ export async function scanProjectFiles(projectDir, { projectId, projectName, for
   // Every collection in the project, read back from its file. `filename` is
   // its path inside the project.
   let cols = [];
+  // Read through a cache keyed by each file's size + modified time: the live
+  // network runs often and most collections haven't changed since the last
+  // pass. A copy is handed out - the scan changes the objects it gets.
   for (const f of (listing.files || []).filter((x) => x?.path && scanKindOf(x.name) === 'collection')) {
     try {
-      const doc = parseCollection(await (await readLocalBlob(f.path)).text());
-      if (doc) cols.push({ ...doc, filename: relInProject(projectDir, f.path), raw: null });
-    } catch { /* unreadable — left alone */ }
+      const stamp = `${f.sizeBytes ?? ''}|${f.mtimeIso ?? ''}`;
+      let doc = COLLECTION_CACHE.get(f.path);
+      if (!doc || doc.stamp !== stamp) {
+        doc = { stamp, value: parseCollection(await (await readLocalBlob(f.path)).text()) };
+        COLLECTION_CACHE.set(f.path, doc);
+        if (COLLECTION_CACHE.size > 800) COLLECTION_CACHE.delete(COLLECTION_CACHE.keys().next().value);
+      }
+      if (doc.value) cols.push({ ...structuredClone(doc.value), filename: relInProject(projectDir, f.path), raw: null });
+    } catch { /* unreadable - left alone */ }
   }
   const firstRun = !cols.length;
   const upToDate = !firstRun && !changed.size;

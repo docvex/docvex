@@ -518,7 +518,6 @@ html[data-reduce-motion="true"] .pbk-sample-scrim { animation: none; }
   .pbk-prail-list {
     flex: 1 1 auto; min-height: 0;
     overflow-y: auto; overscroll-behavior: contain;
-    scrollbar-width: thin;
   }
   .pbk-prail > * { position: relative; z-index: 1; }
   /* The SELECTED preset is STICKY inside the list: when the items scroll it
@@ -765,7 +764,7 @@ html[data-reduce-motion="true"] .pbk-drawer { transition: none; }
 .pbk-drawer-body {
   flex: 1 1 auto; min-height: 0; overflow-y: auto; overflow-x: hidden;
   /* Equal air both sides of the sheet: a thin gutter reserved on both edges. */
-  padding: 0 12px 32px; scrollbar-width: thin; scrollbar-gutter: stable both-edges;
+  padding: 0 12px 32px; scrollbar-gutter: stable both-edges;
 }
 .pbk-drawer .pbk-word-sheets { margin: 0 auto; }
 

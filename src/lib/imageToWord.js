@@ -24,7 +24,7 @@ import { askProjectAi } from './projectAi';
 const MODEL = 'claude-sonnet-4-6';
 const MAX_EDGE = 2200;   // long side sent to the AI — enough for small print, under the API's limits
 
-const PROMPT = `This picture is a photograph or scan of a document. Reconstruct it as a Word document.
+export const PROMPT = `This picture is a photograph or scan of a document. Reconstruct it as a Word document.
 
 Transcribe EXACTLY what is written, in the document's own language and spelling (keep diacritics). Add nothing, summarise nothing, translate nothing. Ignore everything that is not the page: the table it lies on, fingers, shadows, the photo's edges. Keep the document's own numbering and markers as written ("1.", "Art. 3", "a)", "•") inside the text.
 

@@ -81,7 +81,7 @@ const BinIcon = (
   </svg>
 );
 
-const GROUPS = ['Bars', 'Controls', 'Type', 'Pills and tags', 'Surfaces', 'Page layout', 'Doc Viewer', 'Families'];
+const GROUPS = ['Bars', 'Controls', 'Type', 'Pills and tags', 'Surfaces', 'Scrollbar', 'Page layout', 'Doc Viewer', 'Families'];
 
 export default function DesignSystem() {
   const [over, setOver] = useState(loadOverrides);
@@ -305,6 +305,7 @@ export default function DesignSystem() {
           <DropdownSample />
 
           <ToggleSample />
+          <ScrollbarSample />
           <SegmentedSample />
           <SideDrawerSample />
 
@@ -614,6 +615,15 @@ export default function DesignSystem() {
           <Sample name="Tooltip pill" of="components/Tooltip — one line: fully rounded ends; TWO LINES OR MORE: half the corner radius. Every way it renders: the Tooltips section" row>
             <span className="dsg-pill-still">A tooltip</span>
             <span className="dsg-pill-still is-multiline">Sent 27.09.2026, 12:04{'\n'}Edited 27.09.2026, 12:10</span>
+          </Sample>
+          <Sample name="Choice pill — the two-line rule" of="components/AiChoices .ai-choice (Research's starters, reply choices) — ONE line: fully rounded ends; TWO LINES OR MORE: half the corner radius (a quarter of the one-line pill's height), measured (useMultilinePills → .is-multiline); every pill keeps its own height">
+            <div style={{ maxWidth: 360 }}>
+              <AiChoices
+                choices={['Legea 31/1990', 'OUG 195/2002', 'Cum se face o notificare de reziliere a unui contract de închiriere?', 'Ce riscuri are clauza penală într-un contract comercial?']}
+                onPick={() => {}}
+                label="Sample pills"
+              />
+            </div>
           </Sample>
           <Sample name="Trail pill" of="pages/Caen .cn-pill — an ancestor in the CAEN trail, two lines" row>
             <button type="button" className="cn-pill"><span className="cn-pill-kind">Section</span><span className="cn-pill-code">C</span><span className="cn-pill-name">Industria prelucrătoare</span></button>
@@ -1034,6 +1044,25 @@ function ToggleSample() {
     <Sample name="Toggle" of="components/Toggle .tgl — on / off with its label (the Playbook's Preview)" row>
       <Toggle on={on} onChange={setOn} label="Preview" />
       <Toggle on={off} onChange={setOff} label="Preview" />
+    </Sample>
+  );
+}
+
+// THE SCROLLBAR — every scrollbar in the app is ONE recipe (index.css's
+// ::-webkit-scrollbar rules + the overlay thumbs of the chat thread and the
+// Doc Viewer), built from the Scrollbar tokens (--ds-scrollbar-*): change one
+// in the token table and every scrollbar follows. Drawn live: a list that
+// scrolls down and a strip that scrolls sideways.
+function ScrollbarSample() {
+  const rows = Array.from({ length: 24 }, (_, i) => `Row ${i + 1} — scroll to see the thumb`);
+  return (
+    <Sample name="Scrollbar" of="index.css ::-webkit-scrollbar + the overlay thumbs — tokens --ds-scrollbar-size / -radius / -min / -thumb / -thumb-hover / -thumb-active / -track" row>
+      <div className="dsg-scroll-box" tabIndex={0} aria-label="A list that scrolls">
+        {rows.map((r) => <div key={r} className="dsg-scroll-row">{r}</div>)}
+      </div>
+      <div className="dsg-scroll-box is-x" tabIndex={0} aria-label="A strip that scrolls sideways">
+        <div className="dsg-scroll-strip">{rows.slice(0, 12).map((r) => <span key={r} className="dsg-scroll-chip">{r.split(' —')[0]}</span>)}</div>
+      </div>
     </Sample>
   );
 }

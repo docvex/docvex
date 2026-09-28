@@ -48,7 +48,7 @@
   display: flex; align-items: flex-start; gap: var(--cp-gap);
   padding: 0 0 0 24px;
   max-height: var(--cp-view-h);
-  overflow: auto; scrollbar-width: thin;
+  overflow: auto;
 }
 /* The column: the list, whole, the box on its selected entry (the height
    is set inline to fit every entry). `clip`, not `hidden`: a scroll

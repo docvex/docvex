@@ -5,14 +5,8 @@
    picker in the composer, the byline under each answer, a fixed search's act,
    the folded legal sources. Tokens only. */
 
-/* The composer's model picker (LegalBar's BarPicker, standing alone). */
-.rs-model { display: inline-flex; align-items: center; }
-.rs-model .lg-kind { height: 25.6px; }  /* the composer buttons' height (.dvx-composer-btn) */
-
-/* The composer's Project files switch — the Design system's Toggle
-   (components/Toggle), sized to the toolbar. */
-.rs-files-toggle { margin-left: 6px; }
-.rs-files-toggle.tgl, .rs-files-toggle .tgl { height: 25.6px; box-sizing: border-box; }
+/* The composer's model picker + Project files switch are the shared
+   components/AiControls (AiControls.css). */
 
 /* Which model answered. */
 .rs-byline {
@@ -25,8 +19,6 @@
 .rs-muted { margin: 0; font-size: 13px; color: var(--text-muted); }
 .rs-error { margin: 0; font-size: 13px; color: var(--danger-text, var(--danger)); }
 
-.rs-chips { display: flex; gap: 6px; flex-wrap: wrap; }
-.rs-actchip { --tone: var(--cat-update); color: var(--cat-update); }
 
 /* A fixed search's answer takes the thread's width, as the act does in the
    Legislation tab. */
@@ -192,3 +184,25 @@
 .rs-fixed-switch { align-self: flex-start; }
 .rs-summary { font-size: 14px; line-height: 1.6; }
 .rs-summary > :first-child { margin-top: 0; }
+
+/* The "i" right of the search (SourcesModal): the tool button, square. */
+.rs-info-btn.lgt-tool-btn { width: var(--ds-control-h, 24px); padding: 0; justify-content: center; flex: none; }
+
+/* The byline under an answer (which model, Auto's reason, the project's
+   files) shows only while THAT reply is hovered — its room kept, so nothing
+   moves. The fixed answer's foot keeps its own (it holds "all N results"). */
+.bubble > .bubble-c > .rs-byline { opacity: 0; transition: opacity 160ms ease; }
+.bubble:hover > .bubble-c > .rs-byline,
+.bubble:focus-within > .bubble-c > .rs-byline { opacity: 1; }
+
+/* NO SCROLL WHEN IT ALL FITS (2026-09-28): the shell, its column and the
+   empty panes were at least the chat list's STICKY height (--airail-h: the
+   window less the header), which stands BELOW the masthead — so every chat
+   was taller than the window by the masthead and scrolled even with two
+   messages. They now fill only what is left under the shell's top
+   (--aifit-h, measured in Research.jsx); a longer thread still scrolls, and
+   the list keeps its stuck height from the scroll effect. */
+.rs-page.ai-chat-page .aichat-shell,
+.rs-page.ai-chat-page .aichat-thread-col,
+.rs-page.ai-chat-page .aichat-debug.aichat-fill,
+.rs-page.ai-chat-page .aichat-empty.aichat-fill { min-height: var(--aifit-h, 60vh); }

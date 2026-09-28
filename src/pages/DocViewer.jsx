@@ -1,5 +1,4 @@
 import React, { Fragment, useCallback, useContext, useDeferredValue, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { foldRuleExchanges } from '../lib/aiSources';
 import { createPortal } from 'react-dom';
 import { useSearchParams } from 'react-router-dom';
 import ReactMarkdown from 'react-markdown';
@@ -15,6 +14,7 @@ import { pictureToWord } from '../lib/imageToWord';
 import { scanToPdf } from '../lib/docScan';
 import { installMiddlePan } from '../lib/middlePan';
 import { getCachedPdf } from '../lib/pdfCache';
+import { docxContentKey, getDocxRender, putDocxRender } from '../lib/docxRenderCache';
 // Cursor coords / innerWidth / DOMRects are viewport px; the left/top/width
 // CSS we set are layout px — under the app's CSS-zoom downscale the two
 // differ (see lib/appZoom).
@@ -27,7 +27,7 @@ import { loadEnvelope, saveEnvelope } from '../lib/audioEnvelopeCache';
 import { loadCaptionSettings, saveCaptionSettings } from '../lib/captionPosition';
 import { transcribeAudio } from '../lib/transcribe';
 import DataCollectionView from '../components/DataCollectionView';
-import { askProjectAi, DEFAULT_AI_MODEL, coerceModel, makeAskAnswers } from '../lib/projectAi';
+import { askProjectAi, makeAskAnswers } from '../lib/projectAi';
 import { useAppPrefs } from '../context/AppPrefsContext';
 import AskUserPanel from '../components/AskUserPanel';
 import { docKindFromName, buildDocumentBlob, buildDocumentBlobSmart, mimeForKind, inferDocKind, withKindExtension, labelForKind } from '../lib/documentGen';
@@ -36,7 +36,8 @@ import ConvertModal from '../components/ConvertModal';
 import ConfirmModal from '../components/ConfirmModal';
 import { conversationsSettled, whenConversationsReady, loadConversation, saveConversation, clearConversation } from '../lib/conversationHistory';
 import { embedDocxSource, readDocxSource, sourcePayload } from '../lib/docxSource';
-import { withStyleSteer } from '../lib/writingStyle';
+import { styleSteer } from '../lib/writingStyle';
+import { docRulesSteer } from '../lib/docRules';
 import { describeQr } from '../lib/barcodes';
 import { isElectron, isMac, navigateMainWindow, focusMainWindow, extractDocText, openExternal, onFilesRemoved, notifyFilesChanged, openDocViewerWindow, setDocViewerAiStatus, onDocViewerOpenFile, notifyDocViewerWarmReady, notifyDocViewerFilePainted, windowSetFullscreen, onWindowFullscreenChanged, windowIsFullscreen, windowClose } from '../lib/platform';
 import { useSelectedProject } from '../context/SelectedProjectContext';
@@ -53,21 +54,22 @@ import { extractImageText, loadImageText, loadReadingMode, saveReadingMode } fro
 import { pdfToDocx, pdfToImages } from '../lib/pdfConvert';
 import { alignWithSidePanel, docInset } from '../lib/sidePanelEdges';
 import { AI_FACETS, loadAiData, subscribeAiData, facetText, bestTextFor } from '../lib/aiData';
-import { buildProjectDigest, readCollectionText } from '../lib/aiProjectContext';
-import { splitChoices, withChoicesRule, dropUnanswered } from '../lib/aiChoices';
-import AiChoices from '../components/AiChoices';
+import { readCollectionText } from '../lib/aiProjectContext';
+import { splitChoices, dropUnanswered } from '../lib/aiChoices';
+import { AI_PROMPTS, paragraphFrame, paragraphAck, prepareTurn, askAi, historyTurns, withData, withStyle, warmTurn, aiModel, modelName, FALLBACK_MODEL } from '../lib/aiEngine';
+import AiControls, { useAiSettings } from '../components/AiControls';
+import AiAnswer from '../components/AiAnswer';
 import { splitEdits, withEditRule, applyReplyEdits } from '../lib/aiFileEdits';
 import AiEdits from '../components/AiEdits';
 // What a reply SHOWS: its text without the edit and choices blocks.
 const replyBody = (t) => splitChoices(splitEdits(t).body).body;
-const replyChoices = (t) => splitChoices(splitEdits(t).body).choices;
 import { hydratePath } from '../lib/projectIndexClient';
 
 import { useChatFind } from '../lib/useChatFind';
 import { TEMPLATE_CATEGORIES, searchTemplates } from '../lib/docTemplates';
 import DocBrief from '../components/DocBrief';
 import SourcesCheckCard from '../components/SourcesCheckCard';
-import { checkText, reportHasProblems, correctionPrompt } from '../lib/sourceChecks';
+import { checkText } from '../lib/sourceChecks';
 import { rewriteDocxParagraphs, readDocxParagraphs } from '../lib/docxRewrite';
 import { applyThemeToDocx } from '../lib/docxTheme';
 import { restyleDocument, restyleAvailable } from '../lib/docRestyle';
@@ -76,7 +78,9 @@ import DocParagraphConstructor from '../components/DocConstructor';
 import FilterTabs from '../components/FilterTabs';
 import { DocThemeGrid, DocQuickActions, flashQuickAction } from '../components/DocRibbon';
 import { DOC_THEMES, applyDocTheme, docThemeById, loadDocTheme, readDocSample, saveDocTheme } from '../lib/docThemes';
-import { findLawRefs, lawRefDetails, lawRefLookupUrl, caenContextOf, findCuiRefs, dropOverlaps } from '../lib/lawRefs';
+import { findLawRefs, lawRefDetails, lawRefLookupUrl, caenContextOf, findCuiRefs, dropOverlaps, findFollowableRefs } from '../lib/lawRefs';
+import { openLawRef } from '../lib/lawDrawer';
+import LawDetect from '../components/LawDetect';
 import { legislationHref } from '../lib/legislation';
 import { loadCaen, resolveCaen, caenHref, peekCaenRev } from '../lib/caen';
 import {
@@ -3395,36 +3399,6 @@ const AdvBranchGlyph = (<svg width="13" height="13" viewBox="0 0 24 24" fill="no
 
 // ── Chat presentation (copied from the main app's AI advisor so the Generate
 //    tab reads identically) ──────────────────────────────────────────────────
-// Typewriter — reveals an AI answer character-by-character through Markdown.
-function AdvTypewriter({ text, onDone, onTick }) {
-  const [n, setN] = useState(0);
-  const doneRef = useRef(onDone); const tickRef = useRef(onTick);
-  doneRef.current = onDone; tickRef.current = onTick;
-  useEffect(() => {
-    const total = text.length;
-    if (!total) { doneRef.current && doneRef.current(); return undefined; }
-    let raf = 0; let start = 0;
-    const dur = Math.min(Math.max(total / 90, 0.4), 6) * 1000;
-    const step = (ts) => {
-      if (!start) start = ts;
-      const p = Math.min((ts - start) / dur, 1);
-      const eased = 1 - Math.pow(1 - p, 2);
-      setN(Math.floor(eased * total));
-      tickRef.current && tickRef.current();
-      if (p < 1) raf = requestAnimationFrame(step);
-      else { setN(total); doneRef.current && doneRef.current(); }
-    };
-    raf = requestAnimationFrame(step);
-    return () => cancelAnimationFrame(raf);
-  }, [text]);
-  return (
-    <div className="aichat-md aichat-typing">
-      <ReactMarkdown remarkPlugins={[remarkGfm]}>{text.slice(0, n)}</ReactMarkdown>
-      <span className="aichat-caret" aria-hidden="true" />
-    </div>
-  );
-}
-
 const ADV_THINKING_SETS = {
   write: ['Drafting', 'Composing', 'Choosing the words', 'Polishing'],
   legal: ['Reviewing', 'Checking the clauses', 'Weighing the details', 'Consulting the rules'],
@@ -3539,6 +3513,65 @@ function mergeStringTurns(seq) {
 // version) so edits are full rewrites of it, and (2) the visible thread as plain
 // strings. The model produces/updates the file through the `write_document` tool,
 // not inline tags — so there's nothing to parse and nothing to drift.
+// The user's writing VOICE (learned in the Playbook) on the last message of a
+// draft. The Playbook's document RULES are not added here — they ride in the
+// turn's cached context (lib/aiEngine `rules`).
+async function withVoice(msgs) {
+  let voice = '';
+  try { voice = String(await styleSteer() || '').trim(); } catch { voice = ''; }
+  const last = msgs[msgs.length - 1];
+  if (!voice || last?.role !== 'user' || typeof last.content !== 'string') return msgs;
+  return [...msgs.slice(0, -1), { ...last, content: `${last.content}\n\n${voice}` }];
+}
+
+// What a turn records on its reply for the byline: the model (and Auto's
+// reason), the portal records read, whether the project's files were in view.
+function turnMeta(prep) {
+  if (!prep) return {};
+  return {
+    model: prep.info,
+    portals: (prep.portals || []).filter((r) => r.ok).map((r) => ({ label: r.label, site: r.site })),
+    withFiles: !!prep.withFiles,
+    ...(prep.notes?.length ? { note: prep.notes.join(' ') } : null),
+  };
+}
+
+// A reference pressed in an AI answer (components/AiAnswer) opens in the MAIN
+// window's Legislation browser, in a new tab — as a highlight's Search does.
+function openAnswerRef(hit) {
+  // The app-wide way (lib/lawDrawer): the side drawer, in this window.
+  if (hit) { openLawRef(hit); return; }
+  let href = '';
+  try {
+    if (hit.kind === 'cui') href = `/anaf?cui=${encodeURIComponent(hit.cui)}`;
+    else if (hit.kind === 'caen' && hit.codes?.length) href = caenHref(hit.codes[0], hit.rev === 2 ? 2 : 3);
+    else if (hit.kind === 'case') href = `/portal-just?nr=${encodeURIComponent(hit.number)}`;
+    else href = legislationHref(lawRefDetails(hit));
+  } catch { href = ''; }
+  if (!href) return;
+  navigateMainWindow(`${href}${href.includes('?') ? '&' : '?'}newtab=1&_=${Date.now()}`);
+  try { focusMainWindow(); } catch { /* not in Electron */ }
+}
+
+// Under an AI reply: which model answered (and, under Auto, why), the portal
+// records it was given and whether the project's files were in view — the
+// same line Research prints.
+function AnswerByline({ m, project }) {
+  if (!m?.model) return m?.note ? <p className="dv-ai-byline">{m.note}</p> : null;
+  const mi = m.model;
+  const reads = (m.portals || []).map((r) => r.label).join(', ');
+  return (
+    <p className="dv-ai-byline">
+      Answered by <b>{modelName(mi.id)}</b>
+      {mi.substituted ? ` (${mi.substituted} is not enabled yet)` : ''}
+      {mi.auto ? <> · Auto{mi.reasoning ? ` — ${mi.reasoning}` : ''}</> : ' · chosen by you'}
+      {m.withFiles ? <> · with {project ? `${project}’s` : 'the project’s'} files</> : null}
+      {reads ? <> · read from the portals: {reads}</> : null}
+      {m.note ? <> · {m.note}</> : null}
+    </p>
+  );
+}
+
 function buildGenMessages(displayed, file, versions, activeVersion, readText = '') {
   // Seed with the version that's actually on disk right now (the user may have
   // re-selected an earlier one), falling back to the most recent.
@@ -3553,30 +3586,12 @@ function buildGenMessages(displayed, file, versions, activeVersion, readText = '
   // .docx and no rebuild from this would carry them), so a change belongs in
   // the paragraph the reader picks, where it is written into the file in place.
   if (!active?.text && String(readText || '').trim()) {
-    seq.push({
-      role: 'user',
-      content:
-        `Here is the text of "${file?.name || 'this document'}", which I am reading. It was NOT written here, so you have its words but not its layout.\n\n` +
-        `<<<DOCUMENT>>>\n${String(readText).slice(0, FOREIGN_DOC_CHARS)}\n<<<END>>>\n\n` +
-        'Answer questions about it directly. Do NOT call write_document for it: saving a new version would rebuild the file from this plain text and throw away its formatting, tables and numbering. When I want something in it changed, tell me to click the paragraph — a paragraph I pick is edited straight inside the file, keeping everything else exactly as it is.',
-    });
-    seq.push({
-      role: 'assistant',
-      content: 'Understood — I have the document’s text. I’ll answer about it, and point you at the paragraph when you want a change made.',
-    });
+    seq.push({ role: 'user', content: AI_PROMPTS.foreignDocument(file?.name, String(readText).slice(0, FOREIGN_DOC_CHARS)) });
+    seq.push({ role: 'assistant', content: AI_PROMPTS.foreignDocumentAck });
   }
   if (active?.text) {
-    seq.push({
-      role: 'user',
-      content:
-        `Here is the CURRENT content of the document you are building ("${file?.name || 'document'}"). ` +
-        `When I ask for a change, take THIS and save the complete updated version with write_document:\n\n` +
-        `<<<CURRENT DOCUMENT>>>\n${active.text}\n<<<END>>>`,
-    });
-    seq.push({
-      role: 'assistant',
-      content: 'Understood — I have the current document and will save a complete new version with write_document whenever you ask for a change.',
-    });
+    seq.push({ role: 'user', content: AI_PROMPTS.currentDocument(file?.name, active.text) });
+    seq.push({ role: 'assistant', content: AI_PROMPTS.currentDocumentAck });
   }
   // An earlier prompt that never got its answer (stopped) is left out — sent
   // on, it would be MERGED with the new one and answered instead of it.
@@ -3805,15 +3820,21 @@ function MultitoolAdvisorProvider({ file, footSlot = null, quickSlot = null, gen
   }, []);
   // Which Claude model answers in chat AND builds documents. Persisted; coerced
   // to a known id so a stale value can't break the request.
-  const [model, setModelState] = useState(() => {
-    try { return coerceModel(localStorage.getItem('docvex:ai-model') || DEFAULT_AI_MODEL); }
-    catch { return DEFAULT_AI_MODEL; }
-  });
-  const setModel = useCallback((id) => {
-    const v = coerceModel(id);
-    setModelState(v);
-    try { localStorage.setItem('docvex:ai-model', v); } catch { /* noop */ }
-  }, []);
+  // ONE setting with Research (lib/aiEngine, components/AiControls): the
+  // model picked (Auto or a model) and the Project files switch. A turn is
+  // routed per question (Auto); `model` is the concrete model the side tools
+  // (document builds, rewrites, completing data) run on.
+  const aiSettings = useAiSettings();
+  const model = aiModel(aiSettings.model).run || FALLBACK_MODEL;
+  const setModel = aiSettings.setModel;
+  // The model the last turn ran on — an ask_user answer continues on it — and
+  // the stable context it was sent with (cached apart; the resume sends it too).
+  const lastRunRef = useRef(null);
+  const lastContextRef = useRef('');
+  // The answer so far while it STREAMS in (shown live, stored once complete),
+  // and the running request's abort handle (Stop cancels it).
+  const [streamText, setStreamText] = useState('');
+  const abortRef = useRef(null);
 
   // In generate-mode this file is the advisor-driven document. A freshly-created
   // file is a "wildcard" (no extension) — we DON'T assume docx; the kind is
@@ -4073,30 +4094,19 @@ function MultitoolAdvisorProvider({ file, footSlot = null, quickSlot = null, gen
   // app is connected to (lib/sourceChecks: the acts and articles it cites on
   // legislatie.just.ro, companies by CUI at ANAF, CAEN codes, court files on
   // portal.just.ro — and whatever platform is connected next, with no change
-  // here). The report lands in the thread as a card under the version; when a
-  // source contradicts the draft, the AI is sent the sources' own words and
-  // asked for a corrected version — once.
-  const runTurnRef = useRef(null);
-  const checkAgainstSources = useCallback(async (version, convo, ctx = {}) => {
+  // here). The report lands in the thread as a card under the version. (The
+  // automatic correction turn that followed a failed check was removed with
+  // the AI's rebuild — it doubled every draft's time; ask for the fix.)
+  const checkAgainstSources = useCallback(async (version) => {
     const id = `src${Date.now().toString(36)}`;
-    const seq = turnSeqRef.current;
     setMessages((m) => [...m, { role: 'sources', id, version: version.n, pending: true, at: Date.now() }]);
     let report = null;
     try { report = await checkText(version.text); } catch { report = null; }
     const settled = { role: 'sources', id, version: version.n, report, at: Date.now() };
     setMessages((m) => m.map((x) => (x.role === 'sources' && x.id === id ? settled : x)));
-    // Cancelled while checking, nothing wrong, or this was already the fix.
-    if (turnSeqRef.current !== seq || !reportHasProblems(report) || ctx.correction || !ctx.convo) return;
-    const apiText = correctionPrompt(report);
-    const ask = { role: 'user', content: 'Correct the document against the official sources.', apiText, auto: true, at: Date.now() };
-    setMessages((m) => [...m, ask]);
-    await runTurnRef.current?.([...convo, settled, ask], apiText, { correction: true });
   }, []);
 
-  // `ctx.convo` — the thread the turn answered (runTurn passes it), which is
-  // what lets a failed source check continue into a correction turn;
-  // `ctx.correction` — this turn IS that correction (it is checked, never
-  // corrected again, so a source the model can't satisfy can't loop).
+  // `ctx.meta` — the turn's byline (turnMeta), carried onto its reply.
   const applyGenResult = useCallback(async (res, lastUserText, baseMsgs, ctx = {}) => {
     if (res.tool === 'write_document' && res.toolUse?.input) {
       const input = res.toolUse.input;
@@ -4108,7 +4118,7 @@ function MultitoolAdvisorProvider({ file, footSlot = null, quickSlot = null, gen
       const note = (res.text && res.text.trim())
         || (input.summary && String(input.summary).trim())
         || (versionCountRef.current ? 'Here’s an updated version.' : 'Here’s your document.');
-      const noteMsg = { role: 'assistant', content: note, at: Date.now(), usage: res.usage };
+      const noteMsg = { role: 'assistant', content: note, at: Date.now(), usage: res.usage, ...(ctx.meta || {}) };
       setMessages((m) => [...m, noteMsg]);
       let version = null;
       let cardMsg = null;
@@ -4125,16 +4135,16 @@ function MultitoolAdvisorProvider({ file, footSlot = null, quickSlot = null, gen
         setError('Couldn’t save the document.');
         return;
       }
-      await checkAgainstSources(version, [...(ctx.convo || []), noteMsg, cardMsg], ctx);
+      await checkAgainstSources(version);
       return;
     }
     if (res.tool === 'ask_user' && res.askUser) {
-      setMessages((m) => [...m, { role: 'assistant', content: res.text || 'A couple of quick questions first.', at: Date.now(), usage: res.usage }]);
+      setMessages((m) => [...m, { role: 'assistant', content: res.text || 'A couple of quick questions first.', at: Date.now(), usage: res.usage, ...(ctx.meta || {}) }]);
       setPendingAsk({ id: res.askUser.id, input: res.askUser.input, assistantContent: res.assistantContent, base: baseMsgs, gen: true });
       return;
     }
     // A pure conversational answer (a question that doesn't change the document).
-    setMessages((m) => [...m, { role: 'assistant', content: res.text || '', at: Date.now(), usage: res.usage }]);
+    setMessages((m) => [...m, { role: 'assistant', content: res.text || '', at: Date.now(), usage: res.usage, ...(ctx.meta || {}) }]);
   }, [file, writeDoc, checkAgainstSources]);
 
   // Write paragraph edits straight into the .docx on disk, for a file that has
@@ -4377,68 +4387,79 @@ function MultitoolAdvisorProvider({ file, footSlot = null, quickSlot = null, gen
     return parts.join('\n\n');
   }, [file?.name, listProjectFiles]);
 
-  // ── PROJECT KNOWLEDGE, on every turn ─────────────────────────────────────
-  // The advisor answers from everything DocVex has read out of this project:
-  // the OPEN FILE's full contents (a data collection laid out as readable text —
-  // its summary, facts, record, timeline, sources, links and web; any other
-  // file its saved reading or its extracted text) and the PROJECT DIGEST
-  // (lib/aiProjectContext: every file, every data collection in full, what the
-  // AI scan understood of each file, captions, OCR, metadata, chat, timeline).
-  // Attached to the OUTGOING copy of the last user message only — never stored
-  // in the thread — and the digest is cached for a minute. Without it the
-  // advisor saw a data collection as nothing but its NAME, and answered
-  // "I don't have its contents".
-  const digestRef = useRef({ key: '', at: 0, text: '' });
-  const buildKnowledge = useCallback(async ({ openFile = true } = {}) => {
-    const parts = [];
-    if (openFile && file?.path) {
-      let body = '';
-      try {
-        if (/\.dvc$/i.test(file.name || '')) body = await readCollectionText(file.path, file.name);
-        if (!body) body = String(bestTextFor(file.path) || '');
-        if (!body) body = String(fieldsApiRef.current?.documentText?.() || '');
-        if (!body) {
-          const blob = await readLocalBlob(file.path);
-          if (blob) body = String((await extractFileText(blob, file.name))?.text || '');
-        }
-      } catch { /* unreadable — the digest still answers */ }
-      body = body.trim();
-      if (body) parts.push(`<<<THE OPEN FILE: "${file.name}">>>\n${body.slice(0, 40000)}${body.length > 40000 ? '\n…[truncated]' : ''}\n<<<END OF OPEN FILE>>>`);
-      // A historical document is read in the law of its own time
-      // (lib/legalHistory — its era, archaic terms, the decrees it cites,
-      // its land measures converted, the title risks).
-      if (body) {
-        try {
-          const { analyzeLegalHistory, legalHistoryNote } = await import('../lib/legalHistory');
-          const note = legalHistoryNote(analyzeLegalHistory(body));
-          if (note) parts.push(`<<<HISTORICAL LEGAL CONTEXT of "${file.name}" (worked out by DocVex)>>>\n${note}\n<<<END OF HISTORICAL LEGAL CONTEXT>>>`);
-        } catch { /* read as it is */ }
+  // ── A TURN's DATA, from the shared engine (lib/aiEngine, surface `viewer`) ──
+  // Auto picks the model; the portal records the question names are read; the
+  // project's digest is handed over when the composer's Project files switch
+  // is on; and the OPEN FILE rides in full — a data collection laid out as
+  // readable text, any other file its saved reading, rendered text or
+  // extracted text — with its historical legal context when it is an old
+  // document (lib/legalHistory). Attached to the OUTGOING copy of the question
+  // only, never stored in the thread.
+  const readOpenFile = useCallback(async () => {
+    if (!file?.path) return null;
+    let body = '';
+    try {
+      if (/\.dvc$/i.test(file.name || '')) body = await readCollectionText(file.path, file.name);
+      if (!body) body = String(bestTextFor(file.path) || '');
+      if (!body) body = String(fieldsApiRef.current?.documentText?.() || '');
+      if (!body) {
+        const blob = await readLocalBlob(file.path);
+        if (blob) body = String((await extractFileText(blob, file.name))?.text || '');
       }
-    }
-    const key = `${selectedProject?.id || ''}`;
-    let digest = '';
-    const c = digestRef.current;
-    if (c.key === key && Date.now() - c.at < 60_000) digest = c.text;
-    else if (selectedProject?.id) {
+    } catch { /* unreadable — the rest still answers */ }
+    body = body.trim();
+    if (!body) return null;
+    let extra = '';
+    try {
+      const { analyzeLegalHistory, legalHistoryNote } = await import('../lib/legalHistory');
+      const note = legalHistoryNote(analyzeLegalHistory(body));
+      if (note) extra = `<historical_legal_context file="${String(file.name || '').replace(/"/g, "'")}">\n${note}\n</historical_legal_context>`;
+    } catch { /* read as it is */ }
+    return { name: file.name, text: body, extra };
+  }, [file?.path, file?.name]);
+
+  // The project's files are LISTED only when the digest has to be built (a
+  // cached digest needs no listing — lib/aiEngine projectContext).
+  const listForDigest = useCallback(async () => {
+    try {
+      const { files: list } = await listProjectFiles();
+      return (list || []).map((f) => ({ name: f.name, path: f.path, folderPath: f.folder || '' }));
+    } catch { return []; }
+  }, [listProjectFiles]);
+  const prepare = useCallback(async (question, { openFile = true } = {}) => {
+    const open = openFile ? await readOpenFile() : null;
+    return prepareTurn({
+      surface: 'viewer', question, choice: aiSettings.model,
+      project: selectedProject, files: listForDigest, withFiles: aiSettings.projectFiles, openFile: open,
+      rules: docRulesSteer(), // the Playbook: what every document is created and edited by
+    });
+  }, [aiSettings.model, aiSettings.projectFiles, selectedProject, listForDigest, readOpenFile]);
+
+  // WARM THE PROMPT CACHE while the question is typed: the prefix the question
+  // will be sent with (the open file, the project's files) is written to the
+  // cache first, so the answer starts warm (lib/aiEngine warmTurn — at most
+  // once per model and data every few minutes).
+  useEffect(() => {
+    if (!input.trim() || busy) return undefined;
+    const t = setTimeout(async () => {
       try {
-        const { files } = await listProjectFiles();
-        digest = await buildProjectDigest({
-          project: selectedProject,
-          files: (files || []).map((f) => ({ name: f.name, path: f.path, folderPath: f.folder || '' })),
+        const openFile = !genMode || !versions.length ? await readOpenFile() : null;
+        await warmTurn({
+          surface: 'viewer', choice: aiSettings.model, draft: input, project: selectedProject,
+          files: listForDigest, withFiles: aiSettings.projectFiles, openFile, rules: docRulesSteer(),
+          docTools: genMode && threadScopeRef.current === 'document', docKind: docKindFromName(file?.name || '') || undefined,
+          fileNames: genMode && threadScopeRef.current === 'document' ? [] : [file?.name],
         });
-      } catch { digest = ''; }
-      digestRef.current = { key, at: Date.now(), text: digest };
-    }
-    if (digest) parts.push(`<<<PROJECT KNOWLEDGE — everything DocVex has read from this project>>>\n${digest}\n<<<END OF PROJECT KNOWLEDGE>>>`);
-    if (!parts.length) return '';
-    return `${parts.join('\n\n')}\n\n[Meta: The blocks above are the real contents of this project's files, data collections and data, read by DocVex. Answer questions about the project, its files, people, companies, addresses, dates and links FROM THEM, citing the file a fact comes from. Never say you cannot see or have no access to a file whose contents are here. Only when something is genuinely absent, say what IS known and exactly what is missing.]`;
-  }, [file?.path, file?.name, selectedProject, listProjectFiles]);
+      } catch { /* a warm-up is only a head start */ }
+    }, 800);
+    return () => clearTimeout(t);
+  }, [input]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // One turn aimed at the PICKED PARAGRAPH — see the note by PARA_TURN_MARKER
   // for why this exists at all. The model is handed that paragraph, the rest of
   // the document as read-only background, and the paragraph's own thread, and
   // writes back at most one paragraph. Returns true when it handled the turn.
-  const runParaTurn = useCallback(async (convo, stopped, knowledge = '') => {
+  const runParaTurn = useCallback(async (convo, stopped, prep = null) => {
     // The file's own spelling of the pick, so what comes back is written where
     // the reader is looking. paraText is the fallback for a pane that hasn't
     // published one (nothing else reads `src`, so it can only be missing).
@@ -4457,48 +4478,19 @@ function MultitoolAdvisorProvider({ file, footSlot = null, quickSlot = null, gen
       : '';
 
     const many = paras.length > 1;
-    const frame = [
-      `You are working inside "${file?.name || 'this document'}". The reader has picked ${many ? `${paras.length} paragraphs` : 'ONE paragraph'} out of it, and everything I ask is about ${many ? 'them' : 'it'}.`,
-      '',
-      many ? `THE PICKED PARAGRAPHS, in order:` : 'THE PICKED PARAGRAPH:',
-      '<<<PASSAGE>>>',
-      source,
-      '<<<END PASSAGE>>>',
-      ...(context ? [
-        '',
-        'The rest of the document is below FOR CONTEXT ONLY — so you know the defined terms, the parties and the numbering. Never rewrite or repeat it.',
-        '<<<DOCUMENT>>>',
-        context,
-        '<<<END DOCUMENT>>>',
-      ] : []),
-      '',
-      'How to reply:',
-      `- If I am asking you to CHANGE the passage, reply with the line ${PARA_TURN_MARKER} on its own, and under it the full new text of the passage and nothing else — no quotes, no markdown fences, no commentary.`,
-      ...(many ? [`  Give exactly ${paras.length} paragraphs, in the same order, separated by one blank line.`] : []),
-      '- If I am only asking a question about it, answer in prose and do not use that line.',
-      '- Keep the language the passage is written in.',
-      '- Keep every [[placeholder]] and every blank (_____) exactly as written unless I ask you to fill it. Never invent a name, a date, a sum or an identifier.',
-      '- Change only this passage. The rest of the document stays as it is.',
-    ].join('\n');
-
+    const frame = paragraphFrame({ fileName: file?.name, source, paragraphs: paras.length, context });
     const apiMsgs = [
-      // The project's knowledge rides with the frame: a clause is filled and
-      // checked against the parties' real data.
-      { role: 'user', content: knowledge ? `${frame}\n\n${knowledge}` : frame },
-      { role: 'assistant', content: `Understood — I have the passage and the document around it, and I will ${many ? 'return those paragraphs' : 'return that paragraph'} only when you ask for a change.` },
+      // The turn's data (the project, the portals) rides with the frame: a
+      // clause is filled and checked against the parties' real data.
+      { role: 'user', content: withData(frame, prep?.data || '') },
+      { role: 'assistant', content: paragraphAck(many) },
       // The VISIBLE text of each turn: `apiText` carries a copy of the passage
       // appended by send(), which is already in the frame above.
       ...dropUnanswered(convo.filter((m) => m.role === 'user' || m.role === 'assistant'), (m) => m.role === 'user')
         .map((m) => ({ role: m.role, content: m.content })),
     ];
 
-    const res = await askProjectAi({
-      messages: apiMsgs,
-      fileNames: [file?.name],
-      model,
-      tools: false,
-      usageAction: 'paragraph-edit',
-    });
+    const res = await askAi({ surface: 'viewer', messages: apiMsgs, fileNames: [file?.name], model: prep?.run || model, context: prep?.context || '', usageAction: 'paragraph-edit', manners: false });
     if (stopped()) return true;
     if (res.error) { setError('The AI advisor is unavailable right now.'); return true; }
     addUsage(res.usage);
@@ -4507,14 +4499,14 @@ function MultitoolAdvisorProvider({ file, footSlot = null, quickSlot = null, gen
     // that answers in CRLF writes "\r\n\r\n" between its paragraphs, which no
     // \n{2,} ever matches, so a two-paragraph reply arrived as one.
     const raw = String(res.text || '').replace(/\r\n?/g, '\n').trim();
-    const cut = raw.indexOf(PARA_TURN_MARKER);
+    const cut = raw.indexOf(AI_PROMPTS.paragraphMarker);
     if (cut < 0) {
       // An answer, not an edit.
-      setMessages((m) => [...m, { role: 'assistant', content: raw, at: Date.now(), usage: res.usage }]);
+      setMessages((m) => [...m, { role: 'assistant', content: raw, at: Date.now(), usage: res.usage, ...turnMeta(prep) }]);
       return true;
     }
     const lead = raw.slice(0, cut).trim();
-    const body = raw.slice(cut + PARA_TURN_MARKER.length)
+    const body = raw.slice(cut + AI_PROMPTS.paragraphMarker.length)
       .replace(/^\s*```[a-z]*\s*\n?/i, '')
       .replace(/\n?\s*```\s*$/i, '')
       .trim();
@@ -4530,7 +4522,7 @@ function MultitoolAdvisorProvider({ file, footSlot = null, quickSlot = null, gen
         role: 'assistant',
         content: `${lead ? `${lead}\n\n` : ''}I rewrote the passage, but it came back as ${after.length} paragraph${after.length === 1 ? '' : 's'} instead of ${paras.length}, so I couldn’t tell which replaces which. Nothing was changed — try asking for one paragraph at a time.`,
         at: Date.now(),
-        usage: res.usage,
+        usage: res.usage, ...turnMeta(prep),
       }]);
       return true;
     }
@@ -4542,7 +4534,7 @@ function MultitoolAdvisorProvider({ file, footSlot = null, quickSlot = null, gen
         role: 'assistant',
         content: lead || 'That already reads the way you asked — I’ve left it as it is.',
         at: Date.now(),
-        usage: res.usage,
+        usage: res.usage, ...turnMeta(prep),
       }]);
       return true;
     }
@@ -4561,7 +4553,7 @@ function MultitoolAdvisorProvider({ file, footSlot = null, quickSlot = null, gen
             ? 'This file can’t be edited a paragraph at a time, so nothing was written.'
             : 'Saving the change to the file failed — it may be open in Word. Nothing was written.'}`,
         at: Date.now(),
-        usage: res.usage,
+        usage: res.usage, ...turnMeta(prep),
       }]);
       return true;
     }
@@ -4572,102 +4564,103 @@ function MultitoolAdvisorProvider({ file, footSlot = null, quickSlot = null, gen
       role: 'assistant',
       content: `${lead ? `${lead}\n\n` : ''}${edits.map((e) => e.after).join('\n\n')}`,
       at: Date.now(),
-      usage: res.usage,
+      usage: res.usage, ...turnMeta(prep),
     }]);
     return true;
   }, [file?.name, model, addUsage, applyManualEdit]);
 
-  const runTurn = useCallback(async (convo, lastUserText, turnOpts = {}) => {
+  const runTurn = useCallback(async (convo, lastUserText) => {
     const seq = ++turnSeqRef.current;
     const stopped = () => turnSeqRef.current !== seq;
+    // The turn's data and the text of any file named outright, in PARALLEL.
+    const [prep, namedNote] = await Promise.all([
+      prepare(lastUserText, { openFile: !genMode || !versions.length }),
+      buildProjectFilesNote(lastUserText),
+    ]);
+    if (stopped()) return;
+    lastRunRef.current = prep.run;
+    lastContextRef.current = prep.context;
+    const meta = turnMeta(prep);
     // A request aimed at a picked paragraph is answered as a paragraph, not as
     // a new draft of the whole file.
-    // Everything DocVex knows about the project (and the open file) rides on
-    // every turn — see buildKnowledge.
-    const knowledge = await buildKnowledge({ openFile: !genMode || !versions.length });
-    if (stopped()) return;
-    if (threadScopeRef.current !== 'document' && await runParaTurn(convo, stopped, knowledge)) return;
-    // The text of a file the user named outright, if any, in full — on top of
-    // the knowledge. Attached to the OUTGOING copy of the last user message
-    // only, so it is never stored in the thread.
-    const namedNote = await buildProjectFilesNote(lastUserText);
-    const filesNote = [namedNote, knowledge].filter(Boolean).join('\n\n');
-    const withFiles = (msgs) => (filesNote
-      ? msgs.map((m, i) => (
-        i === msgs.length - 1 && m.role === 'user' && typeof m.content === 'string'
-          ? { ...m, content: `${m.content}\n\n${filesNote}` }
-          : m
-      ))
-      : msgs);
+    if (threadScopeRef.current !== 'document' && await runParaTurn(convo, stopped, prep)) return;
+    // The text of a file the user named outright, in full, on top of the
+    // turn's volatile data — on the OUTGOING copy of the question only.
+    const data = [namedNote, prep.data].filter(Boolean).join('\n\n');
+    const withTurnData = (msgs) => msgs.map((m, i) => (
+      i === msgs.length - 1 && m.role === 'user' && typeof m.content === 'string'
+        ? { ...m, content: withData(m.content, data) }
+        : m
+    ));
     if (genMode) {
-      // The rendered text stands in when the file has no version of its own.
+      // CREATE FILES: the model has write_document + ask_user and decides for
+      // itself (AI_PROMPTS.drafting says when each is for). The rendered text
+      // stands in when the file has no version of its own.
       let readText = '';
       if (!versions.length) {
         try { readText = String(fieldsApiRef.current?.documentText?.() || ''); } catch { /* not rendered */ }
       }
       const baseMsgs = buildGenMessages(convo, file, versions, activeVersion, readText);
       const k = docKindFromName(file?.name || '') || '';
-      // No forced documents. The model always has BOTH tools (write_document +
-      // ask_user) and decides for itself: write a new version when I clearly want
-      // to create/change the file, answer in text when I'm only asking about it,
-      // and — crucially — when it can't tell whether I want a new version (or the
-      // info to build one is missing), ask_user FIRST instead of guessing. A steer
-      // note on the latest turn makes that policy explicit.
-      const steer = '[Meta: You have two tools — write_document (save a new version of this file) and ask_user (ask me questions in a modal). Choose based on what I want: if I clearly want to create or change the document, use write_document; if I am only asking about it or chatting, just answer; if I ask you to question me / gather details / fill in placeholders, OR if you are UNSURE whether I want a new version or are missing information to write one, call ask_user first. Never silently write a version when you are unsure.]';
       const askMsgs = baseMsgs.map((m, i) => (
         i === baseMsgs.length - 1 && m.role === 'user' && typeof m.content === 'string'
-          ? { ...m, content: `${m.content}\n\n${steer}` }
+          ? { ...m, content: `${m.content}\n\n${AI_PROMPTS.drafting}` }
           : m
       ));
-      // …and the user's own writing style on top of it, learned from the
-      // documents they imported in the Playbook. This is the path that WRITES
-      // the file, so it is the one that most has to sound like them.
-      // …and the fixed rule for offering choices (lib/aiChoices), first and last.
-      const sentMsgs = foldRuleExchanges(withChoicesRule(withEditRule(await withStyleSteer(withFiles(askMsgs)))));
-      const res = await askProjectAi({ messages: sentMsgs, fileNames: [], model, docTools: true, docKind: k || undefined });
+      // The Playbook's rules ride in the cached context (every create / edit
+      // turn); the user's writing voice (lib/writingStyle) rides on a draft;
+      // the edit rule lets it change other files.
+      const sentMsgs = withEditRule(await withVoice(withTurnData(askMsgs)));
+      const res = await askAi({ surface: 'viewer', messages: sentMsgs, model: prep.run, context: prep.context, docTools: true, docKind: k || undefined });
+      if (stopped()) return;
       if (res.error) {
-        setError(res.error.message === 'ai_not_configured' ? 'The AI isn’t configured to generate documents.' : 'Couldn’t reach the AI right now.');
+        setError(res.error === 'ai_not_configured' ? 'The AI isn’t configured to generate documents.' : res.error);
         return;
       }
       addUsage(res.usage);
-      if (stopped()) return;
-      // Resume from exactly what the model saw (askMsgs carries the steer note) so
-      // an ask_user follow-up replays coherently.
-      await applyGenResult(res, lastUserText, sentMsgs, { convo, correction: !!turnOpts.correction });
+      await applyGenResult(res, lastUserText, sentMsgs, { convo, meta });
       return;
     }
-    // Non-generate "ask about this file" mode — prepend a Claude-like persona so
-    // it's warm, direct and doesn't pile on disclaimers/refusals.
-    const persona = 'You are DocVex AI — behave like Claude on the web: a capable, friendly, direct assistant. Just help with what is asked. Do not add unnecessary disclaimers, hedges, or "consult a professional" boilerplate, and do not refuse reasonable requests.';
-    const apiMsgs = [
-      { role: 'user', content: persona },
-      { role: 'assistant', content: 'Understood — I’ll be direct and genuinely helpful.' },
-      ...dropUnanswered(convo.filter((m) => m.role === 'user' || m.role === 'assistant'), (m) => m.role === 'user').map((m) => ({ role: m.role, content: m.apiText || m.content })),
-    ];
-    const res = await askProjectAi({ messages: foldRuleExchanges(withChoicesRule(withEditRule(withFiles(apiMsgs)))), fileNames: [file?.name], model });
+    // A QUESTION about the file: the last few messages, the question with the
+    // turn's data in front of it, and the edit rule (EDIT FILES).
+    const turns = dropUnanswered(convo.filter((m) => m.role === 'user' || m.role === 'assistant'), (m) => m.role === 'user')
+      .map((m) => ({ role: m.role, content: m.apiText || m.content }));
+    const last = turns[turns.length - 1];
+    const apiMsgs = withEditRule([...historyTurns(turns.slice(0, -1)), { role: 'user', content: withStyle(withData(String(last?.content || lastUserText), data), aiSettings.style) }]);
+    // STREAMED: the answer shows as it arrives (a few updates a second).
+    const ctl = new AbortController();
+    abortRef.current = ctl;
+    let lastPaint = 0;
+    const res = await askAi({
+      surface: 'viewer', messages: apiMsgs, fileNames: [file?.name], model: prep.run, context: prep.context,
+      signal: ctl.signal,
+      onText: (_d, all) => {
+        if (stopped()) return;
+        const now = performance.now();
+        if (now - lastPaint < 60) return;
+        lastPaint = now;
+        setStreamText(all);
+      },
+    });
+    setStreamText('');
     if (stopped()) return;
-    if (res.error) { setError('The AI advisor is unavailable right now.'); return; }
+    if (res.error) { setError(res.error); return; }
     addUsage(res.usage);
-    // The model asked an interactive question via the ask_user tool — surface it
-    // above the composer and pause until the user answers.
-    if (res.stopReason === 'tool_use' && res.askUser) {
-      setMessages((m) => [...m, { role: 'assistant', content: res.text || 'I have a quick question.', at: Date.now(), usage: res.usage }]);
-      setPendingAsk({ id: res.askUser.id, input: res.askUser.input, assistantContent: res.assistantContent, base: apiMsgs });
-      return;
-    }
     // The project files the reply changes (lib/aiFileEdits) — applied, then
     // reported under it with Undo.
     let edits = [];
     try { edits = await applyReplyEdits(res.text, (await listProjectFiles()).files); } catch { edits = []; }
     if (stopped()) return;
-    setMessages((m) => [...m, { role: 'assistant', content: res.text, at: Date.now(), usage: res.usage, ...(edits.length ? { edits } : null) }]);
-  }, [genMode, file, versions, activeVersion, model, addUsage, applyGenResult, buildProjectFilesNote, buildKnowledge, runParaTurn, listProjectFiles]);
-  runTurnRef.current = runTurn;
+    setMessages((m) => [...m, { role: 'assistant', content: res.text, at: Date.now(), usage: res.usage, ...meta, ...(edits.length ? { edits } : null) }]);
+  }, [genMode, file, versions, activeVersion, addUsage, applyGenResult, buildProjectFilesNote, prepare, runParaTurn, listProjectFiles, aiSettings.style]);
 
   // Stop the in-flight turn: invalidate its result (so nothing lands in the
   // thread when the request returns) and drop the thinking state immediately.
   const stop = useCallback(() => {
     turnSeqRef.current += 1;
+    abortRef.current?.abort();
+    abortRef.current = null;
+    setStreamText('');
     // Say so IN the thread. Stopping used to leave the question sitting there
     // with no answer under it and nothing to explain why, which reads as the
     // app having lost the reply rather than as the reader having stopped it.
@@ -4725,14 +4718,14 @@ function MultitoolAdvisorProvider({ file, footSlot = null, quickSlot = null, gen
       // answer drive it — the model writes a new version if the answer calls for
       // it, or simply replies if it doesn't. (No forcing.)
       const k = docKindFromName(file?.name || '') || '';
-      const res = await askProjectAi({ messages: apiMsgs, fileNames: [], model, docTools: true, docKind: k || undefined });
+      const res = await askAi({ surface: 'viewer', messages: apiMsgs, model: lastRunRef.current || model, context: lastContextRef.current, docTools: true, docKind: k || undefined });
       setBusy(false);
       if (res.error) { setError('Couldn’t reach the AI right now.'); return; }
       addUsage(res.usage);
       await applyGenResult(res, opts.typedText || pa.input?.questions?.[0]?.prompt || 'the answers above', apiMsgs);
       return;
     }
-    const res = await askProjectAi({ messages: apiMsgs, fileNames: [file?.name], model });
+    const res = await askAi({ surface: 'viewer', messages: apiMsgs, fileNames: [file?.name], model: lastRunRef.current || model, context: lastContextRef.current });
     setBusy(false);
     if (res.error) { setError('The AI advisor is unavailable right now.'); return; }
     addUsage(res.usage);
@@ -5078,8 +5071,8 @@ function MultitoolAdvisorProvider({ file, footSlot = null, quickSlot = null, gen
   }, [addUsage, model, selectedProject?.id]);
 
   const value = useMemo(
-    () => ({ messages, input, setInput, busy, switching, error, setError, send, stop, regenerate, branchFrom, branches, activeBranchId, switchBranch, fileName: file?.name, footSlot, quickSlot, genMode, versions, activeVersion, selectVersion, openVersion, questions, submitQuestions, skipQuestions, options, chooseOption, engine, setEngine, model, setModel, tokens, busyScope, showTokenUsage: appPrefs.showTokenUsage, pendingAsk, resolveAsk, debugAsk, setDebugAsk, selection, addSelection, clearSelection, applyManualEdit, saveConstructorVersion, rewritePiece, completing, setCompleting, focusMode, toggleFocus, docTools, setDocTools, paraPicked, setParaPicked, paraText, setParaText, setParaSrc, paraKey, setParaKey, paraScope, threadScope, switchScope, paraSlot, setParaSlot, ctorSlot, setCtorSlot, hoverField, setHoverField, loadIdentities, fields, allFields, fieldsSig, registerFieldsApi, publishFields, setFieldValue, focusField, applyFields, previewFields, endFieldPreview, dropFields, applyGender, applyLocality, clearPick, getDocumentText, fieldSuggestions, ensureFieldSuggestions }),
-    [messages, input, busy, switching, error, send, stop, regenerate, branchFrom, branches, activeBranchId, switchBranch, file?.name, footSlot, quickSlot, genMode, versions, activeVersion, selectVersion, openVersion, questions, submitQuestions, skipQuestions, options, chooseOption, engine, setEngine, model, setModel, tokens, busyScope, appPrefs.showTokenUsage, pendingAsk, resolveAsk, debugAsk, selection, addSelection, clearSelection, applyManualEdit, saveConstructorVersion, rewritePiece, completing, setCompleting, focusMode, toggleFocus, docTools, paraPicked, paraText, paraKey, paraScope, threadScope, switchScope, paraSlot, ctorSlot, hoverField, loadIdentities, fields, allFields, fieldsSig, registerFieldsApi, publishFields, setFieldValue, focusField, applyFields, previewFields, endFieldPreview, dropFields, applyGender, applyLocality, clearPick, getDocumentText, fieldSuggestions, ensureFieldSuggestions],
+    () => ({ messages, input, setInput, busy, switching, error, setError, send, stop, regenerate, branchFrom, branches, activeBranchId, switchBranch, fileName: file?.name, footSlot, quickSlot, genMode, versions, activeVersion, selectVersion, openVersion, questions, submitQuestions, skipQuestions, options, chooseOption, engine, setEngine, model, setModel, aiSettings, streamText, projectName: selectedProject?.name || '', tokens, busyScope, showTokenUsage: appPrefs.showTokenUsage, pendingAsk, resolveAsk, debugAsk, setDebugAsk, selection, addSelection, clearSelection, applyManualEdit, saveConstructorVersion, rewritePiece, completing, setCompleting, focusMode, toggleFocus, docTools, setDocTools, paraPicked, setParaPicked, paraText, setParaText, setParaSrc, paraKey, setParaKey, paraScope, threadScope, switchScope, paraSlot, setParaSlot, ctorSlot, setCtorSlot, hoverField, setHoverField, loadIdentities, fields, allFields, fieldsSig, registerFieldsApi, publishFields, setFieldValue, focusField, applyFields, previewFields, endFieldPreview, dropFields, applyGender, applyLocality, clearPick, getDocumentText, fieldSuggestions, ensureFieldSuggestions }),
+    [messages, input, busy, switching, error, send, stop, regenerate, branchFrom, branches, activeBranchId, switchBranch, file?.name, footSlot, quickSlot, genMode, versions, activeVersion, selectVersion, openVersion, questions, submitQuestions, skipQuestions, options, chooseOption, engine, setEngine, model, setModel, aiSettings, streamText, selectedProject?.name, tokens, busyScope, appPrefs.showTokenUsage, pendingAsk, resolveAsk, debugAsk, selection, addSelection, clearSelection, applyManualEdit, saveConstructorVersion, rewritePiece, completing, setCompleting, focusMode, toggleFocus, docTools, paraPicked, paraText, paraKey, paraScope, threadScope, switchScope, paraSlot, ctorSlot, hoverField, loadIdentities, fields, allFields, fieldsSig, registerFieldsApi, publishFields, setFieldValue, focusField, applyFields, previewFields, endFieldPreview, dropFields, applyGender, applyLocality, clearPick, getDocumentText, fieldSuggestions, ensureFieldSuggestions],
   );
   return <MultitoolAdvisorContext.Provider value={value}>{children}</MultitoolAdvisorContext.Provider>;
 }
@@ -5322,11 +5315,10 @@ function MultitoolComposer() {
           rows={1}
         />
         <div className="dv-advisor-composer-toolbar">
-          {/* The ask_user panel's own actions are the only thing the toolbar
-              carries besides Send: the model picker, the token pill and the
-              Designer / Instant engine toggle were taken out of the composer.
-              The engine and model are still chosen (and remembered) in the
-              advisor's state — they just aren't set from here. */}
+          {/* The shared AI controls (components/AiControls): the model picker
+              with Auto and the Project files switch — ONE setting with
+              Research. */}
+          {adv?.aiSettings ? <AiControls settings={adv.aiSettings} projectName={adv.projectName || ''} withStyle /> : null}
           <div className="dv-advisor-composer-spacer" />
           {asking ? (
             // The active ask panel portals its Submit/Skip into this slot.
@@ -5782,6 +5774,8 @@ function AdvisorPanel({ file }) {
     }
   }, [messages, scrollToBottom]);
   useEffect(() => { scrollToBottom(false); }, [busy, scrollToBottom]);
+  // A streaming answer keeps the thread at its foot as it grows.
+  useEffect(() => { if (adv?.streamText) scrollToBottom(false); }, [adv?.streamText, scrollToBottom]);
 
   const copyMessage = async (text, index) => {
     try { await navigator.clipboard.writeText(text || ''); } catch { /* clipboard blocked */ }
@@ -5874,21 +5868,19 @@ function AdvisorPanel({ file }) {
                               </div>
                             )
                             : m.content)
-                          : typing === i
-                            ? <AdvTypewriter text={replyBody(m.content)} onTick={() => scrollToBottom(false)} onDone={() => setTyping((t) => (t === i ? null : t))} />
-                            : <div className="aichat-md"><ReactMarkdown remarkPlugins={[remarkGfm]}>{replyBody(m.content)}</ReactMarkdown></div>}
+                          : (
+                            <AiAnswer
+                              text={replyBody(m.content)}
+                              typing={typing === i}
+                              revealKey={i === messages.length - 1 ? `dv:${file?.path || ''}` : undefined}
+                              onTick={() => scrollToBottom(false)}
+                              onTyped={() => setTyping((t) => (t === i ? null : t))}
+                              onRef={openAnswerRef}
+                            />
+                          )}
                       </div>
-                      {/* The reply's options as buttons (lib/aiChoices) — only
-                          on the LATEST reply, once it has finished typing:
-                          pressing one sends it as the answer. */}
+                      {m.role === 'assistant' && typing !== i && <AnswerByline m={m} project={adv?.projectName} />}
                       {m.role === 'assistant' && m.edits?.length > 0 && typing !== i && <AiEdits edits={m.edits} />}
-                      {m.role === 'assistant' && i === messages.length - 1 && typing !== i && (
-                        <AiChoices
-                          choices={replyChoices(m.content)}
-                          disabled={busy}
-                          onPick={(c) => adv?.send?.(c)}
-                        />
-                      )}
                       {/* What this turn cost, under its own bubble — UNLESS the
                           turn produced a document, in which case it belongs
                           under the version card instead (see below): the note
@@ -6017,7 +6009,11 @@ function AdvisorPanel({ file }) {
               {busy && (
                 <div className="bubble">
                   <div className="bubble-c">
-                    <div className="bubble-msg"><AdvThinkingStatus query={lastUserText} /></div>
+                    <div className="bubble-msg">
+                      {adv?.streamText
+                        ? <AiAnswer text={adv.streamText} streaming revealKey={`dv:${file?.path || ''}`} onTick={() => scrollToBottom(false)} onRef={openAnswerRef} />
+                        : <AdvThinkingStatus query={lastUserText} />}
+                    </div>
                   </div>
                 </div>
               )}
@@ -9722,7 +9718,7 @@ const IDENTITY_LIST_TTL_MS = 60000;
 // The paragraph is instead sent on its own, with the rest of the document as
 // background it may read but must not rewrite. Input is cheap and fast; it is
 // OUTPUT that costs the wait, and the output here is one paragraph.
-const PARA_TURN_MARKER = '@@REWRITE@@';
+const PARA_TURN_MARKER = AI_PROMPTS.paragraphMarker; // lib/aiEngine
 // How much of the document rides along as context. Enough for the defined terms,
 // the party names and the numbering a clause has to agree with; capped so a long
 // file doesn't turn a small edit back into a large request.
@@ -10993,6 +10989,25 @@ function refPill(x, onLoaded, { full = false } = {}) {
   );
 }
 // A reference's whole text: every span sharing its id, in document order.
+// A mark pressed in a document (Word, a picture's text, a PDF) opens the
+// APP-WIDE drawer (lib/lawDrawer) — the same as a reference pressed anywhere:
+// its hit is read back off the mark's own text and attributes.
+function openMarkRef(x) {
+  const d = x.dataset || {};
+  const kind = d.lawKind || (d.cui ? 'cui' : d.caen ? 'caen' : 'act');
+  let hit = null;
+  if (kind === 'cui' && d.cui) hit = { kind: 'cui', cui: d.cui, raw: refTextOf(x) };
+  else if (kind === 'caen' && d.caen) hit = { kind: 'caen', codes: d.caen.split(','), rev: d.caenRev ? Number(d.caenRev) : undefined, raw: refTextOf(x) };
+  else {
+    const text = refTextOf(x);
+    let found = [];
+    try { found = findFollowableRefs(text); } catch { found = []; }
+    hit = found.find((h) => h.kind === kind) || found[0] || null;
+  }
+  if (hit) openLawRef(hit);
+  else { navigateMainWindow(refSearchHref(x)); focusMainWindow(); }
+}
+
 function refTextOf(x) {
   const id = x.dataset.refId;
   const host = x.closest('.dv-docx') || x.ownerDocument;
@@ -11100,9 +11115,9 @@ function RefCardPill({ hostRef }) {
       const sel = window.getSelection?.();
       if (sel && !sel.isCollapsed && String(sel).trim()) return;
       e.stopPropagation();
-      markRef.current = x;
-      setCard(x);
-      morphRef.current.handleContextMenu(e);
+      markRef.current = null;
+      morphRef.current.handleMouseLeave();
+      openMarkRef(x);
     };
     host.addEventListener('mousemove', onMove);
     host.addEventListener('mouseleave', hide);
@@ -13428,9 +13443,8 @@ function DocxRenderPane({ url, regenTick = 0, ctor = null, restyle = null, docNa
       if (linkMark) {
         e.preventDefault();
         e.stopPropagation();
-        if (host.__openRefCard) { host.__openRefCard(linkMark, e); return; }
-        navigateMainWindow(refSearchHref(linkMark));
-        focusMainWindow();
+        // As everywhere (lib/lawDrawer): the side drawer with the record.
+        openMarkRef(linkMark);
         return;
       }
       const mark = e.target?.closest?.('.dv-xref[data-xref]');
@@ -13987,7 +14001,14 @@ function DocxRenderPane({ url, regenTick = 0, ctor = null, restyle = null, docNa
         // a failed build). Distinguished from corruption because it's the one
         // case worth retrying.
         if (!blob.size) throw new Error('empty');
-        const { renderAsync } = await import('docx-preview');
+        // THE RENDER CACHE (lib/docxRenderCache): these same bytes, under this
+        // theme and these folds, laid out before — its finished pages are used
+        // and docx-preview, the font wait and the pagination are all skipped.
+        const cacheKey = await docxContentKey(blob, { theme: docThemeRef.current, folds: foldedRef.current });
+        if (cancelled) return;
+        const cached = await getDocxRender(cacheKey);
+        if (cancelled) return;
+        const { renderAsync } = cached ? { renderAsync: null } : await import('docx-preview');
         if (cancelled) return;
         // Rendered OFF STAGE, then swapped in whole. Rendering straight into the
         // live host meant emptying it first: a blank pane, then an unpaginated
@@ -14005,37 +14026,44 @@ function DocxRenderPane({ url, regenTick = 0, ctor = null, restyle = null, docNa
         applyDocTheme(stage, themeId);
         host.after(stage);
         dropStage = () => stage.remove();
-        // breakPages:false → continuous flow we paginate ourselves (docx-preview's
-        // own breakPages only splits on explicit breaks, not on content overflow).
-        await renderAsync(blob, stage, undefined, {
-          className: 'docx', inWrapper: true, breakPages: false,
-          ignoreLastRenderedPageBreak: true, experimental: true, useBase64URL: true,
-          // We re-paginate the flow ourselves; per-page headers/footers would be
-          // dropped with the original section and skew the page-height math, so
-          // keep the content area clean (page text area = page minus margins).
-          renderHeaders: false, renderFooters: false,
-        });
-        if (cancelled) return;
-        // Wait for fonts so block heights are final before we slice into pages.
-        try { await document.fonts.ready; } catch { /* ignore */ }
-        if (cancelled) return;
-        // Pagination is presentation, not content: if it throws, the document
-        // is already rendered as a continuous flow, and keeping that beats
-        // replacing a readable document with an error screen.
         let nextPageWidth = 0;
-        try {
-          // Folded headings first: what they hide takes no room on a page, so
-          // the sheets are dealt out around it (see markDocFolds).
-          markDocFolds(stage);
-          applyDocFolds(stage, foldedRef.current);
-          nextPageWidth = paginateDocx(stage);
-          // The blanks too, so the swap doesn't show a frame of raw `[[tokens]]`
-          // before they are marked (the fields effect re-does this for the
-          // record — in one task, so nothing is painted in between).
-          scanDocFields(stage);
-          settleDocxPages(stage);
-        } catch (err) {
-          console.error('[doc-viewer] could not paginate the document', err);
+        if (cached) {
+          stage.innerHTML = cached.html;
+          nextPageWidth = cached.pageWidth;
+        } else {
+          // breakPages:false → continuous flow we paginate ourselves (docx-preview's
+          // own breakPages only splits on explicit breaks, not on content overflow).
+          await renderAsync(blob, stage, undefined, {
+            className: 'docx', inWrapper: true, breakPages: false,
+            ignoreLastRenderedPageBreak: true, experimental: true, useBase64URL: true,
+            // We re-paginate the flow ourselves; per-page headers/footers would be
+            // dropped with the original section and skew the page-height math, so
+            // keep the content area clean (page text area = page minus margins).
+            renderHeaders: false, renderFooters: false,
+          });
+          if (cancelled) return;
+          // Wait for fonts so block heights are final before we slice into pages.
+          try { await document.fonts.ready; } catch { /* ignore */ }
+          if (cancelled) return;
+          // Pagination is presentation, not content: if it throws, the document
+          // is already rendered as a continuous flow, and keeping that beats
+          // replacing a readable document with an error screen.
+          try {
+            // Folded headings first: what they hide takes no room on a page, so
+            // the sheets are dealt out around it (see markDocFolds).
+            markDocFolds(stage);
+            applyDocFolds(stage, foldedRef.current);
+            nextPageWidth = paginateDocx(stage);
+            // The blanks too, so the swap doesn't show a frame of raw `[[tokens]]`
+            // before they are marked (the fields effect re-does this for the
+            // record — in one task, so nothing is painted in between).
+            scanDocFields(stage);
+            settleDocxPages(stage);
+            // Kept for the next opening (only a document that paginated).
+            if (nextPageWidth > 0) putDocxRender(cacheKey, stage.innerHTML, nextPageWidth);
+          } catch (err) {
+            console.error('[doc-viewer] could not paginate the document', err);
+          }
         }
         // Not under an open paragraph: nothing reaches the document while one is
         // picked, and the zoom back out finishes on the pages it started on. (A
@@ -18594,6 +18622,8 @@ export default function DocViewer() {
       </>
       )}
     </div>
+    {/* Legislation detected in every text of the window, clicked into the side drawer (app-wide). */}
+    <LawDetect />
     </MultitoolAdvisorProvider>
   );
 }

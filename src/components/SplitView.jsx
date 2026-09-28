@@ -24,7 +24,7 @@ const NAV_ICONS = {
   dashboard: <Svg><rect x="3" y="3" width="7" height="7" rx="1" /><rect x="14" y="3" width="7" height="7" rx="1" /><rect x="14" y="14" width="7" height="7" rx="1" /><rect x="3" y="14" width="7" height="7" rx="1" /></Svg>,
   files: <Svg><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" /></Svg>,
   chat: <Svg><path d="M21 11.5a8.38 8.38 0 0 1-9 8.5 9 9 0 0 1-4-1L3 21l1.5-4a8.5 8.5 0 0 1 4-11.5 8.38 8.38 0 0 1 12.5 6z" /></Svg>,
-  events: <Svg><path d="M6 3v2M6 9v6M6 19v2" /><circle cx="6" cy="7" r="2" /><circle cx="6" cy="17" r="2" /><path d="M11 7h9M11 17h6" /></Svg>,
+  network: <Svg><circle cx="5" cy="6" r="2" /><circle cx="19" cy="6" r="2" /><circle cx="12" cy="12" r="2.2" /><circle cx="6" cy="19" r="2" /><circle cx="18" cy="18" r="2" /><path d="M6.7 7.2 10.3 10.8M17.3 7.2 13.7 10.8M10.4 13.4 7.4 17.5M13.7 13.4 16.5 16.6" /></Svg>,
   ai: <Svg><path d="M12 3l1.8 4.6L18 9l-4.2 1.4L12 15l-1.8-4.6L6 9l4.2-1.4z" /><path d="M18 14l.8 2.2L21 17l-2.2.8L18 20l-.8-2.2L15 17l2.2-.8z" /></Svg>,
   activity: <Svg><path d="M3 12h4l3 8 4-16 3 8h4" /></Svg>,
   projects: <Svg><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" /><path d="M3 11h18" /></Svg>,
@@ -42,8 +42,7 @@ function paneDestinations(selectedProject) {
     ? [
         { label: 'Files', to: '/files', icon: NAV_ICONS.files },
         { label: 'Chat', to: '/chat', icon: NAV_ICONS.chat },
-        { label: 'Timeline', to: '/events', icon: NAV_ICONS.events },
-        { label: 'Advisor', to: '/ai', icon: NAV_ICONS.ai },
+        { label: 'Neural network', to: '/network', icon: NAV_ICONS.network },
         { label: 'Updates', to: '/versions', icon: NAV_ICONS.versions },
       ]
     : [
@@ -95,8 +94,7 @@ function PaneChrome({ onRefresh }) {
     '/admin': 'Developer console',
     '/files': 'Project files & folders',
     '/chat': 'Team & private chat',
-    '/events': 'Case timeline',
-    '/ai': 'Project advisor',
+    '/network': 'Neural network',
     '/todos': 'Project to-dos',
     '/mail': 'AI-drafted replies',
     '/debug': 'Developer tools',
@@ -150,7 +148,7 @@ function PaneFooter() {
 // Routes that render WITHOUT the in-content chrome bar — the personal
 // destinations plus the Hub (/projects) and Account (/account). They each carry
 // their own page masthead, so the chrome's title would just duplicate it.
-const CHROMELESS_FULLSCREEN_ROUTES = new Set(['/', '/research', '/newsletter', '/legislation', '/caen', '/portal-just', '/anaf', '/firme', '/bpi', '/ancpi', '/rejust', '/unbr', '/eurlex', '/roadmap', '/playbook', '/versions', '/settings', '/design', '/debug', '/mail', '/admin', '/projects', '/account', '/files', '/chat', '/events', '/ai']);
+const CHROMELESS_FULLSCREEN_ROUTES = new Set(['/', '/research', '/newsletter', '/legislation', '/caen', '/portal-just', '/anaf', '/firme', '/bpi', '/ancpi', '/rejust', '/unbr', '/eurlex', '/roadmap', '/playbook', '/versions', '/settings', '/design', '/debug', '/mail', '/admin', '/projects', '/account', '/files', '/chat', '/network']);
 
 // The project Overview / settings page (/projects/:id, no further segment) is
 // also chromeless — it carries its own Versions-style masthead + compact

@@ -26,6 +26,14 @@
    palette. */
 
 :root {
+  /* Scrollbar — every scrollbar in the app (index.css + the overlay ones). */
+  --ds-scrollbar-size: 6.4px;
+  --ds-scrollbar-radius: 3.2px;
+  --ds-scrollbar-min: 19.2px;
+  --ds-scrollbar-thumb: var(--scrollbar-thumb);
+  --ds-scrollbar-thumb-hover: color-mix(in srgb, var(--scrollbar-thumb) 70%, var(--text-primary));
+  --ds-scrollbar-thumb-active: color-mix(in srgb, var(--scrollbar-thumb) 50%, var(--text-primary));
+  --ds-scrollbar-track: transparent;
   /* ── Bars: mini headers (the Legislation tab bar, the Files path bar, the
      compact mastheads) and bottom bars (Files' actions, the CAEN picker's
      keys). The frosted surface every pinned bar paints. */

@@ -1,8 +1,8 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import './Newsletter.css';
-import PageMasthead from '../components/PageMasthead';
-import LegalTabs from '../components/LegalTabs';
+import LegalWorkspace from '../components/LegalWorkspace';
+import { LegalSearchBox } from '../components/LegalTabs';
 import {
   listLegalUpdates,
   setUpdateRead,
@@ -305,40 +305,16 @@ export default function Newsletter() {
 
   const today = new Date().toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
 
+  // THE NEWSLETTER IS A TAB OF THE LEGISLATION TAB (2026-09-28): the first
+  // item of its list (components/LegalBrowser PlatformItems), drawn in its
+  // frame (LegalWorkspace) — the briefing's own masthead and bar are gone; its
+  // search stands in the filters row, its History on the frame's bar.
   return (
-    <div className="ed-page" ref={pageRef}>
-      <PageMasthead
-        eyebrow="DocVex Briefing"
-        eyebrowMuted="Romania"
-        title="Newsletter"
-        compact={false}
-        actions={(
-          <div className="ed-mast-meta">
-            <div>
-              <div className="ed-mast-meta-num">{unreadCount}</div>
-              <div>Unread</div>
-            </div>
-            <span className="ed-mast-meta-sep" />
-            <div>
-              <div className="ed-mast-meta-num">{today.split(',')[0]}</div>
-              <div>{today.split(',').slice(1).join(',').trim()}</div>
-            </div>
-          </div>
-        )}
-      >
-        A running briefing of Romanian legislation and compliance — each update
-        AI-summarised with its impact level and the areas it affects, so you can
-        scan what changed and mark what matters.
-      </PageMasthead>
-      {/* The Legislation bar's second line on its own (`standalone`) — the
-          Newsletter is a sidebar entry of its own now, not a Legislation tab;
-          the briefing search and History sit in it. */}
-      <LegalTabs
-        standalone
-        search={{ value: query, onChange: setQuery, placeholder: 'Search briefings' }}
-        // History — this tab's log (components/HistoryMenu): every briefing
-        // opened; picking one opens its act, or finds the briefing again.
-        trailing={(
+    <LegalWorkspace
+      className="ed-page ed-in-lws"
+      rootRef={pageRef}
+      bar={{
+        trailing: (
           <HistoryButton
             tab="newsletter"
             tip="Every briefing opened, with the time"
@@ -349,8 +325,13 @@ export default function Newsletter() {
               setFilter('all'); setImpactFilter('all'); setQuery(d.title || '');
             }}
           />
-        )}
-      />
+        ),
+      }}
+    >
+      <div className="ed-head">
+        <h2 className="ed-head-title">Newsletter</h2>
+        <span className="ed-head-meta">{unreadCount} unread · {today}</span>
+      </div>
 
       <p className="ed-weekly">
         <span className="ed-weekly-mark">AI weekly</span>
@@ -396,7 +377,7 @@ export default function Newsletter() {
             </button>
           ))}
         </div>
-        {/* The search box is in the tab bar above (LegalTabs). */}
+        <LegalSearchBox className="ed-search" hotkey={false} search={{ value: query, onChange: setQuery, placeholder: 'Search briefings' }} />
       </div>
 
       {loading ? (
@@ -441,6 +422,6 @@ export default function Newsletter() {
           </section>
         ))
       )}
-    </div>
+    </LegalWorkspace>
   );
 }

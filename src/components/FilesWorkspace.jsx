@@ -4,7 +4,6 @@ import FileThumbnail from './FileThumbnail';
 import { ExtGlyph, extCategory } from './fileGlyph';
 import Tooltip from './Tooltip';
 import { ScanButton } from './ScanGauges';
-import RuleOptions from './RuleOptions';
 import { useMorphPill } from './useMorphPill';
 import { usePaneChromeSlot, usePaneChromePortalEl } from '../context/PaneChromeContext';
 import { useAppPrefs } from '../context/AppPrefsContext';
@@ -21,20 +20,9 @@ import { BarPicker } from './LegalBar';
 import { openedAt, markOpened, subscribeOpened } from '../lib/recentFiles';
 import './LegalBar.css';
 import './FilesWorkspace.css';
-import './FileGraph.css';
 
-// The Graph view (components/FileGraph — vis-network), loaded only when opened.
-const FileGraphView = React.lazy(() => import('./FileGraph'));
-// (Insights moved into each data collection's page — components/DataCollectionView.)
-// The Files tab's two views — the Design system's Segmented choice.
-const FX_MODE_FIELD = {
-  label: 'View',
-  options: [
-    { id: 'files', label: 'File explorer', example: 'The files and folders' },
-    { id: 'graph', label: 'Graph', example: 'The files the AI scan read and the links between them — or the people, companies and properties they name' },
-  ],
-};
-const FX_MODE_KEY = 'docvex:files:mode:v1';
+// (The Graph view moved to the Neural network tab — pages/Projects/ProjectNetwork;
+// Insights moved into each data collection's page — components/DataCollectionView.)
 
 // Platform hint for the search shortcut chip (⌘F on macOS, Ctrl F elsewhere).
 const isMacPlatform = typeof navigator !== 'undefined' && /Mac|iP(hone|ad|od)/.test(navigator.platform || '');
@@ -218,7 +206,45 @@ function FullBinGlyph({ size = 42 }) {
 // folder glyph (optionally a custom colour).
 // Exported alongside ItemThumbnail: a surface borrowing the Files tiles needs
 // the folder glyph too, or its folders come out as generic documents.
+// A COLLECTION (lib/fileGroups): a custom folder pointing at files wherever
+// they are — drawn as a stack of cards in the accent (or its own colour).
+export function CollectionGlyph({ size = 42, color }) {
+  const tone = color || 'var(--accent)';
+  return (
+    <span className="fx-coll-glyph" style={{ '--fx-coll-tone': tone, width: size, height: size }} aria-hidden="true">
+      <svg viewBox="0 0 48 48" width={size} height={size} fill="none">
+        <rect x="13" y="6" width="26" height="20" rx="3.5" fill="currentColor" opacity="0.28" />
+        <rect x="9" y="11" width="30" height="23" rx="4" fill="currentColor" opacity="0.5" />
+        <rect x="5" y="17" width="38" height="26" rx="5" fill="currentColor" />
+        <path d="M17 30.5h14M17 35.5h9" stroke="var(--bg-page)" strokeWidth="2.4" strokeLinecap="round" opacity="0.9" />
+      </svg>
+    </span>
+  );
+}
+
+// A COLLECTION's tile: a FIXED square of 2×2 cells, each the thumbnail of
+// one of its first four files (or that file's type icon); cells without a
+// file stay as faint slots. The list view keeps the small glyph.
+function CollectionMosaic({ items }) {
+  const cells = [0, 1, 2, 3].map((i) => items[i] || null);
+  return (
+    <span className="fx-coll-mosaic" aria-hidden="true">
+      {cells.map((it, i) => (
+        // eslint-disable-next-line react/no-array-index-key
+        <span key={it ? it.id : `empty${i}`} className={`fx-coll-cell${it ? '' : ' is-empty'}`}>
+          {it ? <FileThumbnail descriptor={it.descriptor} glyph={<ItemGlyph item={it} />} /> : null}
+        </span>
+      ))}
+    </span>
+  );
+}
+
 export function FolderOrBinGlyph({ item, size = 42, color }) {
+  if (item.collectionEntry) {
+    return size >= 30 && item.previewItems?.length
+      ? <CollectionMosaic items={item.previewItems} />
+      : <CollectionGlyph size={size} color={color} />;
+  }
   if (item.binEntry) {
     const s = Math.round(size * 0.92);
     const full = item.binCount > 0;
@@ -471,11 +497,18 @@ function trashHoverContent(item) {
 // other file. The right-click MENU header keeps its WhatsApp treatment via
 // whatsappMenuHeader.)
 
+// "Remove from collection" (an open collection's file menu): the page sets
+// it each render — (item, isMultiSelected) → removes the item, or every
+// selected item when the menu was opened on a multi-selection.
+let collectionRemoveBulk = null;
+
 // Right-click menu for a file / folder item. Tab-aware: in the bin, items
 // offer Restore + Delete forever; in drafts, the usual Open / Rename /
 // Properties / Open-file-location / Delete. Falsy entries collapse via
 // useMorphPill's filter.
 function itemMenuItems(item, { tab, onOpen, onOpenContent, onRename, onProperties, onOpenLocation, onDelete, onRestore, onEmptyBin, canEdit, selectMode, isMultiSelected, bulkCount, onBulkDelete, onCopy, onCut, onToggleScanTag, onIncoming, incomingCount = 0 }) {
+  const bulkOf = collectionRemoveBulk;
+  const collectionRemove = (it) => bulkOf?.(it, isMultiSelected);
   // A file a phone sent that is WAITING to be let in (ProjectFiles
   // incomingItems): its own decisions, and nothing that would treat it as a
   // project file before it is one.
@@ -497,6 +530,28 @@ function itemMenuItems(item, { tab, onOpen, onOpenContent, onRename, onPropertie
         },
       },
       { key: 'props', label: 'Properties', onClick: () => onProperties?.(item) },
+    ];
+  }
+  // A COLLECTION (lib/fileGroups): open, rename, delete — deleting it removes
+  // the grouping only, never a file.
+  if (item.collectionEntry) {
+    return [
+      { key: 'open', label: 'Open', onClick: () => onOpen?.(item) },
+      canEdit && { key: 'rename', label: 'Rename', onClick: () => onRename?.(item) },
+      canEdit && {
+        key: 'delete',
+        label: 'Delete collection',
+        danger: true,
+        onClick: () => onDelete?.(item),
+        confirm: {
+          count: 1,
+          subtitle: 'The files stay where they are',
+          title: 'Delete this collection?',
+          message: `“${item.name}” will be removed. Its ${item.binCount || 0} file${item.binCount === 1 ? '' : 's'} are not touched.`,
+          confirmLabel: 'Delete',
+          cancelLabel: 'Cancel',
+        },
+      },
     ];
   }
   // The Recycle bin entry opens the bin; when it holds files it can also be
@@ -580,6 +635,8 @@ function itemMenuItems(item, { tab, onOpen, onOpenContent, onRename, onPropertie
   const isArchive = extCategory(item.ext) === 'zip';
   return [
     { key: 'open',   label: 'Open',               onClick: () => onOpen?.(item) },
+    // In an open collection (lib/fileGroups): take it out — the file stays.
+    item.collectionId && canEdit && { key: 'uncollect', label: bulk ? `Remove ${bulkCount} from collection` : 'Remove from collection', onClick: () => collectionRemove?.(item) },
     // A compressed file can be unpacked and browsed in place (zip extracts to a
     // sibling folder; other formats open in the OS archiver).
     isArchive && { key: 'open-content', label: 'Extract contents', onClick: () => onOpenContent?.(item) },
@@ -774,7 +831,8 @@ const Tile = React.memo(function Tile({ item, tab, selected, onSelect, onOpen, o
   const morph = useMorphPill({
     // WhatsApp files use the SAME plain name pill as every other file (the
     // old rich "recognised as WhatsApp convo" hover pill was removed).
-    hoverContent: item.incoming ? `${item.name} — from your phone. Click to add it` : tab === 'trash' && !item.binEntry ? trashHoverContent(item) : item.name,
+    hoverContent: item.incoming ? `${item.name} — from your phone. Click to add it` : tab === 'trash' && !item.binEntry ? trashHoverContent(item) : item.tie?.why ? `${item.name}
+${item.tie.why}` : item.name,
     menuItems: itemMenuItems(item, { tab, onOpen, onOpenContent, onRename, onProperties, onOpenLocation, onDelete, onRestore, onEmptyBin, canEdit, selectMode, isMultiSelected, bulkCount, onBulkDelete, onCopy: isFolder ? null : onCopy, onCut: isFolder ? null : onCut, onToggleScanTag, onIncoming, incomingCount }),
     // WhatsApp exports get a "recognised as WhatsApp convo" header; folders get
     // a colour-swatch row atop their menu (both shown if it's a WhatsApp folder).
@@ -1298,7 +1356,7 @@ export default function FilesWorkspace({
   // runs; pressing the button again stops it.
   onScanFiles, scanState,
   // Tag / untag items for the scan: (items, on) => void; how many are tagged.
-  onToggleScanTag, onEraseScanMemory, scanTaggedCount = 0,
+  onToggleScanTag, onEraseScanMemory, scanTaggedCount = 0, scanDir = null,
   // The Graph view: the project folder + id (lib/dataCollections loadScanGraph)
   // and how to open a file of it by its path.
   graphSource = null, onOpenPath,
@@ -1316,6 +1374,13 @@ export default function FilesWorkspace({
   onMoveToCrumb,     // (crumb, items) => void — drag files onto a breadcrumb folder to move
   // undo / redo (footer)
   onUndo, onRedo, canUndo, canRedo, undoLabel, redoLabel,
+  // COLLECTIONS (lib/fileGroups): the footer's Collect button — (selected
+  // items) => void; `collectBusy` while the neural network is grouping; an open
+  // collection's page (`collectionPane`) takes the grid's place.
+  onCollect, collectBusy = false,
+  // An OPEN collection, drawn by this grid: { id, name, sub, sections: [{ key,
+  // label, icon, boxed, groups: [[item id]] }] } — the items are `items`.
+  collectionLayout = null, onRemoveFromCollection,
 }) {
   useMiniGlowSpot(); // the .mini-glow bar's spotlight (lib/pointerSpots)
   const isBin = tab === 'trash';
@@ -1375,9 +1440,6 @@ export default function FilesWorkspace({
   // videos, Office docs, the Recycle bin, then everything else) stacked
   // vertically. Off → one flat list (the default).
   const [grouped, setGrouped] = useState(() => savedViewPrefs.grouped === true);
-  // File explorer | Graph — per device.
-  const [fxMode, setFxMode] = useState(() => { try { const m = localStorage.getItem(FX_MODE_KEY); return m === 'graph' ? m : 'files'; } catch { return 'files'; } });
-  const pickMode = (m) => { setFxMode(m); try { localStorage.setItem(FX_MODE_KEY, m); } catch { /* per device */ } };
   // The header's Sort dropdown (FX_SORTS) — kept with the other view controls.
   const [sortBy, setSortBy] = useState(() => (FX_SORTS.some((o) => o.id === savedViewPrefs.sortBy) ? savedViewPrefs.sortBy : 'name'));
   // Persist the view controls whenever they change (debounced naturally by React
@@ -1918,6 +1980,9 @@ export default function FilesWorkspace({
     () => [...multiSel].map((id) => itemById.get(id)).filter(Boolean),
     [multiSel, itemById],
   );
+  collectionRemoveBulk = onRemoveFromCollection
+    ? (item, multi) => onRemoveFromCollection(multi && multiSelItems.length ? multiSelItems : [item])
+    : null;
 
   // A single selection drives the Open / Rename / Properties affordances.
   const selectedItem = multiSel.size === 1 ? (itemById.get([...multiSel][0]) || null) : null;
@@ -2044,6 +2109,23 @@ export default function FilesWorkspace({
   // selection is handed to React on release (setMultiSel).
   // (Setting state every frame re-rendered the whole Files page and every tile
   // per mouse move, then forced a layout to measure them all again.)
+  // Is there a character of text under the point? (The caret lands on the
+  // nearest text even in empty space, so the character's own box is checked.)
+  const pressOnText = (x, y) => {
+    let node = null; let offset = 0;
+    try {
+      if (document.caretPositionFromPoint) { const p = document.caretPositionFromPoint(x, y); if (p) { node = p.offsetNode; offset = p.offset; } }
+      else if (document.caretRangeFromPoint) { const r = document.caretRangeFromPoint(x, y); if (r) { node = r.startContainer; offset = r.startOffset; } }
+    } catch { return false; }
+    if (!node || node.nodeType !== Node.TEXT_NODE || !node.nodeValue?.trim()) return false;
+    const range = document.createRange();
+    for (const i of [offset - 1, offset]) {
+      if (i < 0 || i >= node.nodeValue.length) continue;
+      range.setStart(node, i); range.setEnd(node, i + 1);
+      for (const rc of range.getClientRects()) if (x >= rc.left && x <= rc.right && y >= rc.top && y <= rc.bottom) return true;
+    }
+    return false;
+  };
   const onCanvasMouseDown = (e) => {
     if (e.button !== 0 || bgMorph.isMenuOpen) return;
     // Only in the FILE EXPLORER view: the Graph and Insights views have no
@@ -2052,7 +2134,9 @@ export default function FilesWorkspace({
     if (graphOn) return;
     const t = e.target;
     if (!t || typeof t.closest !== 'function') return;
-    if (t.closest('.fx-tile, .fx-list-row, .fx-list-head, button, a, input, textarea, select, label, [role="menuitem"], [role="menu"], [role="dialog"], [contenteditable="true"], .fx-drop-overlay, .sidebar, .tb-bar, .tooltip, .lg-menu')) return;
+    if (t.closest('.fx-tile, .fx-list-row, .fx-list-head, button, a, input, textarea, select, label, [role="menuitem"], [role="menu"], [role="dialog"], [contenteditable="true"], .fx-drop-overlay, .sidebar, .tb-bar, .tooltip, .lg-menu, .sd-drawer')) return;
+    // A press ON TEXT is the start of a text selection, not of a box.
+    if (pressOnText(e.clientX, e.clientY)) return;
     const canvas = canvasRef.current;
     if (!canvas) return;
     const scroller = pageScroller();
@@ -2379,6 +2463,12 @@ export default function FilesWorkspace({
       const t = e.target;
       if (!t || typeof t.closest !== 'function') return;
       if (t.closest('.project-files-morph-pill, .fx-tile, .fx-list-row, input, textarea, [contenteditable="true"]')) return;
+      // Only THIS page's background: never the app sidebar, the title bar, a
+      // drawer, a tooltip / menu or a dialog — they are not the Files page.
+      if (t.closest('.sidebar, .tb-bar, .sd-drawer, .tooltip, .lg-menu, [role="dialog"], [role="menu"]')) return;
+      // The page's own scroller (the empty space around the grid included).
+      const page = pageRef.current?.closest('.sv-single-scroll') || pageRef.current;
+      if (page && !page.contains(t)) return;
       bgMenuRef.current?.(e);
     };
     document.addEventListener('contextmenu', onMenu);
@@ -2682,7 +2772,7 @@ export default function FilesWorkspace({
   // as the search), aligned with the full-bleed rows below — so it renders only
   // when the list is actually populated.
   // Graph and Insights take the canvas's place (both read the AI scan).
-  const graphOn = fxMode !== 'files' && !!graphSource?.dir && tab === 'drafts';
+  const graphOn = false; // the Graph lives in the Neural network tab now
   const showListHead = !graphOn && view === 'list' && hasLocalFolder && !loading && (totalShown > 0 || creatingFolder || creatingFile);
 
   // Folder toolbar — nav + breadcrumb + search (+ the list column header in
@@ -2728,9 +2818,6 @@ export default function FilesWorkspace({
             );
           })}
         </nav>
-        {graphSource?.dir && tab === 'drafts' && (
-          <RuleOptions field={FX_MODE_FIELD} value={fxMode} onPick={pickMode} className="fx-mode" />
-        )}
         <div style={{ flex: 1 }} />
         {/* Icon-size slider — drives the same tileSize as Ctrl+scroll zoom
             (smallest size flips to the list view). Sits just left of search. */}
@@ -2820,7 +2907,7 @@ export default function FilesWorkspace({
           // The AI scan: hover = what it does (while scanning, the gauge
           // cluster); click = the scan CARD (components/ScanGauges ScanButton) —
           // a switch per feature, Scan / Stop, Erase memory.
-          <ScanButton scan={scanState} taggedCount={scanTaggedCount} onScan={onScanFiles} onErase={onEraseScanMemory}>
+          <ScanButton scan={scanState} taggedCount={scanTaggedCount} onScan={onScanFiles} onErase={onEraseScanMemory} dir={scanDir}>
             <Icon name="sparkles" size={14} filled={!!scanState && !scanState.finished} />
           </ScanButton>
         )}
@@ -2891,10 +2978,45 @@ export default function FilesWorkspace({
               </div>
             </div>
           )}
-          {graphOn ? (
-            <React.Suspense fallback={<div className="fx-empty"><p>Loading…</p></div>}>
-              <FileGraphView dir={graphSource.dir} projectId={graphSource.projectId} onOpenPath={onOpenPath} />
-            </React.Suspense>
+          {collectionLayout ? (
+            // AN OPEN COLLECTION (lib/fileGroups): the grid's own cells, in
+            // the category view's sections — each group of duplicates /
+            // linked files on its own ground (.fgv-cluster).
+            <div className="fgv">
+              {!collectionLayout.sections.length ? (
+                <p className="fgv-note">This collection is empty — none of its files are in the project any more.</p>
+              ) : null}
+              <div className="fx-cat-groups fgv-sections">
+                {collectionLayout.sections.map((sec) => {
+                  const cellsOf = (ids) => ids.map((id) => itemById.get(id)).filter(Boolean);
+                  const count = sec.groups.reduce((n, g) => n + g.length, 0);
+                  return (
+                    <section className="fx-cat-section" key={sec.key}>
+                      <div className="fx-cat-head">
+                        <Icon name={sec.icon} className="fx-cat-head-ico" size={13} />
+                        <span className="fx-cat-head-label">{sec.label}</span>
+                        <span className="fx-cat-head-count">{count}</span>
+                        {/* What ties the files in, IN LINE with the section's
+                            divider (not on every tile). */}
+                        {sec.tie ? <span className="fgv-tie" style={{ '--fgv-tone': sec.tie.tone }}>{sec.tie.label}</span> : null}
+                      </div>
+                      {sec.boxed ? (
+                        <div className="fgv-groups">
+                          {sec.groups.map((g, i) => (
+                            // eslint-disable-next-line react/no-array-index-key
+                            <div key={`${sec.key}:${i}`} className="fgv-cluster">
+                              <VirtualCells key={`coll:${sec.key}:${i}:${view}`} blockKey={`coll:${sec.key}:${i}`} cells={cellsOf(g)} {...vProps} />
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <VirtualCells key={`coll:${sec.key}:${view}`} blockKey={`coll:${sec.key}`} cells={cellsOf(sec.groups[0] || [])} {...vProps} />
+                      )}
+                    </section>
+                  );
+                })}
+              </div>
+            </div>
           ) : !hasLocalFolder ? (
             onPickFolder ? (
               // The project's folder is found by its project file; this asks
@@ -3115,6 +3237,21 @@ export default function FilesWorkspace({
             )}
             {!isBin ? (
               <>
+                {onCollect && (
+                  <Tooltip content={multiSelItems.length
+                    ? `Make a collection of the ${multiSelItems.length} selected item${multiSelItems.length === 1 ? '' : 's'}`
+                    : 'Group the project’s files into collections — linked files and duplicates, found by the neural network'}
+                  >
+                    <button
+                      className={`fx-tb-btn${collectBusy ? ' is-busy' : ''}`}
+                      disabled={!canEdit || collectBusy}
+                      onClick={() => onCollect(multiSelItems)}
+                    >
+                      <CollectionGlyph size={15} />
+                      <span>{collectBusy ? 'Collecting…' : multiSelItems.length ? 'Collect selected' : 'Collect'}</span>
+                    </button>
+                  </Tooltip>
+                )}
                 {/* Single "Create" button — New folder, Identity, Document. */}
                 <div className="fx-menu-wrap" ref={createMenuRef}>
                   <Tooltip content="Create a folder or a new document">

@@ -1,3 +1,4 @@
+import { hitAt } from '../lib/lawDetect';
 import React, { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import Tooltip from './Tooltip';
@@ -112,6 +113,9 @@ export default function SideDrawer({
     const onKey = (e) => { if (e.key === 'Escape') onClose(); };
     const onDown = (e) => {
       const panel = panelRef.current;
+      // A press on a legislation reference (lib/lawDetect) opens it in the
+      // drawer — it must not close it first.
+      if (hitAt(e.clientX, e.clientY)) return;
       if (panel && !panel.contains(e.target) && !e.target.closest?.(keep)) onClose();
     };
     window.addEventListener('keydown', onKey);

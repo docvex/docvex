@@ -5,6 +5,7 @@ import { useNotifications } from '../context/NotificationsContext';
 import { useUpdates } from '../context/UpdatesContext';
 import { clearThumbnailCache } from '../lib/thumbnailEngine';
 import { clearPdfCache } from '../lib/pdfCache';
+import { clearDocxRenders } from '../lib/docxRenderCache';
 import { clearAiFileIndex } from '../lib/aiFileIndex';
 import { clearAiSearchAnswers } from '../lib/aiSearchCache';
 import { sendInviteDebug } from '../lib/projects';
@@ -23,6 +24,8 @@ import { REF_GROUPS, REF_CATALOGUE, findAllLegalRefs, refKindName, scanRefPatter
 import { setWorkspaceSimulation, workspaceSimulation } from '../lib/workspaceItems';
 import RuleOptions from '../components/RuleOptions';
 import { AI_PROVIDERS, AI_SURFACES, AI_TASKS, AI_FUNCTIONS, AI_LOCAL, AI_PRIVACY, AI_INTRO, allAiUses } from '../lib/aiInventory';
+import LegalDetectionArchive from './DebugLegalArchive';
+import AiSettings from './DebugAiSettings';
 import './Debug.css';
 
 // In-app developer tools. These used to live in the native "DEBUG" menu that
@@ -37,6 +40,7 @@ import './Debug.css';
 function clearAllCaches(notify) {
   clearThumbnailCache();
   clearPdfCache();
+  void clearDocxRenders();
   // The AI caches are on disk, not in memory — dropping them means the next AI
   // search re-describes the folder, so this costs real money to undo.
   clearAiFileIndex();
@@ -715,7 +719,9 @@ export default function Debug() {
         ))}
       </div>
 
+      <AiSettings />
       <AiInventory />
+      <LegalDetectionArchive />
       <LawRefCatalogue />
       <FileTypeIcons />
     </div>

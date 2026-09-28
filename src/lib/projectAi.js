@@ -79,30 +79,127 @@ function unwrap(data, error) {
 //     the ambient selected project (the normal case); pass `null` for calls
 //     that aren't project work at all (the personal Mail tab).
 //   • `usageAction` — the project_ai_usage action bucket for this turn.
-export async function askProjectAi({ messages, projectName, fileNames, model, tools, docTools, forceDocument, docKind, jurisdiction, usageProject, usageAction = 'chat' }) {
+//   • `context` — the turn's STABLE data (the project's files, the open file),
+//     sent apart so the server caches it as its own block (prompt caching).
+//   • `effort` — 'low' | 'medium' | 'high' (output_config.effort; ignored on
+//     Haiku). Keep it constant within a conversation: a change drops the cache.
+function askBody({ messages, projectName, fileNames, model, tools, docTools, forceDocument, docKind, jurisdiction, context, effort }) {
   const body = withJurisdiction({ action: 'ask', messages, projectName, fileNames, model }, jurisdiction);
   if (tools === false) body.tools = false;
   if (docTools) body.docTools = true;
   if (forceDocument) body.forceDocument = true;
   if (docKind) body.docKind = docKind;
-  const { data, error } = await supabase.functions.invoke('project-ai', { body });
-  const res = unwrap(data, error);
-  if (res.error) return res;
-  const usage = res.data.usage || { input_tokens: 0, output_tokens: 0 };
+  if (context) body.context = context;
+  if (effort) body.effort = effort;
+  return body;
+}
+// The server reports cached input apart (cache reads / writes); the meter
+// counts all of it as input.
+function meterUsage(usage) {
+  const u = usage || {};
+  return {
+    ...u,
+    input_tokens: (Number(u.input_tokens) || 0) + (Number(u.cache_read_input_tokens) || 0) + (Number(u.cache_creation_input_tokens) || 0),
+    output_tokens: Number(u.output_tokens) || 0,
+  };
+}
+function answerFrom(data, { usageProject, usageAction, model }) {
+  const usage = data.usage || { input_tokens: 0, output_tokens: 0 };
   // Every project-ai `ask` turn — chat, the Doc Viewer advisor, AI file
   // indexing, AI search, the timeline council — funnels through here, so this
   // one line is what makes the per-project token total real. Fire-and-forget:
   // it must not delay or fail the answer.
-  recordAiTokens({ projectId: usageProject, usage, action: usageAction, model: model || null });
+  recordAiTokens({ projectId: usageProject, usage: meterUsage(usage), action: usageAction, model: model || null });
   return {
-    text: res.data.text || '',
+    text: data.text || '',
     usage,
-    stopReason: res.data.stopReason || null,
-    tool: res.data.tool || null,
-    toolUse: res.data.toolUse || null,
-    askUser: res.data.askUser || null,
-    assistantContent: res.data.assistantContent || null,
+    stopReason: data.stopReason || null,
+    tool: data.tool || null,
+    toolUse: data.toolUse || null,
+    askUser: data.askUser || null,
+    assistantContent: data.assistantContent || null,
+    features: Array.isArray(data.features) ? data.features : [],
   };
+}
+
+export async function askProjectAi(opts) {
+  const { usageProject, usageAction = 'chat', model } = opts;
+  const { data, error } = await supabase.functions.invoke('project-ai', { body: askBody(opts) });
+  const res = unwrap(data, error);
+  if (res.error) return res;
+  return answerFrom(res.data, { usageProject, usageAction, model });
+}
+
+/**
+ * The same turn, STREAMED: `onText(piece, soFar)` is called as the answer
+ * arrives, then the finished answer is returned exactly as askProjectAi returns
+ * it. A server that does not stream yet (it answers JSON) is read as a plain
+ * answer, so this is safe to call before the function is redeployed. `signal`
+ * aborts the request (Stop).
+ */
+export async function askProjectAiStream(opts) {
+  const { usageProject, usageAction = 'chat', model, onText, signal } = opts;
+  let token = '';
+  try { token = (await supabase.auth.getSession())?.data?.session?.access_token || ''; } catch { token = ''; }
+  const anon = import.meta.env.VITE_SUPABASE_ANON_KEY;
+  let resp;
+  try {
+    resp = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/project-ai`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', apikey: anon, Authorization: `Bearer ${token || anon}` },
+      body: JSON.stringify({ ...askBody(opts), stream: true }),
+      signal,
+    });
+  } catch (e) {
+    return { error: e?.name === 'AbortError' ? new Error('aborted') : e };
+  }
+  const type = resp.headers.get('content-type') || '';
+  if (!type.includes('text/event-stream') || !resp.body) {
+    let data = null;
+    try { data = await resp.json(); } catch { data = null; }
+    const res = unwrap(data, resp.ok ? null : new Error(data?.error || `http_${resp.status}`));
+    if (res.error) return res;
+    if (res.data.text) onText?.(res.data.text, res.data.text);
+    return answerFrom(res.data, { usageProject, usageAction, model });
+  }
+  const reader = resp.body.pipeThrough(new TextDecoderStream()).getReader();
+  let buf = '';
+  let text = '';
+  let done = null;
+  try {
+    for (;;) {
+      const { value, done: end } = await reader.read();
+      if (end) break;
+      buf += value;
+      let cut;
+      while ((cut = buf.indexOf('\n\n')) >= 0) {
+        const line = buf.slice(0, cut).split('\n').find((l) => l.startsWith('data:'));
+        buf = buf.slice(cut + 2);
+        if (!line) continue;
+        let ev;
+        try { ev = JSON.parse(line.slice(5).trim()); } catch { continue; }
+        if (ev.t === 'text') { text += ev.d; onText?.(ev.d, text); } else if (ev.t === 'done') done = ev;
+        else if (ev.t === 'error') return { error: new Error(ev.detail || ev.error || 'ai_failed') };
+      }
+    }
+  } catch (e) {
+    return { error: e?.name === 'AbortError' ? new Error('aborted') : e };
+  }
+  if (!done) return { error: new Error('The answer was cut off.') };
+  return answerFrom(done, { usageProject, usageAction, model });
+}
+
+/**
+ * Write the cache for a turn's prefix without generating anything (the
+ * server's `warm` — max_tokens 0), so the question that follows starts warm.
+ * Fire-and-forget; `opts` must match the coming turn (model, tools, context,
+ * effort) or the warm-up is wasted.
+ */
+export async function warmProjectAi(opts) {
+  try {
+    const { data } = await supabase.functions.invoke('project-ai', { body: { ...askBody({ ...opts, messages: [{ role: 'user', content: '.' }] }), warm: true } });
+    return data?.usage || null;
+  } catch { return null; }
 }
 
 // ── The file graph (the Files tab's AI scan; project-ai fileGraph.ts) ──────

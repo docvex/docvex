@@ -1157,3 +1157,30 @@ export function findEntityRefs(text) {
 export function findAllLegalRefs(text) {
   return dropOverlaps([...findLawRefs(text), ...findCaseRefs(text), ...findEntityRefs(text)]);
 }
+
+/**
+ * The CORE detectors' patterns, named — what `findLawRefs` / `findCaseRefs` /
+ * `findCuiRefs` / the CAEN readers run. Read by the Debug tab's legislation
+ * archive (pages/Debug `LegalDetectionArchive`), which shows them live beside
+ * the frozen copy kept in lib/legalDetectionArchive. The wider catalogue's
+ * own patterns are on each `REF_CATALOGUE` entry (`res`).
+ */
+export const LAW_REF_REGEXES = [
+  { name: 'ACT_RE', what: 'A normative act: category, number/year (either order, EU suffix), title from "privind…", republication / amendment notes.', re: ACT_RE },
+  { name: 'STRUCT_RE', what: 'A structural pointer: art. / alin. / lit. / pct. / teza with values, joined runs, bis/ter/quater, ^indices, roman numerals.', re: STRUCT_RE },
+  { name: 'FROM_ACT_RE', what: 'What joins a pointer to its act ("din", "al", "ale"…).', re: FROM_ACT_RE },
+  { name: 'CODE_RE', what: 'A code by name (Codul civil, de procedură…), the dotted abbreviations (C.civ., C.proc.pen.), the Constitution.', re: CODE_RE },
+  { name: 'CODE_SIGLA_RE', what: 'Code siglas CPC / CPP / NCPC / NCPP — case-sensitive on purpose.', re: CODE_SIGLA_RE },
+  { name: 'CAEN_RE', what: 'CAEN codes with the keyword required: cod CAEN 6201, clasa CAEN, CAEN Rev. 2 – 6201, lists.', re: CAEN_RE },
+  { name: 'CAEN_LINE_RE', what: 'A trade-register extract’s one-per-line list: "6210 - Activități…" (only in a text that mentions CAEN).', re: CAEN_LINE_RE },
+  { name: 'CAEN_WORD_RE', what: 'Does the text mention CAEN at all (the context for CAEN_LINE_RE).', re: CAEN_WORD_RE },
+  { name: 'CAEN_REV_RE', what: 'The revision a document names: "CAEN Rev. 2", "Rev. Caen (3)".', re: CAEN_REV_RE },
+  { name: 'BACKREF_RE', what: 'Pointing back at an act already cited: "legea menționată mai sus", "actul normativ citat".', re: BACKREF_RE },
+  { name: 'CASE_RE', what: 'A court file number with the word required: "Dosarul nr. 1.234/1/2023".', re: CASE_RE },
+  { name: 'CUI_RE', what: 'A fiscal code (CUI / CIF) after its keyword; the check digit is verified separately (weights 7 5 3 2 1 7 5 3 2).', re: CUI_RE },
+  { name: 'EU_MARK_RE', what: 'An EU act’s body mark: (UE), (CE), /Euratom…', re: EU_MARK_RE },
+  { name: 'TITLE_OPEN_RE', what: 'Where a title opens: privind / pentru / referitor la / asupra / cu privire la.', re: TITLE_OPEN_RE },
+  { name: 'TITLE_STOP_RE', what: 'Where a title ends: the first word that starts saying something ABOUT the act (se, este, prevede…).', re: TITLE_STOP_RE },
+  { name: 'NOTE_ONE_RE', what: 'One republication / amendment note, read back apart.', re: NOTE_ONE_RE },
+  { name: 'CAT_HEAD_RE', what: 'A citation that opens with an act category.', re: CAT_HEAD_RE },
+];

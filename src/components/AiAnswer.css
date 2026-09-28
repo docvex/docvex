@@ -1,0 +1,18 @@
+/* A reference in an AI answer (components/AiAnswer) — the Legislation tab's
+   reference look (pages/Legislation.css .lg-ref), each kind in its PLATFORM's
+   colour: an act or code legislatie.just.ro's violet, CAEN insse.ro's amber,
+   a court file portal.just.ro's blue, a CUI anaf.ro's green. Background layers
+   only, so marking re-wraps nothing. */
+.ai-lref {
+  --ref: var(--cat-update); --ref-wash: 12%;
+  cursor: pointer; border-radius: 2px;
+  background-image: linear-gradient(var(--ref), var(--ref));
+  background-size: 100% 1.4px; background-position: 0 100%; background-repeat: no-repeat;
+  background-color: color-mix(in srgb, var(--ref) var(--ref-wash), transparent);
+  transition: background-color 120ms ease;
+}
+.ai-lref:hover { --ref-wash: 24%; }
+.ai-lref:focus-visible { outline: 2px solid var(--ref); outline-offset: 1px; }
+.ai-lref.is-caen { --ref: var(--warning); --ref-wash: 16%; }
+.ai-lref.is-case { --ref: var(--info); --ref-wash: 14%; }
+.ai-lref.is-cui { --ref: var(--success); --ref-wash: 14%; }

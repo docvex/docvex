@@ -33,7 +33,7 @@ import './TitleBar.css';
 // The sidebar tab a route belongs to, by the sidebar's own labels — the bar
 // reads "DOCVEX | <project> - <tab>".
 const TAB_LABELS = [
-  ['/research', 'Research'], ['/files', 'Files'], ['/chat', 'Chat'], ['/events', 'Timeline'], ['/ai', 'Advisor'],
+  ['/research', 'Research'], ['/files', 'Files'], ['/chat', 'Chat'], ['/network', 'Neural network'],
   ['/roadmap', 'Roadmap'], ['/newsletter', 'Newsletter'], ['/mail', 'Mail'],
   ['/playbook', 'Playbook'], ['/versions', 'Versions'], ['/settings', 'Settings'],
   ['/design', 'Design system'], ['/admin', 'Admin'], ['/debug', 'Debug'],

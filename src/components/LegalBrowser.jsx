@@ -14,6 +14,7 @@ import {
   subscribeBrowser, browserState, curPage, pageMeta, PLATFORMS, PLATFORM_ORDER,
   navigateActive, openInNewTab, newTab, selectTab, closeTab, closeOthers, reopenClosed, openSearch, isSearchTab,
   duplicateTab, togglePin, moveTab, stepTab, reloadTab, canReload, setDraft, replaceActive, clearHistory, setLayout, setTabLoading,
+  showRoot, isRootOn,
 } from '../lib/legalBrowser';
 import { pageForQuery, platformsFor, searchPlatform, peekPlatform, peekAnswer, forgetAnswers, facetsFor, inBranch } from '../lib/legalSearch';
 
@@ -164,6 +165,69 @@ function SearchTabButton({ active, go }) {
   );
 }
 
+// THE PLATFORMS, fixed at the top of the list: the Newsletter first, then one
+// item per platform (components/LegalTabs LEGAL_TABS — connected in their own
+// colour, the ones not connected yet faded). The Newsletter and a planned
+// source open their own page in a tab (showRoot); a connected platform opens
+// the one search with its prefix typed ("cui ", "caen "…), so what is typed
+// next goes to it.
+const PREFIX = { legislation: 'lege ', caen: 'caen ', 'portal-just': 'dosar ', anaf: 'cui ' };
+export const NEWSLETTER_ROOT = { route: '/newsletter', kind: 'DocVex', title: 'Newsletter', tone: 'var(--accent)', site: 'Newsletter' };
+export const ROOT_ROUTES = new Map([
+  ['/newsletter', NEWSLETTER_ROOT],
+  ...LEGAL_TABS.filter((t) => t.stub).map((t) => [t.to, { route: t.to, kind: 'Not connected yet', title: t.label, tone: 'var(--text-muted)', site: t.label }]),
+]);
+function PlatformItems({ go, page }) {
+  const items = [
+    { id: 'newsletter', route: '/newsletter', site: 'Newsletter', sub: 'The DocVex legal briefing', tone: 'var(--accent)', root: NEWSLETTER_ROOT },
+    ...LEGAL_TABS.map((t) => ({
+      id: t.id, route: t.to, site: t.label,
+      sub: t.stub ? 'Not connected yet' : (PLATFORMS[t.id]?.name || t.short || ''),
+      tone: PLATFORMS[t.id]?.tone || 'var(--text-muted)', stub: !!t.stub,
+      root: t.stub ? ROOT_ROUTES.get(t.to) : null, tip: t.about,
+    })),
+  ];
+  const open = (it) => {
+    if (it.root) { showRoot(it.route, it.root, go); return; }
+    openSearch(go);
+    requestAnimationFrame(() => {
+      setDraft(PREFIX[it.id] || '');
+      window.dispatchEvent(new Event('docvex:legal-omni-focus'));
+    });
+  };
+  return (
+    <>
+      <div className="lgb-rail-sub" aria-hidden="true">Platforms</div>
+      {items.map((it) => {
+        const on = isRootOn(page, it.route);
+        return (
+          <div
+            key={it.id}
+            role="tab"
+            aria-selected={on}
+            tabIndex={0}
+            className={`lg-rail-item lgb-rtab lgb-plat${on ? ' is-active' : ''}${it.stub ? ' is-stub' : ''}`}
+            style={{ '--tone': it.tone }}
+            onClick={() => open(it)}
+            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); open(it); } }}
+          >
+            <Tooltip content={it.tip || it.sub}>
+              <span className="lg-rail-title">
+                <span className="lg-rail-kind lgb-rtab-kind">
+                  <span className="lgb-dot" style={{ '--tone': it.tone }} />
+                  <span className="lgb-rtab-kindtext">{it.sub}</span>
+                </span>
+                <span className="lg-rail-num">{it.site}</span>
+              </span>
+            </Tooltip>
+          </div>
+        );
+      })}
+      <div className="lgb-rail-div" aria-hidden="true" />
+    </>
+  );
+}
+
 /** The tabs down the left — the Playbook presets list: its surface, its
  *  head (a label, a hairline under it), pinned first under a divider. */
 export function TabRail({ go, openMenu, className = '' }) {
@@ -171,8 +235,10 @@ export function TabRail({ go, openMenu, className = '' }) {
   const [drag, setDrag] = useState(null);
   const railRef = useItemSpots('.lg-rail-item', true);
   useRailSpotlight(railRef);
-  // The blank search tab is not listed: the Search button stands for it.
-  const listed = s.tabs.filter((t) => !isSearchTab(t));
+  // The blank search tab is not listed, nor a tab on a platform's own page
+  // (the Newsletter, a planned source) — its fixed item above stands for it.
+  const listed = s.tabs.filter((t) => !isSearchTab(t) && !curPage(t).root);
+  const shown = curPage(s.tabs.find((t) => t.id === s.active));
   const pinned = listed.filter((t) => t.pinned);
   const rest = listed.filter((t) => !t.pinned);
   const onSearch = isSearchTab(s.tabs.find((t) => t.id === s.active));
@@ -197,6 +263,7 @@ export function TabRail({ go, openMenu, className = '' }) {
         {/* THE SEARCH TAB — a tab like the others, first in the list: it
             opens the one search (lib/legalBrowser openSearch), never a pile
             of new tabs. */}
+        <PlatformItems go={go} page={shown} />
         <SearchTabButton active={onSearch} go={go} />
         {listed.length ? <div className="lgb-rail-div" aria-hidden="true" /> : null}
         {pinned.map(item)}

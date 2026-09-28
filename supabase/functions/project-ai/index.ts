@@ -160,46 +160,19 @@ const ASK_USER_TOOL = {
   },
 } as const;
 
-// The names a blank may carry. They are the identity record's OWN field names
-// (src/lib/identities.js — keep the two lists in step), so a document generated
-// with them is matched by lookup rather than by guessing at the words around
-// the gap, and a party's details land in the right places every time.
-const IDENTITY_FIELD_KEYS = [
-  "legalName", "aka",
-  "nationalId", "dateOfBirth", "placeOfBirth", "nationality",
-  "idType", "idDocument", "idSeries", "idNumber", "idIssuer", "idIssuedAt",
-  "taxId", "regNo", "legalForm", "representative", "repCapacity", "iban", "bank",
-  "address", "addressStreet", "addressNumber", "addressBlock", "addressStair",
-  "addressFloor", "addressApartment", "addressLocality", "addressCounty", "addressSector",
-  "addressCountyOrSector", "addressPostalCode",
-  "city", "county", "country",
-  "email", "phone",
-].join(", ");
-
-const PLACEHOLDER_RULE =
-  "PLACEHOLDERS — one shape, always, and every blank names the field it wants.\\n" +
-  "Write each gap as DOUBLE square brackets around a NAME FROM THIS LIST: " + IDENTITY_FIELD_KEYS + ". " +
-  "Prefix it with the party when the clause involves more than one — [[seller.legalName]], " +
-  "[[buyer.nationalId]] — and use the bare name when there is only one: [[legalName]]. " +
-  "DocVex holds a record for each party in the matter, so a blank named this way is filled from that " +
-  "record in one click; a blank named anything else has to be typed by hand.\\n" +
-  "  WRONG: domiciliat în [localitatea], str. [...], nr. [...], bl. [...], CNP [...]\\n" +
-  "  RIGHT: domiciliat în [[seller.addressLocality]], str. [[seller.addressStreet]], " +
-  "nr. [[seller.addressNumber]], bl. [[seller.addressBlock]], CNP [[seller.nationalId]]\\n" +
-  "One blank per fact: a street, a number, a block and a flat are four blanks, not one gap repeated. " +
-  "Split an address into its parts (addressStreet / addressNumber / addressBlock / addressStair / " +
-  "addressFloor / addressApartment / addressLocality / addressCounty) whenever the clause writes them " +
-  "separately, and split an ID document into idSeries and idNumber when it says 'seria … nr. …'.\\n" +
-  "For anything the list does not cover — a case number, a price, a deadline, an issuing authority — " +
-  "still use double brackets, with a short description inside: [[the agreed price in EUR]]. " +
-  "Never write an unlabelled gap: no '[...]', no '[…]', no empty '[ ]', no '____' or '......', " +
-  "no {curly braces} or <angle brackets>, no 'TBD'/'N/A'/'XXX', and never a colon with nothing after it.\\n" +
-  "GENDER: keep the Romanian formulas that cover both — 'Domnul/Doamna', 'domiciliat(ă)', " +
-  "'identificat(ă)'. DocVex resolves them from the party's record when the document is filled in, so " +
-  "do NOT guess a gender and do not drop either half.\\n" +
-  "Never invent names, dates, case numbers or amounts that were not provided. When you revise a " +
-  "document, carry every existing placeholder through verbatim — brackets and field name included — " +
-  "unless the user supplied its value.";
+// THE PLAYBOOK DECIDES. How a document is numbered, headed and laid out, and
+// how a missing fact is left blank, is the user's own decision — stated in the
+// Playbook (lib/docRules on the client) and sent with every request that
+// creates or edits a document. The server adds no convention of its own (the
+// former PLACEHOLDER_RULE, which imposed named [[…]] blanks, contradicted the
+// Playbook's blanks and was removed before it was ever deployed).
+const PLAYBOOK_RULE =
+  "DOCUMENT RULES: the user's own document rules (their Playbook — numbering, headings, how a missing fact " +
+  "is left blank, dates, amounts, how parties are named) come with the request. Follow them exactly whenever " +
+  "you create or edit a document; they override any habit or convention of yours. Where they say nothing, keep " +
+  "the document's existing conventions. Never invent names, dates, case numbers or amounts that were not " +
+  "provided, and when you revise a document carry every existing blank through exactly as written unless the " +
+  "user supplied its value.";
 
 // Client-side tool: the model calls this to CREATE or UPDATE the document the
 // user is iteratively building. The backend does NOT build the file — it returns
@@ -239,7 +212,7 @@ const WRITE_DOCUMENT_TOOL = {
           "'- bullet', paragraphs, **bold**/*italic*). pptx: each slide is '# Slide Title' then '- bullet' lines " +
           "(one slide per title). xlsx: CSV only, first row = column headers, no prose before or after. For xlsx, " +
           "write live formulas like '=SUM(B2:B9)' (not pre-computed numbers) so the sheet stays dynamic. " +
-          PLACEHOLDER_RULE,
+          PLAYBOOK_RULE,
       },
     },
     required: ["kind", "content"],
@@ -292,6 +265,8 @@ async function callClaude(opts: {
 // because the AI chat inlines attached file contents (text/PDF/Word) into the
 // user turn — a tight cap would chop a document mid-way.
 const MAX_MSG_CHARS = 60000;
+// The stable data the client sends apart (`context`), cached as its own block.
+const MAX_CONTEXT_CHARS = 400000;
 function normalizeMessages(raw: unknown): Msg[] {
   const arr = Array.isArray(raw) ? raw : [];
   const cleaned: Msg[] = arr
@@ -315,23 +290,70 @@ function normalizeMessages(raw: unknown): Msg[] {
 // response so the caller can read content blocks, stop_reason and usage (needed
 // for the ask_user tool and the token-usage indicator). `tools` is attached only
 // when non-empty.
-async function callClaudeRaw(opts: {
+//
+// PROMPT CACHING (2026-09-28). The request is laid out stable → volatile, with
+// a cache breakpoint after each stable part (≤4 allowed; tools → system →
+// messages is the cache order):
+//   1. the system prompt (with the tools before it)            — breakpoint
+//   2. `context`: the turn's STABLE data the client sends apart
+//      (the project's files, the open file) as a 2nd system block — breakpoint
+//   3. the conversation up to the LAST ASSISTANT turn            — breakpoint
+//      (the client strips a question's per-turn data from history, so the
+//      earlier assistant turn is the last block identical across turns; the
+//      20-block lookback then finds the previous turn's write)
+//   4. the new question with its volatile data (portal records) — not cached
+// A block under the model's minimum (512 tokens on Opus 5.5, 1,024 on Sonnet,
+// 4,096 on Haiku 4.5 / Opus 4.7) is simply not cached.
+type ClaudeOpts = {
   system: string;
+  context?: string;
   messages: Msg[];
   maxTokens: number;
   model?: string;
   tools?: unknown[];
   toolChoice?: unknown;
-}): Promise<Record<string, unknown>> {
+  effort?: string;
+};
+const EFFORT_OK = new Set(["low", "medium", "high"]);
+// Effort is supported on every model here except Haiku 4.5.
+const effortFor = (model: string, effort?: string) =>
+  effort && EFFORT_OK.has(effort) && !/haiku/.test(model) ? effort : "";
+function withCacheMark(messages: Msg[]): Msg[] {
+  let at = -1;
+  for (let i = messages.length - 2; i >= 0; i--) {
+    if (messages[i].role === "assistant") { at = i; break; }
+  }
+  if (at < 0) return messages;
+  return messages.map((m, i) => {
+    if (i !== at) return m;
+    if (typeof m.content === "string") {
+      return { role: m.role, content: [{ type: "text", text: m.content, cache_control: { type: "ephemeral" } }] };
+    }
+    const blocks = (m.content as Array<Record<string, unknown>>).slice();
+    if (!blocks.length) return m;
+    blocks[blocks.length - 1] = { ...blocks[blocks.length - 1], cache_control: { type: "ephemeral" } };
+    return { role: m.role, content: blocks };
+  });
+}
+function claudePayload(opts: ClaudeOpts): Record<string, unknown> {
+  const model = opts.model ?? MODEL;
+  const system: unknown[] = [{ type: "text", text: opts.system, cache_control: { type: "ephemeral" } }];
+  const context = String(opts.context ?? "").trim();
+  if (context) system.push({ type: "text", text: context, cache_control: { type: "ephemeral" } });
   const payload: Record<string, unknown> = {
-    model: opts.model ?? MODEL,
+    model,
     max_tokens: opts.maxTokens,
-    system: [{ type: "text", text: opts.system, cache_control: { type: "ephemeral" } }],
-    messages: opts.messages,
+    system,
+    messages: withCacheMark(opts.messages),
   };
   if (opts.tools && opts.tools.length) payload.tools = opts.tools;
   if (opts.toolChoice) payload.tool_choice = opts.toolChoice;
-  const resp = await fetch("https://api.anthropic.com/v1/messages", {
+  const effort = effortFor(model, opts.effort);
+  if (effort) payload.output_config = { effort };
+  return payload;
+}
+function anthropicFetch(payload: Record<string, unknown>): Promise<Response> {
+  return fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
     headers: {
       "x-api-key": ANTHROPIC_API_KEY,
@@ -340,11 +362,76 @@ async function callClaudeRaw(opts: {
     },
     body: JSON.stringify(payload),
   });
+}
+async function callClaudeRaw(opts: ClaudeOpts): Promise<Record<string, unknown>> {
+  const resp = await anthropicFetch(claudePayload(opts));
   if (!resp.ok) {
     const detail = (await resp.text()).slice(0, 400);
     throw new Error(`anthropic_${resp.status}: ${detail}`);
   }
   return await resp.json();
+}
+
+// The same call, STREAMED: Anthropic's server-sent events are read here, each
+// piece of text is passed to `onText` as it arrives, and the finished message
+// ({ content, stop_reason, usage }) is rebuilt and returned — the same shape
+// callClaudeRaw returns, so one function turns either into the answer.
+async function callClaudeStream(opts: ClaudeOpts, onText: (t: string) => void): Promise<Record<string, unknown>> {
+  const resp = await anthropicFetch({ ...claudePayload(opts), stream: true });
+  if (!resp.ok || !resp.body) {
+    const detail = (await resp.text()).slice(0, 400);
+    throw new Error(`anthropic_${resp.status}: ${detail}`);
+  }
+  const blocks: Array<Record<string, unknown>> = [];
+  const json: string[] = [];
+  let stop: unknown = null;
+  let usage: Record<string, unknown> = {};
+  const reader = resp.body.pipeThrough(new TextDecoderStream()).getReader();
+  let buf = "";
+  for (;;) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    buf += value;
+    let cut;
+    while ((cut = buf.indexOf("\n\n")) >= 0) {
+      const chunk = buf.slice(0, cut);
+      buf = buf.slice(cut + 2);
+      const line = chunk.split("\n").find((l) => l.startsWith("data:"));
+      if (!line) continue;
+      let ev: Record<string, any>;
+      try { ev = JSON.parse(line.slice(5).trim()); } catch { continue; }
+      switch (ev.type) {
+        case "message_start":
+          usage = { ...(ev.message?.usage ?? {}) };
+          break;
+        case "content_block_start":
+          blocks[ev.index] = { ...ev.content_block };
+          if (ev.content_block?.type === "text") blocks[ev.index].text = "";
+          json[ev.index] = "";
+          break;
+        case "content_block_delta":
+          if (ev.delta?.type === "text_delta") {
+            blocks[ev.index].text = String(blocks[ev.index].text ?? "") + ev.delta.text;
+            onText(ev.delta.text);
+          } else if (ev.delta?.type === "input_json_delta") {
+            json[ev.index] = (json[ev.index] ?? "") + ev.delta.partial_json;
+          }
+          break;
+        case "content_block_stop":
+          if (blocks[ev.index]?.type === "tool_use") {
+            try { blocks[ev.index].input = JSON.parse(json[ev.index] || "{}"); } catch { blocks[ev.index].input = {}; }
+          }
+          break;
+        case "message_delta":
+          if (ev.delta?.stop_reason) stop = ev.delta.stop_reason;
+          if (ev.usage) usage = { ...usage, ...ev.usage };
+          break;
+        case "error":
+          throw new Error(`anthropic_stream: ${JSON.stringify(ev.error ?? {}).slice(0, 300)}`);
+      }
+    }
+  }
+  return { content: blocks.filter(Boolean), stop_reason: stop, usage };
 }
 
 // Workspace framing appended to every system prompt: which matter is open,
@@ -375,6 +462,10 @@ async function handleAsk(body: {
   forceDocument?: boolean;
   docKind?: string;
   jurisdiction?: string;
+  context?: string;
+  effort?: string;
+  stream?: boolean;
+  warm?: boolean;
 }): Promise<Response> {
   if (!ANTHROPIC_API_KEY) return jsonResponse({ ok: false, error: "ai_not_configured" });
 
@@ -427,7 +518,7 @@ async function handleAsk(body: {
     "Once it is clear the user wants to create or change the document, default to doing the work: make good choices for names, " +
     "dates, sample data and formatting rather than interrogating the user, and use `ask_user` for a substantive missing detail " +
     "only when you truly cannot proceed without it. " +
-    `${PLACEHOLDER_RULE} ` +
+    `${PLAYBOOK_RULE} ` +
     matterContext(body.projectName, body.fileNames, body.jurisdiction);
 
   const system = docTools ? docBuilderSystem : baseAssistantSystem;
@@ -438,47 +529,85 @@ async function handleAsk(body: {
     ? { type: "tool", name: "write_document" }
     : undefined;
 
-  try {
-    const data = await callClaudeRaw({ system, messages, maxTokens: 16000, model, tools: toolsArr, toolChoice });
-    const u = (data?.usage ?? {}) as { input_tokens?: number; output_tokens?: number };
-    const usage = { input_tokens: u.input_tokens ?? 0, output_tokens: u.output_tokens ?? 0 };
-    const blocks = (Array.isArray(data?.content) ? data.content : []) as Array<Record<string, unknown>>;
-    const text = blocks.filter((b) => b?.type === "text").map((b) => (b.text as string) ?? "").join("").trim();
-    // Tools are NOT executed server-side — hand the tool_use to the client, which
-    // builds the file (write_document) or renders the question (ask_user).
-    if (data?.stop_reason === "tool_use") {
-      const wd = blocks.find((b) => b?.type === "tool_use" && b?.name === "write_document");
-      if (wd) {
-        return jsonResponse({
-          ok: true,
-          stopReason: "tool_use",
-          tool: "write_document",
-          text,
-          toolUse: { id: wd.id as string, input: wd.input },
-          assistantContent: blocks,
-          usage,
-        });
-      }
-      const au = blocks.find((b) => b?.type === "tool_use" && b?.name === "ask_user");
-      if (au) {
-        return jsonResponse({
-          ok: true,
-          stopReason: "tool_use",
-          tool: "ask_user",
-          text,
-          askUser: { id: au.id as string, input: au.input },
-          assistantContent: blocks,
-          usage,
-        });
-      }
+  const context = typeof body.context === "string" ? body.context.slice(0, MAX_CONTEXT_CHARS) : "";
+  const opts: ClaudeOpts = { system, context, messages, maxTokens: 16000, model, tools: toolsArr, toolChoice, effort: body.effort };
+
+  // CACHE WARM-UP: the same prefix (tools, system, context) with max_tokens 0 —
+  // nothing is generated; the prefix is written to the cache so the question
+  // that follows starts on a warm cache.
+  if (body.warm === true) {
+    try {
+      const data = await callClaudeRaw({ ...opts, maxTokens: 0 });
+      return jsonResponse({ ok: true, warmed: true, usage: usageOf(data) });
+    } catch (err) {
+      return jsonResponse({ ok: false, error: "warm_failed", detail: String((err as Error)?.message ?? err).slice(0, 300) });
     }
-    return jsonResponse({ ok: true, text, usage });
+  }
+
+  // STREAMED: our own server-sent events — { t: "text", d } per piece of text,
+  // then { t: "done", ...the same JSON the plain call answers } or { t: "error" }.
+  if (body.stream === true) {
+    const enc = new TextEncoder();
+    const stream = new ReadableStream({
+      async start(ctl) {
+        const send = (o: unknown) => ctl.enqueue(enc.encode(`data: ${JSON.stringify(o)}\n\n`));
+        try {
+          const data = await callClaudeStream(opts, (d) => send({ t: "text", d }));
+          send({ t: "done", ...answerOf(data) });
+        } catch (err) {
+          send({ t: "error", error: "ai_failed", detail: String((err as Error)?.message ?? err).slice(0, 400) });
+        }
+        ctl.close();
+      },
+    });
+    return new Response(stream, {
+      headers: { ...corsHeaders, "Content-Type": "text/event-stream", "Cache-Control": "no-cache" },
+    });
+  }
+
+  try {
+    const data = await callClaudeRaw(opts);
+    return jsonResponse(answerOf(data));
   } catch (err) {
     return jsonResponse(
       { ok: false, error: "ai_failed", detail: String((err as Error)?.message ?? err).slice(0, 400) },
       502,
     );
   }
+}
+
+// The usage the client meters and shows — cache reads and writes included.
+function usageOf(data: Record<string, unknown>) {
+  const u = (data?.usage ?? {}) as Record<string, number>;
+  return {
+    input_tokens: u.input_tokens ?? 0,
+    output_tokens: u.output_tokens ?? 0,
+    cache_read_input_tokens: u.cache_read_input_tokens ?? 0,
+    cache_creation_input_tokens: u.cache_creation_input_tokens ?? 0,
+  };
+}
+// A Claude response → the ask action's answer. Tools are NOT executed
+// server-side — the tool_use goes to the client, which builds the file
+// (write_document) or renders the question (ask_user).
+// What this version of the function supports — the client reads it to know
+// it may send the stable data apart (before, it folded it into the question).
+const ASK_FEATURES = ["context", "stream", "effort", "warm"];
+function answerOf(data: Record<string, unknown>): Record<string, unknown> {
+  const features = ASK_FEATURES;
+  const usage = usageOf(data);
+  const blocks = (Array.isArray(data?.content) ? data.content : []) as Array<Record<string, unknown>>;
+  const text = blocks.filter((b) => b?.type === "text").map((b) => (b.text as string) ?? "").join("").trim();
+  if (data?.stop_reason === "tool_use") {
+    const wd = blocks.find((b) => b?.type === "tool_use" && b?.name === "write_document");
+    if (wd) {
+      return { ok: true, stopReason: "tool_use", tool: "write_document", text, toolUse: { id: wd.id as string, input: wd.input }, assistantContent: blocks, usage, features };
+    }
+    const au = blocks.find((b) => b?.type === "tool_use" && b?.name === "ask_user");
+    if (au) {
+      return { ok: true, stopReason: "tool_use", tool: "ask_user", text, askUser: { id: au.id as string, input: au.input }, assistantContent: blocks, usage, features };
+    }
+  }
+  return { ok: true, text, usage, stopReason: data?.stop_reason ?? null, features };
 }
 
 // ── suggest ─────────────────────────────────────────────────────────
@@ -564,7 +693,7 @@ async function handleGenerate(body: {
     "You produce a complete, professional draft in a formal legal register, ready for a lawyer to " +
     "review and adapt. Structure the document with a title on the first line (IN UPPERCASE), then numbered " +
     "paragraphs or clauses as appropriate. " +
-    `${PLACEHOLDER_RULE} ` +
+    `${PLAYBOOK_RULE} ` +
     "Respond with ONLY the document text — no markdown, no code blocks, no commentary before or after. " +
     `${matterContext(body.projectName, body.fileNames, body.jurisdiction)}`;
 

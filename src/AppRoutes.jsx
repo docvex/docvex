@@ -92,10 +92,9 @@ export function preloadBootRoute() { ProjectFiles.preload(); }
 const ProjectClients = page(() => import('./pages/Projects/ProjectClients'));
 const ProjectTodos = page(() => import('./pages/Projects/ProjectTodos'));
 const ProjectChat = page(() => import('./pages/Projects/ProjectChat'));
-const ProjectEvents = page(() => import('./pages/Projects/ProjectEvents'));
+const ProjectNetwork = page(() => import('./pages/Projects/ProjectNetwork'));
 const ProjectGenerate = page(() => import('./pages/Projects/ProjectGenerate'));
 const ProjectAutomate = page(() => import('./pages/Projects/ProjectAutomate'));
-const ProjectAI = page(() => import('./pages/Projects/ProjectAI'));
 const Mail = page(() => import('./pages/Mail'));
 const InviteAccept = lazy(() => import('./pages/Projects/InviteAccept'));
 const DocViewer = lazy(() => import('./pages/DocViewer'));
@@ -199,10 +198,12 @@ export default function AppRoutes({ Shell, ProjectShell }) {
               <Route path="clients" element={<ProjectClients />} />
               <Route path="todos" element={<ProjectTodos />} />
               <Route path="chat" element={<ProjectChat />} />
-              <Route path="events" element={<ProjectEvents />} />
+              <Route path="network" element={<ProjectNetwork />} />
+              {/* The Timeline and the Advisor tabs were removed (2026-09-28). */}
+              <Route path="events" element={<Navigate to="/network" replace />} />
               <Route path="generate" element={<ProjectGenerate />} />
               <Route path="automate" element={<ProjectAutomate />} />
-              <Route path="ai" element={<ProjectAI />} />
+              <Route path="ai" element={<Navigate to="/research" replace />} />
             </Route>
             <Route path="roadmap" element={<Roadmap />} />
             <Route path="mail" element={<Mail />} />
