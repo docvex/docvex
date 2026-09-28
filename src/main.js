@@ -1893,7 +1893,7 @@ ipcMain.handle('app:wipe-local-data', async () => {
       failed.push(`${path.basename(target)}: ${err?.code || err?.message || err}`);
     }
   };
-  for (const name of ['project-index', 'vault', 'thumbnails', 'external-opens.json', 'index-key.bin']) {
+  for (const name of ['project-index', 'vault', 'thumbnails', 'external-opens.json', 'index-key.bin', 'window-state.json']) {
     await rm(path.join(userData, name));
   }
   try {
@@ -1906,6 +1906,11 @@ ipcMain.handle('app:wipe-local-data', async () => {
   try {
     await session.defaultSession.clearStorageData({ storages: ['indexdb', 'cachestorage', 'serviceworkers', 'shadercache'] });
     await session.defaultSession.clearCache();
+    // The pre-migration copy of localStorage on the file:// origin
+    // (migrateOriginStorage COPIES it to the app origin and leaves it): it
+    // holds the same chats, extracted text and AI data the renderer's own
+    // wipe clears on the origin it runs on.
+    if (USE_APP_ORIGIN) await session.defaultSession.clearStorageData({ origin: 'file://', storages: ['localstorage'] });
   } catch (err) {
     failed.push(`browser caches: ${err?.message || err}`);
   }
@@ -2373,7 +2378,7 @@ function ensureIndexKey() {
 // it), the service runs in-process as before.
 const PROJECT_INDEX_METHODS = [
   'projectOpen', 'projectLocate', 'projectFiles', 'projectReconcile', 'projectFileId', 'projectPathForId',
-  'knowledgeGet', 'knowledgePut', 'knowledgeClear', 'knowledgeList', 'settingsGet', 'settingsPut',
+  'knowledgeGet', 'knowledgePut', 'knowledgeClear', 'knowledgeList', 'settingsGet', 'settingsPut', 'projectFolderKey',
   'privateGet', 'privatePut', 'privateList', 'registerProjectFile', 'projectIdOfFolder',
 ];
 let backgroundHelper = null; // { child, pending: Map, nextId, closing: Promise|null } | false once it failed
@@ -2488,6 +2493,7 @@ const PROJECT_INDEX_CALLS = {
   'knowledge:list': (s, a) => s.knowledgeList(a),
   'settings:get': (s, a) => s.settingsGet(a),
   'settings:put': (s, a) => s.settingsPut(a),
+  'project:folder-key': (s, a) => s.projectFolderKey(a),
   'private:get': (s, a) => s.privateGet(a),
   'private:put': (s, a) => s.privatePut(a),
   'private:list': (s, a) => s.privateList(a),

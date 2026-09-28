@@ -480,12 +480,10 @@ async function readLegacyWeb(projectDir) {
 async function writeWeb(projectDir, web, projectId) {
   const value = { ...web, updatedAt: Date.now() };
   if (projectId && settingsAvailable() && await putSetting(projectId, SETTINGS_STORES.web, value)) return;
-  // No store (or it refused): the old homes, so the next run is still cheap.
-  const text = JSON.stringify(value);
-  try { localStorage.setItem(WEB_LS + projectDir, text); } catch { /* full — the file is what counts */ }
-  try {
-    await localFolderApi.writeFiles({ dir: projectDir, files: [{ filename: WEB_FILE, blob: new Blob([text], { type: 'application/json' }) }] });
-  } catch { /* the machine's copy stands */ }
+  // No store (or it refused): this machine's copy only, so the next run is
+  // still cheap. It is never written into the case folder in clear any more —
+  // the index writes it there sealed (projectIndex/folderSeal.js).
+  try { localStorage.setItem(WEB_LS + projectDir, JSON.stringify(value)); } catch { /* full — the next scan redoes it */ }
 }
 
 // A name as it can be compared: no diacritics, no case, no punctuation, no

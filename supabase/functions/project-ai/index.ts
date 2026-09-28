@@ -832,23 +832,38 @@ async function handleOffice(body: {
   }
   console.log(`[office] kind=${kind} model=${model} verdict=FILE_PRODUCED fileId=${fileId} (betas enabled and working)`);
 
-  let fileResp: Response;
-  try {
-    fileResp = await fetch(`https://api.anthropic.com/v1/files/${fileId}/content`, {
-      headers: {
-        "x-api-key": ANTHROPIC_API_KEY,
-        "anthropic-version": "2023-06-01",
-        "anthropic-beta": FILES_BETA,
-      },
-    });
-  } catch (err) {
-    return jsonResponse({ ok: false, error: "file_fetch_failed", detail: String((err as Error)?.message ?? err).slice(0, 400) }, 502);
-  }
-  if (!fileResp.ok) {
-    return jsonResponse({ ok: false, error: "file_fetch_failed", detail: (await fileResp.text()).slice(0, 400) }, 502);
-  }
+  // The generated file sits in Anthropic's Files API until it is deleted — it
+  // has no expiry of its own. It holds client content, so it is deleted as soon
+  // as it has been read (or failed to be), whatever the outcome.
+  const filesHeaders = {
+    "x-api-key": ANTHROPIC_API_KEY,
+    "anthropic-version": "2023-06-01",
+    "anthropic-beta": FILES_BETA,
+  };
+  const deleteOutput = async () => {
+    try {
+      const r = await fetch(`https://api.anthropic.com/v1/files/${fileId}`, { method: "DELETE", headers: filesHeaders });
+      if (!r.ok) console.log(`[office] file delete failed status=${r.status}`);
+    } catch (err) {
+      console.log(`[office] file delete failed: ${String((err as Error)?.message ?? err).slice(0, 120)}`);
+    }
+  };
 
-  const bytes = new Uint8Array(await fileResp.arrayBuffer());
+  let bytes: Uint8Array;
+  try {
+    let fileResp: Response;
+    try {
+      fileResp = await fetch(`https://api.anthropic.com/v1/files/${fileId}/content`, { headers: filesHeaders });
+    } catch (err) {
+      return jsonResponse({ ok: false, error: "file_fetch_failed", detail: String((err as Error)?.message ?? err).slice(0, 400) }, 502);
+    }
+    if (!fileResp.ok) {
+      return jsonResponse({ ok: false, error: "file_fetch_failed", detail: (await fileResp.text()).slice(0, 400) }, 502);
+    }
+    bytes = new Uint8Array(await fileResp.arrayBuffer());
+  } finally {
+    await deleteOutput();
+  }
   return jsonResponse({
     ok: true,
     kind,

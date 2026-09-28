@@ -12,12 +12,26 @@ import path from 'node:path';
 import os from 'node:os';
 import { createProjectIndexService } from '../../src/projectIndex/index.js';
 import { IndexDb } from '../../src/projectIndex/db.js';
-import { shardPath, hashFile } from '../../src/projectIndex/knowledge.js';
+import { shardPath, sealedShardPath, hashFile } from '../../src/projectIndex/knowledge.js';
+import { openFromFolder, isSealedFolderJson } from '../../src/projectIndex/folderSeal.js';
+import crypto from 'node:crypto';
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'docvex-index-'));
 const userData = path.join(tmp, 'userData');
 const caseDir = path.join(tmp, 'Case');
 const PID = '11111111-2222-3333-4444-555555555555';
+const FOLDER_KEY = crypto.randomBytes(32);
+// A sealed file in the case folder, opened with the project's key.
+const readSealed = (file) => {
+  const json = JSON.parse(fs.readFileSync(file, 'utf8'));
+  assert.ok(isSealedFolderJson(json), `${path.basename(file)} is sealed`);
+  return openFromFolder(FOLDER_KEY, json);
+};
+const waitFor = async (check, ms = 3000) => {
+  const end = Date.now() + ms;
+  while (Date.now() < end) { if (await check()) return true; await new Promise((r) => setTimeout(r, 30)); }
+  return false;
+};
 const events = [];
 let svc;
 
@@ -232,13 +246,48 @@ test('ids.json conflict copies are merged and removed', async () => {
   assert.equal((await filesByRel()).get('remote.pdf').id, 'remote-id');
 });
 
+test('folder key: nothing in clear goes into the folder; the key seals what is there', async () => {
+  const note = write('note.txt', 'a note');
+  const noteSha = await hashFile(note);
+  // No key yet: the index keeps it, the folder gets nothing.
+  assert.equal((await svc.knowledgePut({ path: note, kind: 'ocr', facet: { at: 5, data: 'CNP 1850101223344' } })).ok, true);
+  assert.equal(fs.existsSync(shardPath(caseDir, noteSha)) || fs.existsSync(sealedShardPath(caseDir, noteSha)), false);
+  assert.equal((await svc.knowledgeGet({ path: note })).facets.ocr.data, 'CNP 1850101223344');
+  await svc.settingsPut({ projectId: PID, store: 'web', value: { files: { 'note.txt': 1 } } });
+  assert.equal(fs.existsSync(path.join(caseDir, '.docvex', 'settings', 'web.json')), false);
+  // A plain shard an older build wrote.
+  const old = write('old.txt', 'old file');
+  const oldSha = await hashFile(old);
+  fs.mkdirSync(path.dirname(shardPath(caseDir, oldSha)), { recursive: true });
+  fs.writeFileSync(shardPath(caseDir, oldSha), JSON.stringify({ v: 1, name: 'old.txt', facets: { text: { kind: 'text', at: 3, data: 'old text' } } }));
+  // A bad key is refused.
+  assert.equal((await svc.projectFolderKey({ projectId: PID, key: 'short' })).ok, false);
+  // The key arrives: the folder is brought in line.
+  assert.equal((await svc.projectFolderKey({ projectId: PID, key: FOLDER_KEY.toString('base64') })).ok, true);
+  assert.equal(await waitFor(() => fs.existsSync(sealedShardPath(caseDir, noteSha))
+    && fs.existsSync(sealedShardPath(caseDir, oldSha))
+    && fs.existsSync(path.join(caseDir, '.docvex', 'settings', 'web.dvxe'))), true, 'sealed files written');
+  assert.equal(readSealed(sealedShardPath(caseDir, noteSha)).facets.ocr.data, 'CNP 1850101223344');
+  assert.equal(readSealed(sealedShardPath(caseDir, oldSha)).facets.text.data, 'old text');
+  assert.equal(fs.existsSync(shardPath(caseDir, oldSha)), false, 'the plain shard is gone');
+  assert.deepEqual(readSealed(path.join(caseDir, '.docvex', 'settings', 'web.dvxe')).value, { files: { 'note.txt': 1 } });
+  // Nothing readable anywhere in .docvex/.
+  const all = [];
+  const walk = (d) => { for (const n of fs.readdirSync(d)) { const f = path.join(d, n); if (fs.statSync(f).isDirectory()) walk(f); else all.push(f); } };
+  walk(path.join(caseDir, '.docvex'));
+  for (const f of all) assert.equal(fs.readFileSync(f, 'utf8').includes('1850101223344'), false, `${f} holds no clear text`);
+  // A second service (another machine with the same key) reads it.
+  assert.equal((await svc.knowledgeGet({ path: old })).facets.text.data, 'old text');
+});
+
 test('knowledge: shard written, local kinds kept off disk, get / list / clear', async () => {
   const photo = path.join(caseDir, 'Evidence', 'photo.jpg');
   const sha = await hashFile(photo);
   events.length = 0;
   assert.equal((await svc.knowledgePut({ path: photo, kind: 'text', facet: { at: 10, engine: 'tesseract', data: { text: 'hi' } } })).ok, true);
   assert.equal((await svc.knowledgePut({ path: photo, kind: 'faces', facet: { at: 11, data: [1, 2, 3] } })).ok, true);
-  const shard = JSON.parse(fs.readFileSync(shardPath(caseDir, sha), 'utf8'));
+  const shard = readSealed(sealedShardPath(caseDir, sha));
+  assert.equal(fs.existsSync(shardPath(caseDir, sha)), false, 'no plain shard');
   assert.equal(shard.name, 'photo.jpg');
   assert.deepEqual(Object.keys(shard.facets), ['text']);
   assert.equal(shard.facets.text.engine, 'tesseract');
@@ -262,7 +311,7 @@ test('knowledge: shard written, local kinds kept off disk, get / list / clear', 
   assert.deepEqual(Object.keys(item.facets), ['text']);
 
   await svc.knowledgeClear({ path: photo, kind: 'text' });
-  assert.equal(fs.existsSync(shardPath(caseDir, sha)), false, 'an empty shard is removed');
+  assert.equal(fs.existsSync(sealedShardPath(caseDir, sha)), false, 'an empty shard is removed');
   assert.deepEqual(Object.keys((await svc.knowledgeGet({ path: photo })).facets), ['faces']);
 });
 
@@ -295,7 +344,8 @@ test('settings and private data', async () => {
   assert.equal((await svc.settingsPut({ projectId: PID, store: 'scan-tags', value: { a: ['x/'] } })).ok, true);
   assert.deepEqual((await svc.settingsGet({ projectId: PID, store: 'scan-tags' })).value, { a: ['x/'] });
   const file = path.join(caseDir, '.docvex', 'settings', 'scan-tags.json');
-  assert.equal(JSON.parse(fs.readFileSync(file, 'utf8')).value.a[0], 'x/');
+  assert.equal(readSealed(path.join(caseDir, '.docvex', 'settings', 'scan-tags.dvxe')).value.a[0], 'x/');
+  assert.equal(fs.existsSync(file), false, 'no plain settings file');
   assert.ok(events.some((e) => e.channel === 'settings:changed' && e.payload.store === 'scan-tags'));
   // A newer copy on disk (another machine) wins.
   fs.writeFileSync(file, JSON.stringify({ v: 1, at: Date.now() + 60000, value: 'remote' }));

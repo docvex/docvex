@@ -67,6 +67,43 @@ Deno.serve(async (req: Request) => {
   const db = createClient(SUPABASE_URL, SERVICE_KEY, { auth: { persistSession: false } });
   const action = String(body.action || "");
 
+  // ── Sweep (run hourly by pg_cron, migration 044) ─────────────────────────
+  // Files nobody collected must not wait in the bucket for the owner's next
+  // `create`: every session that ended a day ago loses its objects and its
+  // row, and a folder whose session row is already gone is emptied too. It
+  // only ever deletes data that has already lapsed, so it needs no caller
+  // identity; calling it more often changes nothing.
+  if (action === "sweep") {
+    const dayAgo = new Date(Date.now() - 24 * 3600 * 1000).toISOString();
+    const emptyFolder = async (folder: string) => {
+      for (let guard = 0; guard < 50; guard++) {
+        const { data: objs } = await db.storage.from(BUCKET).list(folder, { limit: 1000 });
+        if (!objs?.length) return;
+        const { error } = await db.storage.from(BUCKET).remove(objs.map((x) => `${folder}/${x.name}`));
+        if (error) return;
+      }
+    };
+    let sessions = 0, orphans = 0;
+    const { data: old } = await db.from("phone_upload_sessions").select("id").lt("expires_at", dayAgo).limit(200);
+    for (const o of old || []) {
+      await emptyFolder(o.id);
+      await db.from("phone_upload_sessions").delete().eq("id", o.id);
+      sessions++;
+    }
+    const { data: folders } = await db.storage.from(BUCKET).list("", { limit: 1000 });
+    const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    const ids = (folders || []).filter((f) => !f.id && UUID.test(f.name)).map((f) => f.name);
+    if (ids.length) {
+      const { data: live, error: liveErr } = await db.from("phone_upload_sessions").select("id").in("id", ids);
+      // Never guess: without a clean answer about which sessions exist, no
+      // folder is treated as an orphan.
+      if (liveErr || !live) return json({ ok: true, sessions, orphans });
+      const keep = new Set((live || []).map((r) => r.id));
+      for (const id of ids) if (!keep.has(id)) { await emptyFolder(id); orphans++; }
+    }
+    return json({ ok: true, sessions, orphans });
+  }
+
   // ── Signed-in actions ─────────────────────────────────────────────────────
   if (action === "create" || action === "close") {
     const jwt = (req.headers.get("authorization") || "").replace(/^Bearer\s+/i, "");

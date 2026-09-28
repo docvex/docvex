@@ -88,6 +88,7 @@ export const ipc = {
   knowledgeList: (args) => call('knowledgeList', args),
   settingsGet: (args) => call('settingsGet', args),
   settingsPut: (args) => call('settingsPut', args),
+  projectFolderKey: (args) => call('projectFolderKey', args),
   privateGet: (args) => call('privateGet', args),
   privatePut: (args) => call('privatePut', args),
   privateList: (args) => call('privateList', args),

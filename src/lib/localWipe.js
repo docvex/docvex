@@ -6,9 +6,12 @@
 // cache, temp files and the browser-side caches. The case folders themselves
 // (the user's own documents and their .docvex/ folder) are never touched.
 
+import { forgetFolderKeys } from './projectFolderKey';
+
 const OURS = /^(docvex[.:]|sb-|supabase\.)/i;
 
 export async function wipeLocalUserData() {
+  forgetFolderKeys();
   let main = null;
   try {
     main = await window.electronAPI?.wipeLocalData?.();

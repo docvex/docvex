@@ -103,6 +103,7 @@ export class IndexDb {
         ON CONFLICT(hash, kind) DO UPDATE SET facet = excluded.facet, local = excluded.local`),
       clearKnowledge: q('DELETE FROM knowledge WHERE hash = ? AND kind = ?'),
       getSetting: q('SELECT value, at FROM settings WHERE store = ?'),
+      settingStores: q('SELECT store FROM settings'),
       putSetting: q(`INSERT INTO settings(store, value, at) VALUES(?, ?, ?)
         ON CONFLICT(store) DO UPDATE SET value = excluded.value, at = excluded.at`),
       getPrivate: q('SELECT value, at FROM private WHERE user = ? AND key = ?'),
@@ -205,6 +206,7 @@ export class IndexDb {
     if (!r) return null;
     try { return { value: openJson(r.value), at: Number(r.at) || 0 }; } catch { return null; }
   }
+  settingStores() { return this.s.settingStores.all().map((r) => r.store); }
   putSetting(store, value, at) { this.s.putSetting.run(store, sealJson(value ?? null), at); }
 
   getPrivate(user, key) {

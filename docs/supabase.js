@@ -2,7 +2,8 @@
 // The publishable (anon) key is meant to be public — it only grants the
 // access that Row-Level Security allows. Same project as the app, so accounts
 // created here are the same accounts used in the app.
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+// Bundled copy of @supabase/supabase-js (MIT), served from docvex.ro — no CDN.
+import { createClient } from './vendor/supabase-js.js';
 
 export const SUPABASE_URL = 'https://pntxlvhkqfryyyxlqytr.supabase.co';
 export const SUPABASE_ANON_KEY = 'sb_publishable_2JXDUwP4MFAk9t78UELKpA_99CImHfW';

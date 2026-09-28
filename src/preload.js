@@ -398,6 +398,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   knowledgeList: (args) => ipcRenderer.invoke('knowledge:list', args),
   settingsGet: (args) => ipcRenderer.invoke('settings:get', args),
   settingsPut: (args) => ipcRenderer.invoke('settings:put', args),
+  // The project's folder key (projectIndex/folderSeal.js), from the server.
+  projectFolderKey: (args) => ipcRenderer.invoke('project:folder-key', args),
   privateGet: (args) => ipcRenderer.invoke('private:get', args),
   privatePut: (args) => ipcRenderer.invoke('private:put', args),
   privateList: (args) => ipcRenderer.invoke('private:list', args),

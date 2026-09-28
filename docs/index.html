@@ -19,9 +19,7 @@
 <meta name="twitter:description" content="DocVex — intelligent legal workflows for modern law firms. Draft, review, organize, and collaborate on legal documents with privacy-first local file storage and focused AI tooling.">
 <meta name="twitter:image" content="https://docvex.ro/assets/logo-lockup.png">
 
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@500;600;700;800&display=swap" rel="stylesheet">
+<link href="fonts/fonts.css" rel="stylesheet">
 <script>(function(){var d=document.documentElement,t='ink';try{t=localStorage.getItem('docvex.site.theme')||'ink';}catch(e){}d.setAttribute('data-theme',t);d.style.backgroundColor=t==='cream'?'#F5F2EA':'#0F172A';})();</script>
 <style>
   *, *::before, *::after { box-sizing: border-box; }
@@ -655,7 +653,7 @@
         <div style="display:flex; flex-direction:column; gap:9px;">
           <a href="mailto:docvexteam@docvex.ro" style="font-size:13px; color:var(--tx-3); text-decoration:none;">docvexteam@docvex.ro</a>
           <a href="https://docvex.ro" style="font-size:13px; color:var(--tx-3); text-decoration:none;">docvex.ro</a>
-          <span style="font-size:13px; color:var(--tx-3);">Bucharest, Romania</span>
+          <span style="font-size:13px; color:var(--tx-3);">Petre Luca Andrei, Str. Răscoalei 1907 nr. 59, Constanța, România</span>
         </div>
       </div>
       <div>
@@ -665,7 +663,7 @@
           <button type="submit" style="border:none; cursor:pointer; padding:9px 18px; border-radius:999px; background:var(--acc); color:#0F172A; font-size:12.5px; font-weight:700; font-family:inherit;">Subscribe</button>
         </form>
         <p class="dv-newsmsg" id="newsMsg" hidden></p>
-        <p style="margin:10px 0 0; font-size:11px; color:var(--tx-3);">Legal updates, summarized for your practice. Weekly; unsubscribe any time by writing to docvexteam@docvex.ro. See our <a style="color:inherit;text-decoration:underline" href="privacy.html">Privacy Policy</a>.</p>
+        <p style="margin:10px 0 0; font-size:11px; color:var(--tx-3);">Legal updates, summarized for your practice. Weekly. We email you a link to confirm first; every email has an unsubscribe link. See our <a style="color:inherit;text-decoration:underline" href="privacy.html">Privacy Policy</a>.</p>
       </div>
     </div>
     <div style="position:relative; max-width:1280px; margin:0 auto; padding:18px 32px 26px; display:flex; align-items:center; justify-content:space-between; gap:16px; flex-wrap:wrap; border-top:1px solid rgba(var(--br),0.08);">
@@ -766,8 +764,8 @@ try {
   }
 } catch (e) {}
 
-// ── Footer newsletter → enrollments table (same rows as chrome.js's form:
-//    type 'newsletter', degrading to a tagged 'waitlist' row if constrained). ──
+// ── Footer newsletter → the newsletter function (same as chrome.js's form:
+//    double opt-in, a confirmation email first). ──
 var form = document.getElementById('newsForm');
 if (form) {
   form.addEventListener('submit', function (e) {
@@ -776,14 +774,10 @@ if (form) {
     var msg = document.getElementById('newsMsg');
     var show = function (text, ok) { msg.textContent = text; msg.classList.toggle('err', !ok); msg.hidden = false; };
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { show('Please enter a valid email address.', false); return; }
-    supabase.from('enrollments').insert({ type: 'newsletter', name: null, email: email, firm: null, message: null }).then(function (res) {
-      if (res.error) {
-        return supabase.from('enrollments').insert({ type: 'waitlist', name: null, email: email, firm: null, message: '[newsletter subscription]' });
-      }
-      return res;
-    }).then(function (res) {
+    // Double opt-in: a pending request + a confirmation email (newsletter function).
+    supabase.functions.invoke('newsletter', { body: { action: 'subscribe', email: email, source: 'website-home' } }).then(function (res) {
       if (res && res.error) show('Something went wrong — please try again.', false);
-      else { show("You're subscribed — legal updates, weekly.", true); document.getElementById('newsEmail').value = ''; }
+      else { show('Almost done — check your inbox and press the link to confirm.', true); document.getElementById('newsEmail').value = ''; }
     }).catch(function () { show('Something went wrong — please try again.', false); });
   });
 }

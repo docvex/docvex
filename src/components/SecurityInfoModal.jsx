@@ -87,7 +87,7 @@ export default function SecurityInfoModal({ onClose }) {
             <li>If you connect a mailbox, its access tokens are encrypted before being stored.</li>
             <li>The Playbook keeps an excerpt of each document you import to learn your writing style, with identifiers replaced by placeholders first.</li>
             <li>You can download your data, erase it (including what DocVex keeps on this computer) or delete your account from the Account page. Erasing revokes the session on every device.</li>
-            <li>“Report a problem” sends a screenshot only if you keep it attached. Remove it before sending if client documents are on screen.</li>
+            <li>“Report a problem” attaches a screenshot only if you tick the box for it. Reports, invitations and account emails are delivered by Resend.</li>
           </ul>
         </section>
 
@@ -120,6 +120,7 @@ export default function SecurityInfoModal({ onClose }) {
           <ul className="sec-list">
             <li>Our servers are in the EU; AI providers are in the United States (EU–US Data Privacy Framework / Standard Contractual Clauses). You decide what leaves your machine.</li>
             <li>Searches in the Legislation, Court files and Companies tools go straight to the Romanian public services that answer them.</li>
+            <li>Other services this computer contacts: Google Maps, only after you agree to show a company’s address on a map; GitHub and update.electronjs.org, to check for updates (they see your IP address, system and app version).</li>
             <li>Access, correction, export and erasure are all available from the Account page.</li>
             <li>A Data Processing Agreement is available for firms that need one on file.</li>
           </ul>

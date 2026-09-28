@@ -45,6 +45,7 @@ import { adoptFileIndexRecord } from './aiFileIndex';
 import { loadExtract, saveExtract } from './scanExtractCache';
 import { touch, touchedAt, goneFor, setGone } from './syncClock';
 import { hydratePaths } from './projectIndexClient';
+import { isSealedBundle, openBundle, projectFolderKey, sealBundle } from './projectFolderKey';
 
 export const DATA_NAME = '.docvex-data.json';
 export const privateDataPath = (userId, projectId) => `user-${userId}/${projectId}.json`;
@@ -274,19 +275,30 @@ const PROJECT_STORES = [
 // ── Bundles in the account ──────────────────────────────────────────────────
 const emptyBundle = (projectId) => ({ version: 1, projectId, at: null, files: {}, project: {} });
 
-async function downloadBundle(path) {
+// Both bundles are sealed with the project's folder key (lib/projectFolderKey)
+// — the copy in the account holds no readable text. A bundle an older build
+// uploaded in clear is still read, and goes back sealed. A sealed bundle that
+// can't be opened is an ERROR, never "nothing there": merging against an
+// empty remote would upload over it and lose the other devices' entries.
+async function downloadBundle(path, key) {
   const { data, error } = await bucket().download(path);
-  if (error) return { bundle: null, error };
+  if (error) return { bundle: null, error: null, missing: true };
   try {
-    const parsed = JSON.parse(await data.text());
+    let parsed = JSON.parse(await data.text());
+    if (isSealedBundle(parsed)) {
+      if (!key) return { bundle: null, error: new Error('The project key is not available — try again when online.') };
+      parsed = await openBundle(key, parsed);
+    }
     return { bundle: parsed && typeof parsed === 'object' ? parsed : null, error: null };
   } catch (err) {
     return { bundle: null, error: err };
   }
 }
 
-async function uploadBundle(path, bundle) {
-  const body = new Blob([JSON.stringify({ ...bundle, at: new Date().toISOString() })], { type: 'application/json' });
+async function uploadBundle(path, bundle, key) {
+  if (!key) return { error: new Error('The project key is not available — nothing was uploaded.') };
+  const sealed = await sealBundle(key, { ...bundle, at: new Date().toISOString() });
+  const body = new Blob([JSON.stringify(sealed)], { type: 'application/json' });
   const { error } = await bucket().upload(path, body, { upsert: true, contentType: 'application/json' });
   return { error };
 }
@@ -361,9 +373,13 @@ export async function syncProjectData({ projectId, dir, manifest, removedPaths =
   const removedRels = new Set(removedPaths);
   const result = { ok: true, error: null, applied: 0, privateError: null };
 
+  const key = await projectFolderKey(projectId);
+  if (!key) return { ok: false, error: 'The project key could not be fetched — sign in and try again.' };
+
   // Shared.
   const sharedPath = `${projectId}/${DATA_NAME}`;
-  const { bundle: sharedRemote } = await downloadBundle(sharedPath);   // missing = first time
+  const { bundle: sharedRemote, error: sdErr } = await downloadBundle(sharedPath, key);   // missing = first time
+  if (sdErr) return { ok: false, error: sdErr.message || String(sdErr) };
   try { result.applied += await adoptLegacySlots(sharedRemote, ctx); } catch { /* the rest still syncs */ }
   const shared = await mergeBundle({
     which: 'shared',
@@ -373,13 +389,14 @@ export async function syncProjectData({ projectId, dir, manifest, removedPaths =
     removedRels,
   });
   result.applied += shared.applied;
-  const { error: sErr } = await uploadBundle(sharedPath, shared.bundle);
+  const { error: sErr } = await uploadBundle(sharedPath, shared.bundle, key);
   if (sErr) { result.ok = false; result.error = sErr.message || String(sErr); }
 
   // Private — only with a signed-in user, and only where migration 036 lets it.
   if (userId) {
     const privPath = privateDataPath(userId, projectId);
-    const { bundle: privRemote } = await downloadBundle(privPath);
+    const { bundle: privRemote, error: pdErr } = await downloadBundle(privPath, key);
+    if (pdErr) { result.privateError = pdErr.message || String(pdErr); return result; }
     const priv = await mergeBundle({
       which: 'private',
       remote: privRemote || emptyBundle(projectId),
@@ -388,7 +405,7 @@ export async function syncProjectData({ projectId, dir, manifest, removedPaths =
       removedRels,
     });
     result.applied += priv.applied;
-    const { error: pErr } = await uploadBundle(privPath, priv.bundle);
+    const { error: pErr } = await uploadBundle(privPath, priv.bundle, key);
     if (pErr) result.privateError = pErr.message || String(pErr);
   }
   return result;

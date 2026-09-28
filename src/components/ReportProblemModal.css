@@ -330,3 +330,17 @@
   font-size: 12px;
   line-height: 1.45;
 }
+
+/* The screenshot is opt-in: a tick box in the privacy note, and the
+   thumbnail faded while it is not going to be sent. */
+.report-modal-shot-opt {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  cursor: pointer;
+}
+.report-modal-shot-opt input { margin: 2px 0 0; flex: none; }
+.report-modal-attachment.is-screenshot.is-off {
+  opacity: 0.45;
+  border-color: var(--border);
+}

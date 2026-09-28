@@ -159,7 +159,7 @@ function footerHTML() {
           '<div class="dvx-footer-links">' +
             '<a href="mailto:docvexteam@docvex.ro">docvexteam@docvex.ro</a>' +
             '<a href="https://docvex.ro">docvex.ro</a>' +
-            '<span>Bucharest, Romania</span>' +
+            '<span>Petre Luca Andrei, Str. Răscoalei 1907 nr. 59, Constanța, România</span>' +
           '</div>' +
         '</div>' +
         '<div>' +
@@ -169,7 +169,7 @@ function footerHTML() {
             '<button class="dvx-footer-newsbtn" type="submit">Subscribe</button>' +
           '</form>' +
           '<p class="dvx-footer-newsmsg" id="dvxNewsMsg" hidden></p>' +
-          '<p class="dvx-footer-newsnote">Legal updates, summarized for your practice. Weekly; unsubscribe any time by writing to docvexteam@docvex.ro. See our <a href="privacy.html">Privacy Policy</a>.</p>' +
+          '<p class="dvx-footer-newsnote">Legal updates, summarized for your practice. Weekly. We email you a link to confirm first; every email has an unsubscribe link. See our <a href="privacy.html">Privacy Policy</a>.</p>' +
         '</div>' +
       '</div>' +
       '<div class="dvx-footer-bottom">' +
@@ -181,8 +181,7 @@ function footerHTML() {
   );
 }
 
-// Footer newsletter signup → enrollments table (type 'newsletter'; degrades to
-// a tagged 'waitlist' row if the live table constrains the type column).
+// Footer newsletter signup → the newsletter Edge Function (double opt-in).
 function wireNewsletter() {
   var form = document.getElementById('dvxNewsForm');
   if (!form) return;
@@ -192,15 +191,14 @@ function wireNewsletter() {
     var msg = document.getElementById('dvxNewsMsg');
     var show = function (text, ok) { msg.textContent = text; msg.style.color = ok ? '' : 'var(--danger-soft)'; msg.hidden = false; };
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { show('Please enter a valid email address.', false); return; }
+    // Double opt-in: the newsletter function stores a pending request and
+    // emails a confirmation link; nothing is sent until it is followed.
     import('./supabase.js').then(function (m) {
-      return m.supabase.from('enrollments').insert({ type: 'newsletter', name: null, email: email, firm: null, message: null }).then(function (res) {
-        if (res.error) return m.supabase.from('enrollments').insert({ type: 'waitlist', name: null, email: email, firm: null, message: '[newsletter subscription]' });
-        return res;
-      });
+      return m.supabase.functions.invoke('newsletter', { body: { action: 'subscribe', email: email, source: 'website-footer' } });
     }).then(function (res) {
       if (res && res.error) { show('Something went wrong — try again later.', false); return; }
       form.hidden = true;
-      show('Subscribed — welcome to the briefing.', true);
+      show('Almost done — check your inbox and press the link to confirm.', true);
     }).catch(function () { show('Something went wrong — try again later.', false); });
   });
 }

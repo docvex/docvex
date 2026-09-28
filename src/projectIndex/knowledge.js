@@ -11,6 +11,7 @@ import fsp from 'node:fs/promises';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { readJson, writeJsonAtomic } from './atomic.js';
+import { SEALED_EXT, isFolderKey, isSealedFolderJson, openFromFolder, sealForFolder } from './folderSeal.js';
 
 // Kinds that must never leave this machine. `faces` holds face descriptors
 // (biometric data): the AI data layer marks them `local: true` and account
@@ -32,6 +33,11 @@ export function hashFile(file) {
 
 export const shardDir = (dir, sha) => path.join(dir, '.docvex', 'knowledge', sha.slice(0, 2));
 export const shardPath = (dir, sha) => path.join(shardDir(dir, sha), `${sha}.json`);
+// The sealed shard (folderSeal.js) — the only kind written once the project's
+// folder key is known.
+export const sealedShardPath = (dir, sha) => path.join(shardDir(dir, sha), `${sha}${SEALED_EXT}`);
+const isShardName = (n, sha) => n.startsWith(sha) && !n.startsWith('.')
+  && (n.toLowerCase().endsWith('.json') || n.toLowerCase().endsWith(SEALED_EXT));
 
 const facetsOf = (json) => (json && typeof json.facets === 'object' && json.facets ? json.facets : {});
 
@@ -59,27 +65,52 @@ function withShardLock(file, fn) {
 }
 
 // Read a shard, folding in the conflict copies a sync client left beside it
-// ("<sha>-DESKTOP-1.json", "<sha> (1).json"); when there were any, the merged
-// shard is written back and the copies removed. null when there is no shard.
-async function readShardUnlocked(dir, sha, onWrite) {
+// ("<sha>-DESKTOP-1.json", "<sha> (1).dvxe") and, with the project's folder
+// key, the plain `.json` an older build wrote. With the key, the merged shard
+// is written back SEALED and every other file for it removed — which is how a
+// folder's plain shards become sealed. Without the key, sealed files can't be
+// read and are left alone; plain ones behave as before. null when there is
+// nothing readable.
+async function readShardUnlocked(dir, sha, onWrite, key) {
   const folder = shardDir(dir, sha);
   let names;
   try { names = await fsp.readdir(folder); } catch { return null; }
-  const main = `${sha}.json`;
-  const mine = names.filter((n) => n.startsWith(sha) && n.toLowerCase().endsWith('.json') && !n.startsWith('.'));
+  const haveKey = isFolderKey(key);
+  const mine = names.filter((n) => isShardName(n, sha))
+    .filter((n) => haveKey || n.toLowerCase().endsWith('.json'));
   if (!mine.length) return null;
+  const mainPlain = `${sha}.json`;
+  const mainSealed = `${sha}${SEALED_EXT}`;
+  const order = [mainSealed, mainPlain, ...mine.filter((n) => n !== mainSealed && n !== mainPlain)];
   let shard = null;
-  for (const name of [main, ...mine.filter((n) => n !== main)]) {
+  const read = [];
+  for (const name of order) {
     if (!mine.includes(name)) continue;
-    const json = await readJson(path.join(folder, name));
+    let json = await readJson(path.join(folder, name));
     if (!json) continue;
+    if (isSealedFolderJson(json)) {
+      if (!haveKey) continue;
+      try { json = openFromFolder(key, json); } catch { continue; } // another key / damaged: left as it is
+    }
+    read.push(name);
     shard = shard
       ? { ...shard, name: shard.name || json.name || null, facets: mergeFacets(shard.facets, facetsOf(json)) }
       : { v: 1, name: json.name || null, facets: { ...facetsOf(json) } };
   }
-  const copies = mine.filter((n) => n !== main);
-  if (copies.length && shard) {
-    const file = path.join(folder, main);
+  if (!shard) return null;
+  if (haveKey) {
+    const stale = read.filter((n) => n !== mainSealed);
+    if (stale.length || !read.includes(mainSealed)) {
+      const file = path.join(folder, mainSealed);
+      onWrite?.(file);
+      await writeJsonAtomic(file, sealForFolder(key, { v: 1, name: shard.name, facets: shard.facets }));
+      for (const n of stale) { onWrite?.(path.join(folder, n)); await fsp.unlink(path.join(folder, n)).catch(() => {}); }
+    }
+    return shard;
+  }
+  const copies = read.filter((n) => n !== mainPlain);
+  if (copies.length) {
+    const file = path.join(folder, mainPlain);
     onWrite?.(file);
     await writeJsonAtomic(file, shard);
     for (const n of copies) await fsp.unlink(path.join(folder, n)).catch(() => {});
@@ -87,29 +118,54 @@ async function readShardUnlocked(dir, sha, onWrite) {
   return shard;
 }
 
-export function readShard(dir, sha, onWrite) {
-  return withShardLock(shardPath(dir, sha), () => readShardUnlocked(dir, sha, onWrite));
+export function readShard(dir, sha, onWrite, key) {
+  return withShardLock(shardPath(dir, sha), () => readShardUnlocked(dir, sha, onWrite, key));
 }
 
 // Set (facet) or remove (facet === null) one kind in a shard — read, merge,
 // write, so facets another machine added are kept. A shard left with no
 // facets is deleted. Local kinds are refused here as a last line of defence.
-export function writeShardFacet(dir, sha, { name, kind, facet }, onWrite) {
+// Without the project's folder key nothing is written into the folder at all:
+// the index keeps the facet, and it is written out (sealed) once the key
+// arrives (the service's sealFolder).
+export function writeShardFacet(dir, sha, { name, kind, facet }, onWrite, key) {
   if (LOCAL_KINDS.has(kind) || facet?.local === true) return Promise.resolve(false);
-  const file = shardPath(dir, sha);
-  return withShardLock(file, async () => {
-    const shard = (await readShardUnlocked(dir, sha, onWrite)) || { v: 1, name: null, facets: {} };
+  const lockFile = shardPath(dir, sha);
+  if (!isFolderKey(key)) {
+    // No key: never write new content into the folder. A REMOVAL still
+    // reaches a plain shard an older build wrote, or the cleared facet would
+    // come back from it on the next import.
+    if (facet) return Promise.resolve(false);
+    return withShardLock(lockFile, async () => {
+      const shard = await readShardUnlocked(dir, sha, onWrite, null);
+      if (!shard || !(kind in shard.facets)) return false;
+      delete shard.facets[kind];
+      onWrite?.(lockFile);
+      if (!Object.keys(shard.facets).length) await fsp.unlink(lockFile).catch(() => {});
+      else await writeJsonAtomic(lockFile, { v: 1, name: shard.name, facets: shard.facets });
+      return true;
+    });
+  }
+  return withShardLock(lockFile, async () => {
+    const shard = (await readShardUnlocked(dir, sha, onWrite, key)) || { v: 1, name: null, facets: {} };
     if (name) shard.name = name;
     if (facet) shard.facets[kind] = facet;
     else delete shard.facets[kind];
+    const file = sealedShardPath(dir, sha);
     onWrite?.(file);
     if (!Object.keys(shard.facets).length) {
       await fsp.unlink(file).catch(() => {});
+      await fsp.unlink(lockFile).catch(() => {});
       return true;
     }
-    await writeJsonAtomic(file, { v: 1, name: shard.name, facets: shard.facets });
+    await writeJsonAtomic(file, sealForFolder(key, { v: 1, name: shard.name, facets: shard.facets }));
     return true;
   });
+}
+
+// Whether any shard file (plain or sealed) exists for a content hash.
+export async function hasShardFile(dir, sha) {
+  try { return (await fsp.readdir(shardDir(dir, sha))).some((n) => isShardName(n, sha)); } catch { return false; }
 }
 
 // Every shard in the folder: [{ sha, file, mtimeMs }]. Cheap — one readdir per
@@ -126,11 +182,13 @@ export async function listShards(dir) {
     const shas = new Set();
     for (const n of names) {
       const sha = n.slice(0, 64);
-      if (isShaHex(sha) && n.toLowerCase().endsWith('.json') && !n.startsWith('.')) shas.add(sha);
+      if (isShaHex(sha) && isShardName(n, sha)) shas.add(sha);
     }
     for (const sha of shas) {
       let mtimeMs = 0;
-      try { mtimeMs = (await fsp.stat(path.join(root, b, `${sha}.json`))).mtimeMs; } catch { /* only copies */ }
+      for (const ext of ['.json', SEALED_EXT]) {
+        try { mtimeMs = Math.max(mtimeMs, (await fsp.stat(path.join(root, b, `${sha}${ext}`))).mtimeMs); } catch { /* not this one */ }
+      }
       out.push({ sha, mtimeMs });
     }
   }
