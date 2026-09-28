@@ -1,6 +1,6 @@
 // Encryption at rest for the index's sensitive columns — the `private` table
 // (advisor threads, conversations), the `knowledge` facets (text read out of
-// documents, captions, face descriptors) and the project settings. The main
+// documents, captions) and the project settings. The main
 // process hands in a key (random, kept wrapped by the OS key store —
 // safeStorage); without one, values are stored as plain JSON as before.
 //

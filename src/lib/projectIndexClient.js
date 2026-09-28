@@ -33,13 +33,12 @@
 // ── The catalogue ───────────────────────────────────────────────────────────
 // Every kind of per-file knowledge, in one place. `local` kinds never leave
 // this machine (main keeps them out of `.docvex/`, account sync leaves them
-// out) — the face descriptions are biometric data.
+// out) — none does today; a facet can still ask for it with `local: true`.
 export const KNOWLEDGE_KINDS = {
   text: { store: 'aiData' },          // a picture's text with positions (lib/textRegions)
   ocr: { store: 'aiData' },           // the paid Claude transcription (lib/identityExtract)
   identity: { store: 'aiData' },      // record details read out of the file
   understanding: { store: 'aiData' }, // what the Files scan understood (lib/dataCollections)
-  faces: { store: 'aiData', local: true }, // face descriptors (lib/faceMatch)
   metadata: { store: 'metadataHistory' },
   captions: { store: 'captionsHistory' },
   extraction: { store: 'extractionHistory' }, // the Doc Viewer's OCR snippet list
@@ -48,6 +47,11 @@ export const KNOWLEDGE_KINDS = {
   theme: { store: 'docThemes' },              // a Word file's chosen document theme
 };
 export const isLocalKind = (kind) => !!KNOWLEDGE_KINDS[kind]?.local;
+
+// Kinds no longer made and never kept (src/projectIndex/knowledge.js
+// RETIRED_KINDS): `faces`, the face descriptors of the face matching removed on
+// 2026-09-28. The migration below drops them instead of moving them.
+export const RETIRED_KINDS = new Set(['faces']);
 
 // Project-level stores kept in `.docvex/settings/<store>.json`.
 export const SETTINGS_STORES = {
@@ -612,10 +616,11 @@ export function collectLegacy(keys, read, { inside = null, onlyPath = null } = {
       const path = key.slice(LEGACY.aiData.length);
       const rec = want(path) && json(key);
       if (!rec?.facets) continue;
-      for (const [kind, f] of Object.entries(rec.facets)) {
+      const kept = Object.entries(rec.facets).filter(([kind]) => !RETIRED_KINDS.has(kind));
+      for (const [kind, f] of kept) {
         if (f && f.data != null) out.push({ path, kind, key, stamp: f.stamp || null, facet: { ...f, kind } });
       }
-      if (!Object.keys(rec.facets).length) out.push({ path, kind: null, key });
+      if (!kept.length) out.push({ path, kind: null, key });
     } else if (key.startsWith(LEGACY.metadata)) {
       const path = key.slice(LEGACY.metadata.length);
       const v = want(path) && json(key);

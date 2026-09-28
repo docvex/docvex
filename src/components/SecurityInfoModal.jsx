@@ -71,11 +71,11 @@ export default function SecurityInfoModal({ onClose }) {
           <ul className="sec-list">
             <li>Project files live in a folder you choose. DocVex has <strong>no cloud file store</strong> — nothing is uploaded when you open, edit or organise them.</li>
             <li>Two cloud features are off until you switch them on: <strong>Sync with account</strong> keeps a copy of a project in private EU storage that only its members can read, and <strong>phone upload through the DocVex cloud</strong> holds a file only until this computer has received it.</li>
-            <li>What DocVex works out about your files (text read out of documents, AI conversations, face measurements), the placeholder table and the thumbnail cache are <strong>encrypted on this computer</strong> with a key kept by Windows / macOS. Turn on BitLocker or FileVault to protect the case files themselves.</li>
+            <li>What DocVex works out about your files (text read out of documents, AI conversations), the placeholder table and the thumbnail cache are <strong>encrypted on this computer</strong> with a key kept by Windows / macOS. Turn on BitLocker or FileVault to protect the case files themselves.</li>
             <li>Deleting a file moves it to a local recycle bin for 30 days, on your disk.</li>
             <li>The app refuses system locations and only writes in the folders you opened. Paths are resolved through their real location, so a shortcut can’t be used to reach the rest of your drive.</li>
             <li>Links open in your normal browser, and only ever <code>http</code> / <code>https</code>.</li>
-            <li>Face matching (off by default) compares faces <strong>on this computer only</strong>. Face data is biometric data: it is never uploaded, never sent to an AI provider and never synced to your account.</li>
+            <li>DocVex does <strong>no facial recognition</strong>. It never analyses faces or keeps biometric data; face data left by an earlier version is deleted from this computer when a project is opened.</li>
           </ul>
         </section>
 

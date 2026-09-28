@@ -33,7 +33,6 @@ const STAGE_NAMES = {
   read: 'Reading the files',
   understand: 'Understanding',
   connect: 'Connecting',
-  faces: 'Comparing faces',
   links: 'Cross-referencing',
   save: 'Writing the collections',
 };
@@ -157,7 +156,7 @@ function Dial({ goal, running, state = null, label, sub, tone }) {
 // card — separate mounts — show the same needles.
 const BURST_MS = 800;
 const SNAP_MS = 450;
-const STEP_MS = { list: 1500, understand: 18000, connect: 22000, faces: 15000, links: 25000, save: 2500 };
+const STEP_MS = { list: 1500, understand: 18000, connect: 22000, links: 25000, save: 2500 };
 export function stagedProgress(t, expected) {
   if (!(t > 0)) return 0;
   if (t < BURST_MS) { const x = t / BURST_MS; return 0.4 * (1 - (1 - x) ** 3); }

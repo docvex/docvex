@@ -441,7 +441,7 @@ const WEB_FILE = '.docvex-web.json';
 const WEB_LS = 'docvex:data-web:v1:';
 
 const shapeWeb = (web) => (web && typeof web === 'object' && web.files
-  ? { version: 1, files: web.files || {}, collections: cleanList(web.collections), graph: web.graph && typeof web.graph === 'object' ? web.graph : null }
+  ? { version: 1, files: web.files || {}, collections: cleanList(web.collections), graph: web.graph && typeof web.graph === 'object' ? web.graph : null, facesPurged: !!web.facesPurged }
   : null);
 
 async function readWeb(projectDir, projectId) {
@@ -765,77 +765,6 @@ function withoutFiles(c, gone) {
   };
 }
 
-// ── Faces ───────────────────────────────────────────────────────────────
-// Identity documents = pictures the AI said are one (`idDocument`), or whose
-// reading names one. Only pictures carry a face this can read.
-const ID_WORDS = /carte de identitate|cartea de identitate|buletin|pa[sș]aport|passport|permis de (conducere|[sș]edere)|identity card|romania\s*roumanie/i;
-async function faceStage(entries, { projectId, onProgress, isCancelled }) {
-  const pictures = entries.filter((e) => scanKindOf(e.file.name, e.file.mimeType) === 'image');
-  const documents = pictures
-    .filter((e) => e.understanding.idDocument || (e.method === 'image-text' && ID_WORDS.test(`${e.understanding.subject} ${e.understanding.text}`)))
-    .map((e) => ({ path: e.file.path, name: e.file.name, rel: e.rel, holder: e.understanding.idDocument?.holder || e.understanding.subject || e.file.name }));
-  if (!documents.length) return { references: [], matches: [], errors: [] };
-  try {
-    const { matchFaces } = await import('./faceMatch');
-    return await matchFaces(documents, pictures.map((e) => ({ path: e.file.path, name: e.file.name, rel: e.rel })), { projectId, onProgress, isCancelled });
-  } catch (err) {
-    return { references: [], matches: [], errors: [{ name: '', error: err?.message || 'The face model couldn\u2019t start.' }] };
-  }
-}
-
-// Put the matches into the collections: every document's holder has a
-// collection (the one holding the document, else one naming the holder, else a
-// new one made here without the AI), and each picture showing the same face
-// joins it as a source, with the score. Face-made sources are taken out and
-// put back every run, so a match that no longer holds goes.
-const REF_ROLE = 'The identity document \u2014 the reference photo.';
-function applyFaces(cols, created, faces, byRel) {
-  for (const c of [...cols, ...created]) {
-    c.sources = c.sources.filter((s) => s.method !== 'face');
-    c.connections = c.connections.filter((k) => !k.face);
-    delete c.faceMatches;
-    delete c.faceReference;
-  }
-  if (!faces.references.length) return;
-  const pct = (x) => `${Math.round(x * 100)}%`;
-  const all = () => [...cols, ...created];
-  for (const ref of faces.references) {
-    const mine = faces.matches.filter((m) => m.idRel === ref.rel);
-    let home = all().find((c) => c.sources.some((s) => s.rel === ref.rel))
-      || all().find((c) => c.record && foldName(c.record.name || c.record.legalName) === foldName(ref.holder))
-      || all().find((c) => (c.entities || []).some((e) => foldName(e.name) === foldName(ref.holder)));
-    const idEntry = byRel.get(ref.rel);
-    if (!home) {
-      if (!mine.length || !idEntry) continue;
-      home = {
-        title: ref.holder, subject: 'person',
-        summary: `${ref.holder}: the identity document \u201c${idEntry.file.name}\u201d and the pictures in which the same face appears (matched on this computer).`,
-        sources: [sourceOf(idEntry, REF_ROLE)],
-        facts: [], timeline: [], connections: [],
-      };
-      created.push(home);
-    }
-    if (idEntry && !home.sources.some((s) => s.rel === ref.rel)) home.sources.push(sourceOf(idEntry, REF_ROLE));
-    // The document's face is kept too, to be shown beside each match.
-    home.faceReference = [...(home.faceReference || []), { rel: ref.rel, holder: ref.holder, box: ref.box }];
-    home.faceMatches = [...(home.faceMatches || []), ...mine.map((m) => ({
-      kind: m.kind, idRel: m.idRel, holder: m.holder, rel: m.rel, box: m.box, idBox: m.idBox, confidence: m.confidence,
-    }))];
-    for (const m of mine) {
-      const e = byRel.get(m.rel);
-      if (!e || home.sources.some((s) => s.rel === m.rel)) continue;
-      home.sources.push({
-        ...sourceOf(e, m.kind === 'document'
-          ? `Another identity document with the same face \u2014 ${pct(m.confidence)} face match.`
-          : `Shows ${m.holder} \u2014 ${pct(m.confidence)} face match with \u201c${byRel.get(m.idRel)?.file.name || m.idRel}\u201d.`),
-        method: 'face',
-        confidence: m.confidence,
-      });
-    }
-    home.connections.push(...mine.map((m) => ({ from: ref.rel, to: m.rel, why: `Same face as the identity document\u2019s photo (${pct(m.confidence)} confidence, compared on this computer).`, face: true })));
-  }
-}
-
 const safeName = (title) => String(title || 'Data collection')
   .replace(/[\\/:*?"<>|]+/g, ' ').replace(/\s+/g, ' ').replace(/\.+$/, '').trim().slice(0, 90) || 'Data collection';
 
@@ -982,7 +911,7 @@ export async function scanProjectFiles(projectDir, { projectId, projectName, for
   // no known file has gone - nothing to read, connect or cross-reference, and
   // no collection to read back (the live network runs this after changes in
   // the folder, most of which don't touch the scanned files).
-  if (web && !force && !features.faces && (web.graph || !features.links)) {
+  if (web && !force && web.facesPurged && (web.graph || !features.links)) {
     const rels = new Set(files.map((f) => relInProject(projectDir, f.path)));
     const unchanged = files.every((f) => {
       const k = known[relInProject(projectDir, f.path)];
@@ -991,7 +920,7 @@ export async function scanProjectFiles(projectDir, { projectId, projectName, for
     if (unchanged && Object.keys(known).every((rel) => rels.has(rel))) {
       return {
         collections: cleanList(web.collections).map((c) => ({ title: c.title, filename: c.file, path: resolveInProject(projectDir, c.file) })),
-        created: 0, updated: 0, removed: 0, read: 0, added: 0, upToDate: true, faceMatches: 0, faceErrors: [], links: null, linkCalls: 0, linkErrors: [], skipped: [],
+        created: 0, updated: 0, removed: 0, read: 0, added: 0, upToDate: true, links: null, linkCalls: 0, linkErrors: [], skipped: [],
       };
     }
   }
@@ -1151,6 +1080,7 @@ export async function scanProjectFiles(projectDir, { projectId, projectName, for
   // Every collection in the project, read back from its file. `filename` is
   // its path inside the project.
   let cols = [];
+  const purgeFaces = new Set();
   // Read through a cache keyed by each file's size + modified time: the live
   // network runs often and most collections haven't changed since the last
   // pass. A copy is handed out - the scan changes the objects it gets.
@@ -1163,7 +1093,13 @@ export async function scanProjectFiles(projectDir, { projectId, projectName, for
         COLLECTION_CACHE.set(f.path, doc);
         if (COLLECTION_CACHE.size > 800) COLLECTION_CACHE.delete(COLLECTION_CACHE.keys().next().value);
       }
-      if (doc.value) cols.push({ ...structuredClone(doc.value), filename: relInProject(projectDir, f.path), raw: null });
+      if (doc.value) {
+        const col = { ...structuredClone(doc.value), filename: relInProject(projectDir, f.path), raw: null };
+        // Written with face-matching data (removed): rewritten below without it.
+        if (col.hadFaces) purgeFaces.add(col.filename);
+        delete col.hadFaces;
+        cols.push(col);
+      }
     } catch { /* unreadable - left alone */ }
   }
   const firstRun = !cols.length;
@@ -1172,7 +1108,7 @@ export async function scanProjectFiles(projectDir, { projectId, projectName, for
   let created = [];
   let touched = new Set();
   // What each collection said before, to write only the ones that change.
-  const signature = (c) => JSON.stringify({ t: c.title, s: c.summary, so: c.sources, f: c.facts, ti: c.timeline, co: c.connections, l: c.links || [], e: c.entities, r: c.related, fm: c.faceMatches || [], fr: c.faceReference || [], rc: c.record || null });
+  const signature = (c) => JSON.stringify({ t: c.title, s: c.summary, so: c.sources, f: c.facts, ti: c.timeline, co: c.connections, l: c.links || [], e: c.entities, r: c.related, rc: c.record || null });
   const before = new Map(cols.map((c) => [c.filename, signature(c)]));
   if (!upToDate) {
     if (stop()) return { error: 'cancelled' };
@@ -1205,28 +1141,7 @@ export async function scanProjectFiles(projectDir, { projectId, projectName, for
     }
   }
 
-  // 3c. Faces — the identity documents' photos against the pictures. Local:
-  // no tokens, no face leaves the computer (lib/faceMatch). Redone every run
-  // from the saved face descriptions, so a new picture is matched at once.
-  // NOT RUN BY THE SCAN any more (at the user's request): the scan treats a
-  // picture as its extracted text only and never looks at it as a picture —
-  // comparing faces meant decoding and analysing every picture in the project.
-  // What earlier scans found stays in the collections (applyFaces isn't called,
-  // so nothing is cleared). `faceStage` / `applyFaces` are kept for a separate
-  // action.
-  let faces = { references: [], matches: [], errors: [] };
   if (stop()) return { error: 'cancelled' };
-  // …unless FACIAL RECOGNITION is switched on in the scan's card.
-  if (features.faces) {
-    say({ stage: 'faces', overall: 0.74, step: 'Comparing faces with the identity documents', fileFrac: 0 });
-    faces = await faceStage(entries, {
-      projectId,
-      isCancelled: stop,
-      onProgress: (p) => say({ stage: 'faces', ...p, overall: 0.74 + 0.03 * ((p.index || 0) / Math.max(1, p.total || 1)), step: p.total ? `Comparing faces \u2014 ${Math.min((p.index || 0) + 1, p.total)} of ${p.total}` : 'Comparing faces', fileFrac: (p.index || 0) / Math.max(1, p.total || 1) }),
-    });
-    if (stop()) return { error: 'cancelled' };
-    applyFaces(cols, created, faces, byRel);
-  }
 
   // 4. The web: names per collection, links between collections — all local.
   const understandingOf = (rel) => byRel.get(rel)?.understanding;
@@ -1266,7 +1181,7 @@ export async function scanProjectFiles(projectDir, { projectId, projectName, for
       const links = { ...(c.record.sourceLinks || {}) };
       let moved = false;
       for (const src of c.sources) {
-        if (src.method === 'face' || names.has(src.name)) continue;
+        if (names.has(src.name)) continue;
         names.add(src.name);
         const rel = relativeSourcePath(at, resolveInProject(projectDir, src.rel));
         if (rel) links[src.name] = rel;
@@ -1306,7 +1221,7 @@ export async function scanProjectFiles(projectDir, { projectId, projectName, for
     const isNew = created.includes(c);
     const { filename, raw, ...rest } = c;   // eslint-disable-line no-unused-vars
     const doc = { type: COLLECTION_TYPE, version: 1, projectId: projectId || null, origin: c.origin || 'scan', ...rest, self: filename, createdAt: isNew ? now : (c.createdAt || now), updatedAt: now };
-    if (!isNew && before.get(filename) === signature(c)) continue;
+    if (!isNew && !purgeFaces.has(filename) && before.get(filename) === signature(c)) continue;
     toWrite.push({ filename, blob: new Blob([JSON.stringify(doc, null, 2)], { type: 'application/json' }) });
   }
   // A collection is written where it sits (a record may live in a subfolder).
@@ -1334,9 +1249,11 @@ export async function scanProjectFiles(projectDir, { projectId, projectName, for
   // The project-wide graph: the groups' answers (reused while their files
   // don't change) + the merged timeline and facts.
   const nextGraph = cross === keptGraph ? (web?.graph || null) : { groups: cross.groups, timeline: cross.graph.timeline, facts: cross.graph.facts, links: cross.graph.links.length };
-  const nextWeb = { version: 1, files: nextFiles, collections: all.map((c) => ({ file: c.filename, title: c.title })), graph: nextGraph };
+  // `facesPurged`: every collection has been read back and any face-matching
+  // data (removed 2026-09-28) written out of it, so the fast path may skip them.
+  const nextWeb = { version: 1, files: nextFiles, collections: all.map((c) => ({ file: c.filename, title: c.title })), graph: nextGraph, facesPurged: true };
   // Nothing new: the index is left as it is (no write, no watcher wake-up).
-  if (!web || JSON.stringify({ f: web.files, c: web.collections, g: web.graph || null }) !== JSON.stringify({ f: nextWeb.files, c: nextWeb.collections, g: nextWeb.graph })) {
+  if (!web || !web.facesPurged || JSON.stringify({ f: web.files, c: web.collections, g: web.graph || null }) !== JSON.stringify({ f: nextWeb.files, c: nextWeb.collections, g: nextWeb.graph })) {
     await writeWeb(projectDir, nextWeb, projectId);
   }
   if (toWrite.length || emptied.length) notifyFilesChanged();
@@ -1349,8 +1266,6 @@ export async function scanProjectFiles(projectDir, { projectId, projectName, for
     read: readCount,
     added: fresh.length,
     upToDate,
-    faceMatches: faces.matches.length,
-    faceErrors: faces.errors,
     links: cross === keptGraph ? null : cross.graph.links.length,
     linkCalls: cross.calls,
     linkErrors: cross.errors,
@@ -1382,19 +1297,25 @@ export function parseCollection(text) {
   let doc;
   try { doc = JSON.parse(String(text || '')); } catch { return null; }
   if (!doc || typeof doc !== 'object') return null;
-  return {
+  // Face matching was REMOVED (2026-09-28): whatever an earlier scan wrote for
+  // it — face boxes, matches, face-made sources and connections — is dropped
+  // here, and `hadFaces` tells the scan to rewrite the file without it.
+  const faceSource = (s) => s?.method === 'face';
+  const hadFaces = !!(cleanList(doc.faceMatches).length || cleanList(doc.faceReference).length
+    || cleanList(doc.sources).some(faceSource) || cleanList(doc.connections).some((k) => k?.face));
+  const out = {
     title: str(doc.title, 200) || 'Data collection',
     subject: str(doc.subject, 40) || 'other',
     summary: str(doc.summary, 6000),
     createdAt: Number(doc.createdAt) || 0,
-    sources: cleanList(doc.sources).map((s) => ({
+    sources: cleanList(doc.sources).filter((s) => !faceSource(s)).map((s) => ({
       name: str(s?.name, 300), rel: str(s?.rel, 1000), kind: str(s?.kind, 20) || scanKindOf(s?.name),
       method: str(s?.method, 20), role: str(s?.role, 600), understood: str(s?.understood, 3000),
       confidence: Number.isFinite(Number(s?.confidence)) && s?.confidence != null ? Number(s.confidence) : undefined,
     })).filter((s) => s.name),
     facts: cleanList(doc.facts).map((f) => ({ label: str(f?.label, 200), value: str(f?.value, 1200), sources: cleanList(f?.sources).map((x) => str(x, 1000)) })).filter((f) => f.label),
     timeline: cleanList(doc.timeline).map((t) => ({ date: str(t?.date, 60), event: str(t?.event, 600), sources: cleanList(t?.sources).map((x) => str(x, 1000)) })).filter((t) => t.event),
-    connections: cleanList(doc.connections).map((k) => ({ from: str(k?.from, 1000), to: str(k?.to, 1000), why: str(k?.why, 600), face: k?.face ? true : undefined })).filter((k) => k.from && k.to),
+    connections: cleanList(doc.connections).filter((k) => !k?.face).map((k) => ({ from: str(k?.from, 1000), to: str(k?.to, 1000), why: str(k?.why, 600) })).filter((k) => k.from && k.to),
     // Typed links (the scan's cross-reference): this collection's files to any
     // file of the project.
     links: cleanList(doc.links).map((l) => ({
@@ -1406,13 +1327,6 @@ export function parseCollection(text) {
     // the collections it is linked to.
     entities: cleanList(doc.entities).map((e) => ({ name: str(e?.name, 200), sources: cleanList(e?.sources).map((x) => str(x, 1000)) })).filter((e) => e.name),
     related: cleanList(doc.related).map((r) => ({ file: str(r?.file, 300), title: str(r?.title, 200), files: cleanList(r?.files).map((x) => str(x, 1000)), names: cleanList(r?.names).map((x) => str(x, 200)) })).filter((r) => r.file),
-    // Faces (lib/faceMatch): the identity documents' face boxes and every
-    // picture matched to them, with its confidence. Boxes are 0…1 of the picture.
-    faceReference: cleanList(doc.faceReference).map((r) => ({ rel: str(r?.rel, 1000), holder: str(r?.holder, 200), box: boxOf(r?.box) })).filter((r) => r.rel && r.box),
-    faceMatches: cleanList(doc.faceMatches).map((m) => ({
-      kind: m?.kind === 'document' ? 'document' : 'photo', idRel: str(m?.idRel, 1000), holder: str(m?.holder, 200), rel: str(m?.rel, 1000),
-      box: boxOf(m?.box), idBox: boxOf(m?.idBox), confidence: Math.max(0, Math.min(1, Number(m?.confidence) || 0)),
-    })).filter((m) => m.rel && m.idRel),
     updatedAt: Number(doc.updatedAt) || 0,
     // The party's record (lib/identities) — kept exactly as written.
     record: doc.record && typeof doc.record === 'object' ? doc.record : undefined,
@@ -1421,9 +1335,6 @@ export function parseCollection(text) {
     origin: str(doc.origin, 20) || undefined,
     self: str(doc.self, 1000) || undefined,
   };
-}
-
-function boxOf(b) {
-  const n = (v) => Math.max(0, Math.min(1, Number(v) || 0));
-  return b && typeof b === 'object' ? { x: n(b.x), y: n(b.y), w: n(b.w), h: n(b.h) } : null;
+  if (hadFaces) out.hadFaces = true;
+  return out;
 }

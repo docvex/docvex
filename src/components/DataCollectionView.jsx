@@ -6,14 +6,13 @@ import { glyphForFile } from './fileGlyph';
 import { readLocalBlob } from '../lib/localFolder';
 import { openDocViewerWindow } from '../lib/platform';
 import { parseCollection, resolveInProject, METHOD_LABELS, LINK_TYPES } from '../lib/dataCollections';
-import { confidenceLabel } from '../lib/faceMatch';
 import { fieldsFor } from '../lib/identities';
 import './DataCollectionView.css';
 
 // A Data collection (`.dvc`, lib/dataCollections) in the Doc Viewer: what the
 // Files tab's AI scan gathered about ONE subject across the project's files —
 // the summary, the facts (each with the files it comes from), the timeline,
-// faces matched to an identity document, the sources with what the AI
+// the sources with what the AI
 // understood from each, how the files connect, and the web: the other
 // collections this one shares files or names with. Every file named is a
 // button that opens it.
@@ -42,25 +41,7 @@ const dirOf = (p) => {
 };
 const baseName = (rel) => String(rel || '').split('/').pop();
 const thumbUrl = (path, size = 480) => `localfile://local/${encodeURIComponent(path)}?thumb=${size}`;
-const pct = (c) => `${Math.round((Number(c) || 0) * 100)}%`;
 const when = (ms) => (ms ? new Date(ms).toLocaleString(undefined, { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '');
-
-// A face cut out of its picture (box = 0…1 of the picture), with a margin.
-function FaceCrop({ path, box, size = 88, label }) {
-  if (!box) return <span className="dcv-face is-empty" style={{ width: size, height: size }} />;
-  const pad = 0.35;
-  const w = Math.min(1, box.w * (1 + pad * 2));
-  const h = Math.min(1, box.h * (1 + pad * 2));
-  const x = Math.max(0, Math.min(1 - w, box.x - box.w * pad));
-  const y = Math.max(0, Math.min(1 - h, box.y - box.h * pad));
-  const style = {
-    width: size, height: size,
-    backgroundImage: `url("${thumbUrl(path, 1600)}")`,
-    backgroundSize: `${100 / w}% ${100 / h}%`,
-    backgroundPosition: `${w >= 1 ? 0 : (x / (1 - w)) * 100}% ${h >= 1 ? 0 : (y / (1 - h)) * 100}%`,
-  };
-  return <span className="dcv-face" style={style} role="img" aria-label={label || 'Face'} />;
-}
 
 // The party's details the AI read into the collection (its `record` — what a
 // contract's clauses are filled from, lib/identities) as facts of the same
@@ -133,7 +114,7 @@ function mergeFacts(details, gathered) {
 
 // ONE page, the only way a Data collection is shown: what the AI gathered about
 // one subject across the project's files — the party's details it read, the
-// facts, face matches, the timeline, the sources and what was understood from
+// facts, the timeline, the sources and what was understood from
 // each, how the files connect and the collections it is linked to. Read-only:
 // the AI scan (Files tab) is what makes and updates it. The page reserves the
 // floating side panel's footprint (`--dv-doc-inset`), so it follows the panel
@@ -200,9 +181,6 @@ export default function DataCollectionView({ file }) {
   if (!doc) return <div className="dcv"><p className="dcv-loading">Opening the data collection…</p></div>;
 
   const facts = mergeFacts(recordFacts(doc), doc.facts);
-  const regular = doc.sources.filter((s) => s.method !== 'face');
-  const faceRefs = doc.faceReference || [];
-  const faceMatches = doc.faceMatches || [];
 
   const page = (
       <div className="dcv-inner">
@@ -237,41 +215,6 @@ export default function DataCollectionView({ file }) {
           </section>
         )}
 
-        {faceMatches.length > 0 && (
-          <section className="dcv-section">
-            <h2 className="dcv-h">Face matches</h2>
-            <p className="dcv-note">
-              The photo on the identity document compared with the faces in the project’s pictures — on this computer only;
-              no face was sent anywhere. A match is a lead, not an identification: check the two faces yourself.
-            </p>
-            <ul className="dcv-faces">
-              {faceMatches.map((m) => {
-                const ref = faceRefs.find((r) => r.rel === m.idRel);
-                return (
-                  <li className="dcv-facematch" key={`${m.idRel}>${m.rel}`}>
-                    <button type="button" className="dcv-facepair" onClick={() => open(m.idRel)}>
-                      <FaceCrop path={pathOf(m.idRel)} box={m.idBox || ref?.box} label={`${m.holder} on ${nameOf(m.idRel)}`} />
-                      <span className="dcv-facecap">{nameOf(m.idRel)}</span>
-                    </button>
-                    <span className="dcv-facescore" style={{ '--c': m.confidence }}>
-                      <strong>{pct(m.confidence)}</strong>
-                      <span>{confidenceLabel(m.confidence)}</span>
-                      <span className="dcv-facebar"><span /></span>
-                    </span>
-                    <button type="button" className="dcv-facepair" onClick={() => open(m.rel)}>
-                      <FaceCrop path={pathOf(m.rel)} box={m.box} label={`Face in ${nameOf(m.rel)}`} />
-                      <span className="dcv-facecap">{nameOf(m.rel)}</span>
-                    </button>
-                    <span className="dcv-facewho">
-                      {m.kind === 'document' ? `Another identity document of ${m.holder}` : `${m.holder} appears in this picture`}
-                    </span>
-                  </li>
-                );
-              })}
-            </ul>
-          </section>
-        )}
-
         {doc.timeline.length > 0 && (
           <section className="dcv-section">
             <h2 className="dcv-h">Timeline</h2>
@@ -292,7 +235,7 @@ export default function DataCollectionView({ file }) {
         <section className="dcv-section">
           <h2 className="dcv-h">Sources</h2>
           <ul className="dcv-sources">
-            {[...regular, ...doc.sources.filter((s) => s.method === 'face')].map((s) => (
+            {doc.sources.map((s) => (
               <li className="dcv-source" key={s.rel}>
                 <button type="button" className="dcv-source-thumb" onClick={() => open(s.rel)} aria-label={`Open ${s.name}`}>
                   {s.kind === 'image'
@@ -303,7 +246,7 @@ export default function DataCollectionView({ file }) {
                   <div className="dcv-source-top">
                     <button type="button" className="dcv-source-name" onClick={() => open(s.rel)}>{s.name}</button>
                     <span className="dcv-tag">{KIND_LABELS[s.kind] || 'File'}</span>
-                    {s.method && <span className="dcv-tag is-soft">{s.method === 'face' ? `Face match · ${pct(s.confidence)}` : `Read by ${METHOD_LABELS[s.method] || s.method}`}</span>}
+                    {s.method && <span className="dcv-tag is-soft">{`Read by ${METHOD_LABELS[s.method] || s.method}`}</span>}
                   </div>
                   {s.rel.includes('/') && <span className="dcv-source-path">{s.rel}</span>}
                   {s.role && <p className="dcv-source-role">{s.role}</p>}

@@ -34,7 +34,7 @@ import {
   joinPath,
 } from '../../lib/optimisticFiles';
 // Data collections (`.dvc`) — the AI scan's output. The scanner itself
-// (lib/dataCollections: OCR, captions, face matching) is imported on press.
+// (lib/dataCollections: OCR, captions) is imported on press.
 const isCollectionFile = (name) => /\.dvc$/i.test(String(name || '').trim());
 import { loadScanTags, setScanTags, isScanTagged, subscribeScanTags, relInProject as scanRel } from '../../lib/scanTags';
 import { loadFileGroups, subscribeFileGroups, addFileGroups, addToFileGroup, renameFileGroup, removeFileGroup, removeFromFileGroup, findSamePairs, proposeGroups, clustersOf, SAME_KINDS } from '../../lib/fileGroups';
@@ -2716,7 +2716,6 @@ export default function ProjectFiles({ embedded = false } = {}) {
       read: (p) => `Reading ${p.index + 1} of ${p.total} — \u201c${p.name}\u201d…`,
       understand: (p) => `Understanding the files — ${Math.min(p.index + 1, p.total)} of ${p.total}…`,
       connect: (p) => (p.incremental ? `Fitting ${p.total} new file${p.total === 1 ? '' : 's'} into the collections…` : 'Connecting what the files say…'),
-      faces: (p) => (p.total ? `Comparing faces with the identity documents — ${p.index + 1} of ${p.total} (on this computer)…` : 'Comparing faces with the identity documents (on this computer)…'),
       links: (p) => (p.total ? `Cross-referencing the files — ${Math.min(p.index + 1, p.total)} of ${p.total} group${p.total === 1 ? '' : 's'}…` : 'Cross-referencing the files…'),
       save: () => 'Writing the data collections…',
     };
@@ -2774,16 +2773,15 @@ export default function ProjectFiles({ embedded = false } = {}) {
       outcome = 'ok';
       setBrowseTick((t) => t + 1);
       await refetchLocalFiles();
-      const faceNote = (res.faceMatches ? ` ${res.faceMatches} face match${res.faceMatches === 1 ? '' : 'es'} with identity documents.` : '')
-        + (res.links ? ` ${res.links} link${res.links === 1 ? '' : 's'} between files.` : '')
+      const linkNote = (res.links ? ` ${res.links} link${res.links === 1 ? '' : 's'} between files.` : '')
         + (res.linkErrors?.length ? ` Some files couldn\u2019t be cross-referenced (${res.linkErrors[0]}) \u2014 the next scan tries again.` : '');
       const body = res.upToDate && !res.created && !res.updated
-        ? `Nothing new since the last scan \u2014 the ${res.collections.length} data collection${res.collections.length === 1 ? ' is' : 's are'} up to date.${faceNote}`
+        ? `Nothing new since the last scan \u2014 the ${res.collections.length} data collection${res.collections.length === 1 ? ' is' : 's are'} up to date.${linkNote}`
         : [
           res.created ? `${res.created} new data collection${res.created === 1 ? '' : 's'}` : '',
           res.updated ? `${res.updated} updated` : '',
           res.removed ? `${res.removed} removed` : '',
-        ].filter(Boolean).join(', ').replace(/^./, (c) => c.toUpperCase()) + `${res.read ? ` from ${res.read} file${res.read === 1 ? '' : 's'} read` : ''}.${faceNote}${skippedNote}`;
+        ].filter(Boolean).join(', ').replace(/^./, (c) => c.toUpperCase()) + `${res.read ? ` from ${res.read} file${res.read === 1 ? '' : 's'} read` : ''}.${linkNote}${skippedNote}`;
       notify({
         category: 'file', variant: 'success', icon: 'sparkles', title: 'Files scanned', body,
         dedupeKey: 'fx-files-scan', dedupeStrategy: 'replace',

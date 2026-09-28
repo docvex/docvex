@@ -22,7 +22,7 @@
 // The separate identity file type is RETIRED: a party's record lives inside a
 // Data collection (`<Name>.dvc`, lib/dataCollections), as its `record` — the
 // collection being everything the project knows about that subject (sources,
-// facts, timeline, face matches) and the record the fields a clause is filled
+// facts, timeline) and the record the fields a clause is filled
 // from. Everything here works on the RECORD as before; only the file around it
 // changed: `parseIdentity` finds the record inside a collection, the writers
 // put it back into the collection WITHOUT touching the rest of it, and

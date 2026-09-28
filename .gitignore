@@ -104,7 +104,8 @@ landing/dist/
 
 # OCR engine runtime files, copied from node_modules by scripts/copy-ocr-assets.mjs (postinstall)
 /public/ocr/
-# Face-recognition models, copied from node_modules by scripts/copy-face-assets.mjs (postinstall)
+# Face-recognition models from before face matching was removed (2026-09-28);
+# postinstall deletes the folder. Kept ignored so a leftover is never committed.
 /public/faces/
 
 # Build output

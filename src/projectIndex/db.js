@@ -17,6 +17,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { readJsonSync, writeJsonAtomicSync } from './atomic.js';
 import { sealJson, openJson, hasIndexKey } from './seal.js';
+import { RETIRED_KINDS } from './knowledge.js';
 
 export const SCHEMA_VERSION = 1;
 
@@ -114,6 +115,23 @@ export class IndexDb {
       setMeta: q('INSERT INTO meta(key, value) VALUES(?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value'),
     };
     this.sealExisting();
+    this.purgeRetired();
+  }
+
+  // Delete every facet of a retired kind (lib/projectIndex/knowledge.js
+  // RETIRED_KINDS — the face descriptors of the removed face matching), then
+  // VACUUM so the deleted rows don't linger in freed pages or the WAL. Cheap
+  // when there is nothing to delete, so it runs on every open.
+  purgeRetired() {
+    try {
+      const kinds = [...RETIRED_KINDS];
+      if (!kinds.length) return;
+      const marks = kinds.map(() => '?').join(', ');
+      const { n } = this.db.prepare(`SELECT COUNT(*) AS n FROM knowledge WHERE kind IN (${marks})`).get(...kinds);
+      if (!n) return;
+      this.db.prepare(`DELETE FROM knowledge WHERE kind IN (${marks})`).run(...kinds);
+      try { this.db.exec('PRAGMA wal_checkpoint(TRUNCATE); VACUUM;'); } catch { /* next open */ }
+    } catch { /* retried next open */ }
   }
 
   // Once a key is available, seal the rows an older build wrote in the clear

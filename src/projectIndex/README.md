@@ -80,8 +80,11 @@ EDIT changes the hash — which is exactly when derived knowledge goes stale.
 
 `Facet = { kind, at (ms), engine, paid (bool), data }`.
 
-- Facet kinds marked LOCAL (today: `faces` — biometric) are NEVER written to
-  `.docvex/`; they live only in the machine index.
+- Facet kinds marked LOCAL (none today; a facet may carry `local: true`) are
+  NEVER written to `.docvex/`; they live only in the machine index.
+- RETIRED kinds (`faces` — the removed face matching's biometric descriptors)
+  are refused on put, skipped on shard import and deleted from every index on
+  open (`IndexDb.purgeRetired`, then VACUUM).
 - Conflict copies of a shard (`<sha256>*.json`) are merged per facet (newest
   `at` wins) on read, rewritten, and the copies removed.
 

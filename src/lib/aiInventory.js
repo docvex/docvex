@@ -147,7 +147,6 @@ export const AI_FUNCTIONS = [
 // Features that use NO AI service — they run on the computer.
 export const AI_LOCAL = [
   { name: 'PaddleOCR (Tesseract as fallback)', what: 'Finds text positions in pictures.' },
-  { name: 'face-api', what: 'Face matching. Face data never leaves the machine.' },
   { name: 'ZXing', what: 'Reads barcodes and QR codes.' },
   { name: 'The app\'s own code', what: 'Legal citations, CNP and CUI checks, and old land-measure conversions.' },
 ];

@@ -77,6 +77,17 @@ test('db: schema, and a corrupt file is set aside and rebuilt', () => {
   assert.ok(fs.readdirSync(tmp).some((n) => n.startsWith('bad.db.corrupt-')));
 });
 
+test('db: face descriptors left by the removed face matching are deleted on open', () => {
+  const file = path.join(tmp, 'faces.db');
+  const db = new IndexDb(file);
+  db.putKnowledge('a'.repeat(64), 'faces', { at: 1, data: [0.1, 0.2] }, true);
+  db.putKnowledge('a'.repeat(64), 'text', { at: 1, data: { text: 'kept' } }, false);
+  db.close();
+  const again = new IndexDb(file);
+  assert.deepEqual(Object.keys(again.knowledgeFor('a'.repeat(64))), ['text']);
+  again.close();
+});
+
 test('projectOpen links the folder and writes the project file', async () => {
   const res = await svc.projectOpen({ projectId: PID, name: 'Case: Ion / Maria', dir: caseDir });
   assert.equal(res.ok, true);
@@ -232,12 +243,14 @@ test('ids.json conflict copies are merged and removed', async () => {
   assert.equal((await filesByRel()).get('remote.pdf').id, 'remote-id');
 });
 
-test('knowledge: shard written, local kinds kept off disk, get / list / clear', async () => {
+test('knowledge: shard written, local facets kept off disk, retired kinds refused, get / list / clear', async () => {
   const photo = path.join(caseDir, 'Evidence', 'photo.jpg');
   const sha = await hashFile(photo);
   events.length = 0;
   assert.equal((await svc.knowledgePut({ path: photo, kind: 'text', facet: { at: 10, engine: 'tesseract', data: { text: 'hi' } } })).ok, true);
-  assert.equal((await svc.knowledgePut({ path: photo, kind: 'faces', facet: { at: 11, data: [1, 2, 3] } })).ok, true);
+  assert.equal((await svc.knowledgePut({ path: photo, kind: 'secret', facet: { at: 11, local: true, data: [1, 2, 3] } })).ok, true);
+  // Face descriptors (the removed face matching) are refused outright.
+  assert.equal((await svc.knowledgePut({ path: photo, kind: 'faces', facet: { at: 12, data: [4, 5, 6] } })).error, 'retired_kind');
   const shard = JSON.parse(fs.readFileSync(shardPath(caseDir, sha), 'utf8'));
   assert.equal(shard.name, 'photo.jpg');
   assert.deepEqual(Object.keys(shard.facets), ['text']);
@@ -246,8 +259,8 @@ test('knowledge: shard written, local kinds kept off disk, get / list / clear', 
   assert.ok(events.some((e) => e.channel === 'knowledge:changed' && e.payload.kind === 'text' && e.payload.projectId === PID));
 
   const got = await svc.knowledgeGet({ path: photo });
-  assert.deepEqual(Object.keys(got.facets).sort(), ['faces', 'text']);
-  assert.deepEqual((await svc.knowledgeGet({ path: photo, kinds: ['faces'] })).facets.faces.data, [1, 2, 3]);
+  assert.deepEqual(Object.keys(got.facets).sort(), ['secret', 'text']);
+  assert.deepEqual((await svc.knowledgeGet({ path: photo, kinds: ['secret'] })).facets.secret.data, [1, 2, 3]);
 
   // The same content elsewhere shares the knowledge; an edit leaves it behind.
   const copy = path.join(caseDir, 'photo again.jpg');
@@ -263,7 +276,7 @@ test('knowledge: shard written, local kinds kept off disk, get / list / clear', 
 
   await svc.knowledgeClear({ path: photo, kind: 'text' });
   assert.equal(fs.existsSync(shardPath(caseDir, sha)), false, 'an empty shard is removed');
-  assert.deepEqual(Object.keys((await svc.knowledgeGet({ path: photo })).facets), ['faces']);
+  assert.deepEqual(Object.keys((await svc.knowledgeGet({ path: photo })).facets), ['secret']);
 });
 
 test('knowledge: shard conflict copies and shards from another machine', async () => {

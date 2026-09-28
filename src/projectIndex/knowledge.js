@@ -12,11 +12,16 @@ import path from 'node:path';
 import crypto from 'node:crypto';
 import { readJson, writeJsonAtomic } from './atomic.js';
 
-// Kinds that must never leave this machine. `faces` holds face descriptors
-// (biometric data): the AI data layer marks them `local: true` and account
-// sync already leaves them out — a shard in the case folder would ship them
-// with every copy of the folder instead.
-export const LOCAL_KINDS = new Set(['faces']);
+// Kinds that must never leave this machine (none today — a facet can still ask
+// for it with `local: true`). A shard in the case folder would ship them with
+// every copy of the folder.
+export const LOCAL_KINDS = new Set();
+
+// Kinds that are no longer made and must not be kept anywhere. `faces` held
+// face descriptors (biometric data, Art. 9 GDPR) from the face matching that
+// was REMOVED on 2026-09-28: the index deletes any it still holds on open
+// (IndexDb.purgeRetired), refuses new ones and never imports them from a shard.
+export const RETIRED_KINDS = new Set(['faces']);
 
 export const isShaHex = (s) => typeof s === 'string' && /^[0-9a-f]{64}$/.test(s);
 
@@ -95,7 +100,7 @@ export function readShard(dir, sha, onWrite) {
 // write, so facets another machine added are kept. A shard left with no
 // facets is deleted. Local kinds are refused here as a last line of defence.
 export function writeShardFacet(dir, sha, { name, kind, facet }, onWrite) {
-  if (LOCAL_KINDS.has(kind) || facet?.local === true) return Promise.resolve(false);
+  if (LOCAL_KINDS.has(kind) || RETIRED_KINDS.has(kind) || facet?.local === true) return Promise.resolve(false);
   const file = shardPath(dir, sha);
   return withShardLock(file, async () => {
     const shard = (await readShardUnlocked(dir, sha, onWrite)) || { v: 1, name: null, facets: {} };

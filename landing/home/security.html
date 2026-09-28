@@ -88,7 +88,7 @@
             <li><strong>At rest</strong> — data stored on our backend (hosted in the EU on Supabase/AWS) is encrypted at rest by the platform.</li>
             <li><strong>Application-layer encryption</strong> — OAuth tokens for connected Gmail/Outlook mailboxes are additionally encrypted with AES-256-GCM before storage, with the key held only in the serverless environment, never in the database or client.</li>
             <li><strong>Passwords</strong> — never stored in plaintext; handled as salted hashes by our authentication provider.</li>
-            <li><strong>On your computer</strong> — the pseudonymisation table, the app's private project data (AI conversations, text read out of documents, face measurements) and the thumbnail cache are encrypted with AES-256-GCM under a key protected by the operating system's key store (Windows DPAPI / macOS Keychain). Your case files themselves are ordinary files: protect them with full-disk encryption (BitLocker / FileVault).</li>
+            <li><strong>On your computer</strong> — the pseudonymisation table, the app's private project data (AI conversations, text read out of documents) and the thumbnail cache are encrypted with AES-256-GCM under a key protected by the operating system's key store (Windows DPAPI / macOS Keychain). Your case files themselves are ordinary files: protect them with full-disk encryption (BitLocker / FileVault).</li>
           </ul>
         </section>
 

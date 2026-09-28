@@ -33,7 +33,7 @@
 // exactly the localStorage store it was: one key per file.
 import { localFolderApi } from './localFolder';
 import {
-  KNOWLEDGE_KINDS, peekFacets, putFacet, clearFacet, cachedEntries, subscribeIndex,
+  peekFacets, putFacet, clearFacet, cachedEntries, subscribeIndex,
   sameSize, normPath, indexAvailable,
 } from './projectIndexClient';
 
@@ -60,11 +60,6 @@ export const AI_FACETS = {
   // next scan, and anything else that wants to know what a file is about,
   // reuses it instead of reading the file again.
   understanding: { label: 'What the AI understood', paid: true },
-  // lib/faceMatch — the faces found in a picture, each as the local model's
-  // 128-number description. Biometric data: made on this computer, kept on it
-  // (`local` — never written to `.docvex/`, never synced) and never sent to an
-  // AI service.
-  faces: { label: 'Faces', paid: false, local: !!KNOWLEDGE_KINDS.faces?.local },
 };
 const AI_KINDS = new Set(Object.keys(AI_FACETS));
 

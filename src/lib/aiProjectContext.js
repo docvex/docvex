@@ -216,12 +216,14 @@ export function collectionToText(doc, name = '') {
     out.push('Timeline:');
     for (const t of tl) if (t?.event) out.push(`- ${t.date ? `[${t.date}] ` : ''}${t.event}`);
   }
-  const src = Array.isArray(doc.sources) ? doc.sources : [];
+  // Face-matching results an older scan left in the file are never passed on
+  // (face matching was removed 2026-09-28; the next scan rewrites the file).
+  const src = Array.isArray(doc.sources) ? doc.sources.filter((x) => x?.method !== 'face') : [];
   if (src.length) {
     out.push('Source files:');
     for (const x of src) if (x?.name) out.push(`- ${x.rel || x.name}${x.role ? ` — ${x.role}` : ''}${x.understood ? ` — understood: ${clip(x.understood, 600)}` : ''}`);
   }
-  const con = Array.isArray(doc.connections) ? doc.connections : [];
+  const con = Array.isArray(doc.connections) ? doc.connections.filter((k) => !k?.face) : [];
   if (con.length) {
     out.push('How the files connect:');
     for (const k of con) if (k?.from && k?.to) out.push(`- ${k.from} <-> ${k.to}${k.why ? `: ${k.why}` : ''}`);
@@ -230,8 +232,6 @@ export function collectionToText(doc, name = '') {
   if (ents.length) out.push(`Names held: ${ents.join(', ')}`);
   const rel = Array.isArray(doc.related) ? doc.related : [];
   if (rel.length) out.push(`Linked collections: ${rel.map((r) => `${r.title || r.file}${Array.isArray(r.names) && r.names.length ? ` (shared: ${r.names.slice(0, 4).join(', ')})` : ''}`).join('; ')}`);
-  const fm = Array.isArray(doc.faceMatches) ? doc.faceMatches : [];
-  if (fm.length) out.push(`Face matches: ${fm.map((m) => `${m.rel} ~ ${m.holder || m.idRel} (${Math.round((Number(m.confidence) || 0) * 100)}%)`).join('; ')}`);
   return out.join('\n');
 }
 

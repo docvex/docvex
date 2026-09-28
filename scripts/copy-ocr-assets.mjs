@@ -17,13 +17,22 @@
 // DOWNLOADED once from PaddlePaddle's own Hugging Face repositories into
 // public/ocr/paddle/ (npm doesn't carry them). A failed download only warns:
 // the app then falls back to Tesseract.
-import { copyFileSync, existsSync, mkdirSync, statSync, writeFileSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const out = join(root, 'public', 'ocr');
 const nm = (...p) => join(root, 'node_modules', ...p);
+
+// Face matching was removed (2026-09-28). Its models used to be copied into
+// public/faces/, which Vite would still bundle into a release build from a
+// machine that has them — so the folder is deleted here.
+const oldFaces = join(root, 'public', 'faces');
+if (existsSync(oldFaces)) {
+  rmSync(oldFaces, { recursive: true, force: true });
+  console.log('[ocr-assets] removed public/faces/ (face matching was removed)');
+}
 
 const files = [
   [nm('tesseract.js', 'dist', 'worker.min.js'), 'worker.min.js'],

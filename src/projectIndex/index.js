@@ -13,7 +13,7 @@ import { Project } from './project.js';
 import { isInside, readJson, writeJsonAtomic } from './atomic.js';
 import { findProjectFiles, linkProjectFile, readProjectFile } from './projectFile.js';
 import {
-  LOCAL_KINDS, hashFile, isShaHex, listShards, normalizeFacet, readShard, writeShardFacet,
+  LOCAL_KINDS, RETIRED_KINDS, hashFile, isShaHex, listShards, normalizeFacet, readShard, writeShardFacet,
 } from './knowledge.js';
 
 // Watchers are cheap on Windows / macOS (one handle per tree) but not free.
@@ -289,7 +289,7 @@ export function createProjectIndexService({ userDataDir, broadcast = () => {}, o
     const changed = [];
     p.db.tx(() => {
       for (const [kind, facet] of Object.entries(shard.facets)) {
-        if (!KIND_RE.test(kind) || LOCAL_KINDS.has(kind)) continue;
+        if (!KIND_RE.test(kind) || LOCAL_KINDS.has(kind) || RETIRED_KINDS.has(kind)) continue;
         const mine = have[kind];
         if (mine && (Number(mine.facet?.at) || 0) >= (Number(facet?.at) || 0)) continue;
         p.db.putKnowledge(sha, kind, facet, false);
@@ -311,6 +311,7 @@ export function createProjectIndexService({ userDataDir, broadcast = () => {}, o
     const want = Array.isArray(kinds) && kinds.length ? new Set(kinds) : null;
     const facets = {};
     for (const [kind, { facet }] of Object.entries(ctx.db.knowledgeFor(ctx.hash))) {
+      if (RETIRED_KINDS.has(kind)) continue;
       if (!want || want.has(kind)) facets[kind] = facet;
     }
     return { ok: true, facets };
@@ -319,6 +320,7 @@ export function createProjectIndexService({ userDataDir, broadcast = () => {}, o
   async function knowledgePut({ path: file, kind, facet } = {}) {
     if (!file) return { ok: false, error: 'no_path' };
     if (!KIND_RE.test(String(kind || ''))) return { ok: false, error: 'bad_kind' };
+    if (RETIRED_KINDS.has(kind)) return { ok: false, error: 'retired_kind' };
     const ctx = await contextFor(file);
     const f = normalizeFacet(kind, facet);
     const local = LOCAL_KINDS.has(kind) || f.local === true;

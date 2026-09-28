@@ -1870,7 +1870,7 @@ ipcMain.handle('vault:put', async (_e, projectId, data) => {
 // ── Erase this computer's copy of the user's data (Account → Erase data /
 // Delete account). GDPR Art. 17: everything DocVex keeps under userData about
 // files and people goes — the project index databases (the private table with
-// advisor threads, cached extracted text, identity readings and face data),
+// advisor threads, cached extracted text, identity readings),
 // the pseudonymisation vaults, the thumbnail cache (ID-card pictures), the
 // "Opened with DocVex" list — plus DocVex's temp files and the browser-side
 // caches (IndexedDB, Cache Storage). The user's own case folders are never
