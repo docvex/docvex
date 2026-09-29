@@ -13,6 +13,7 @@ import {
 } from '../lib/caseInsights';
 import { analyzeLegalHistory, convertHistoricalLandToMetric, LEGAL_ERAS } from '../lib/legalHistory';
 import './CaseInsights.css';
+import { storageFor } from '../lib/secureStore';
 
 // THE FILES TAB'S INSIGHTS VIEW — what can be worked out from what the AI scan
 // read (lib/caseInsights): a question box over the whole case, then one
@@ -25,8 +26,10 @@ import './CaseInsights.css';
 const SECTION_KEY = 'docvex:insights:section:v1';
 const CASE_KEY = 'docvex:insights:case:v1:';
 const extOf = (name) => (/\.([a-z0-9]{1,8})$/i.exec(name || '')?.[1] || '').toLowerCase();
-const read = (k, d) => { try { return localStorage.getItem(k) || d; } catch { return d; } };
-const write = (k, v) => { try { localStorage.setItem(k, v); } catch { /* per device */ } };
+// The kind of case is keyed by the folder's path, so it goes to the ENCRYPTED
+// store (lib/secureStore); the section on show stays in localStorage.
+const read = (k, d) => storageFor(k).getItem(k) || d;
+const write = (k, v) => { storageFor(k).setItem(k, v); };
 
 const STATUS_LABEL = { error: 'Problem', warn: 'Check', ok: 'Fine' };
 

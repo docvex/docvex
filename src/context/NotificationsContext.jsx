@@ -32,6 +32,7 @@ import { useAuthNotificationSource } from '../notifications/sources/useAuthNotif
 import { useUpdateNotificationSource } from '../notifications/sources/useUpdateNotificationSource';
 import { useSocialNotificationSource } from '../notifications/sources/useSocialNotificationSource';
 import * as platform from '../lib/platform';
+import { secureStorage, subscribeSecureKeys, isSecureStoreReady } from '../lib/secureStore';
 
 const NotificationsContext = createContext(null);
 // The ACTIONS alone (notify, dismissToast, …), which never change: most
@@ -89,7 +90,7 @@ export function NotificationsProvider({ children, sourcesEnabled = true }) {
     if (previousBucketRef.current) {
       try {
         const persisted = notificationsRef.current.map(toPersistent).slice(0, HISTORY_CAP);
-        localStorage.setItem(previousBucketRef.current, JSON.stringify(persisted));
+        secureStorage.setItem(previousBucketRef.current, JSON.stringify(persisted));
       } catch { /* quota / private mode — non-fatal */ }
     }
 
@@ -113,7 +114,7 @@ export function NotificationsProvider({ children, sourcesEnabled = true }) {
 
     let hydrated = [];
     try {
-      const raw = localStorage.getItem(bucket);
+      const raw = secureStorage.getItem(bucket);
       if (raw) {
         const parsed = JSON.parse(raw);
         if (Array.isArray(parsed)) {
@@ -164,36 +165,40 @@ export function NotificationsProvider({ children, sourcesEnabled = true }) {
   // would overwrite newer state the main window persisted since.
   useEffect(() => {
     if (!ready || platform.isAuxWindow) return;
+    // The history is kept in the ENCRYPTED store (lib/secureStore), which lands
+    // once the user is known; writing before that would replace it.
+    if (userId && !isSecureStoreReady()) return;
     const bucket = storageKeyForUser(userId);
     const handle = setTimeout(() => {
       try {
         const persisted = notifications.map(toPersistent).slice(0, HISTORY_CAP);
-        localStorage.setItem(bucket, JSON.stringify(persisted));
+        secureStorage.setItem(bucket, JSON.stringify(persisted));
       } catch { /* non-fatal */ }
     }, 200);
     return () => clearTimeout(handle);
   }, [notifications, ready, userId]);
 
-  // Cross-window sync — Electron may grow multi-window. The `storage` event
-  // fires in other tabs/windows of the same origin when localStorage changes.
+  // Cross-window sync: another window's save (the encrypted store announces
+  // the key; the value is re-read here), or the store landing at sign-in —
+  // then what it holds is merged under what this window already has.
   useEffect(() => {
-    if (!ready) return;
+    if (!ready) return undefined;
     const bucket = storageKeyForUser(userId);
-    const handler = (e) => {
-      if (e.key !== bucket) return;
-      if (e.newValue === null) {
-        setNotifications([]);
-        return;
-      }
+    return subscribeSecureKeys(bucket, (k) => {
+      if (k != null && k !== bucket) return;
+      const raw = secureStorage.getItem(bucket);
+      if (raw == null) { if (k != null) setNotifications([]); return; }
       try {
-        const parsed = JSON.parse(e.newValue);
-        if (Array.isArray(parsed)) {
-          setNotifications(parsed.map((n) => ({ ...n, toastShown: true })));
-        }
+        const parsed = JSON.parse(raw);
+        if (!Array.isArray(parsed)) return;
+        const stored = parsed.map((n) => ({ ...n, toastShown: true }));
+        if (k != null) { setNotifications(stored); return; }
+        setNotifications((cur) => {
+          const have = new Set(cur.map((n) => n.id));
+          return [...cur, ...stored.filter((n) => !have.has(n.id))].slice(0, HISTORY_CAP);
+        });
       } catch { /* ignore */ }
-    };
-    window.addEventListener('storage', handler);
-    return () => window.removeEventListener('storage', handler);
+    });
   }, [ready, userId]);
 
   // Realtime subscription — only when signed in. Cross-device sync: an INSERT

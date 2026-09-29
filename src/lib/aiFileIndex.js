@@ -27,6 +27,7 @@ import { isCloudMediaAllowed } from './cloudMedia';
 import { textForFile, isContentSearchable, captionsFor } from './fileContentSearch';
 import { encodeVisualThumb, isVisualFile } from './visualThumb';
 import { peekFacet, putFacet, clearFacet, cachedEntries, hydratePaths } from './projectIndexClient';
+import { secureStorage, registerSecureMerge, subscribeSecureKeys } from './secureStore';
 
 const STORE_KEY = 'docvex:ai-file-index:v1';
 
@@ -71,6 +72,12 @@ const INDEX_SYSTEM = [
 // moved across on first hydration.
 let store = null;
 
+// The map lives in the ENCRYPTED store (lib/secureStore), which lands after
+// sign-in: entries written before that are merged in, and the copy read
+// before is dropped so the next read sees the whole map.
+registerSecureMerge(STORE_KEY, (mine, stored) => JSON.stringify({ ...(JSON.parse(stored || '{}') || {}), ...(JSON.parse(mine || '{}') || {}) }));
+subscribeSecureKeys(STORE_KEY, () => { store = null; });
+
 function indexDescription(file) {
   const facet = peekFacet(file.path, 'description');
   if (facet === undefined) return undefined;          // the index isn't answering
@@ -84,7 +91,7 @@ function indexDescription(file) {
 function loadStore() {
   if (store) return store;
   try {
-    const raw = localStorage.getItem(STORE_KEY);
+    const raw = secureStorage.getItem(STORE_KEY);
     const parsed = raw ? JSON.parse(raw) : null;
     store = parsed && typeof parsed === 'object' ? parsed : {};
   } catch {
@@ -108,7 +115,7 @@ function saveStore() {
         keys.sort((a, b) => (s[a]?.at || 0) - (s[b]?.at || 0));
         for (const k of keys.slice(0, keys.length - MAX_ENTRIES)) delete s[k];
       }
-      localStorage.setItem(STORE_KEY, JSON.stringify(s));
+      secureStorage.setItem(STORE_KEY, JSON.stringify(s));
     } catch { /* quota or private mode — the in-memory copy still serves this session */ }
   }, 400);
 }
@@ -186,7 +193,7 @@ export function indexCoverage(files) {
 
 export function clearAiFileIndex() {
   store = {};
-  try { localStorage.removeItem(STORE_KEY); } catch { /* ignore */ }
+  try { secureStorage.removeItem(STORE_KEY); } catch { /* ignore */ }
   // And every description this window holds from the index.
   for (const e of cachedEntries()) if (e.facets.description) clearFacet(e.path, 'description');
 }

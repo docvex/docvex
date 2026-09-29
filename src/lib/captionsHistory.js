@@ -1,7 +1,7 @@
-// Per-file cache of the DocViewer audio pane's AI captions. Transcription costs
-// tokens (OpenAI Whisper via the doc-ai Edge Function), so the result is saved
-// keyed by the file — reopening the same file restores the transcript instantly
-// instead of re-transcribing. One result per file (text + timed segments +
+// Per-file cache of the DocViewer audio pane's AI captions. Transcription takes
+// minutes of local CPU (Whisper on this computer, lib/transcribe), so the result
+// is saved keyed by the file — reopening the same file restores the transcript
+// instantly instead of re-transcribing. One result per file (text + timed segments +
 // language), unlike the OCR history which keeps a list of snippets (see
 // lib/extractionHistory.js).
 //
@@ -11,6 +11,7 @@
 // read for a file the index hasn't answered for yet, still written when main
 // isn't there (or refuses the put), and moved across on first hydration.
 import { peekFacet, putFacet, clearFacet, indexAvailable } from './projectIndexClient';
+import { secureStorage } from './secureStore';
 
 const KEY_PREFIX = 'docvex:doc-viewer:captions:';
 
@@ -18,13 +19,13 @@ const KEY_PREFIX = 'docvex:doc-viewer:captions:';
 export const CAPTIONS_PREFIX = KEY_PREFIX;
 
 function safeRead(key) {
-  try { return localStorage.getItem(key); } catch { return null; }
+  try { return secureStorage.getItem(key); } catch { return null; }
 }
 function safeWrite(key, value) {
-  try { localStorage.setItem(key, value); return true; } catch { return false; }
+  try { secureStorage.setItem(key, value); return true; } catch { return false; }
 }
 function safeRemove(key) {
-  try { localStorage.removeItem(key); return true; } catch { return false; }
+  try { secureStorage.removeItem(key); return true; } catch { return false; }
 }
 
 function shape(parsed) {

@@ -13,6 +13,7 @@
 // before the fetch resolves. Bodies are already in this renderer's memory and
 // stay on this machine; nothing here reaches the network.
 
+import { secureStorage } from './secureStore';
 const PREFIX = 'docvex.chat.cache.';
 const INDEX_KEY = 'docvex.chat.cache.index';
 
@@ -27,7 +28,7 @@ const keyFor = (projectId) => `${PREFIX}${projectId}`;
 
 function readIndex() {
   try {
-    const raw = localStorage.getItem(INDEX_KEY);
+    const raw = secureStorage.getItem(INDEX_KEY);
     const parsed = raw ? JSON.parse(raw) : null;
     return Array.isArray(parsed) ? parsed.filter((id) => typeof id === 'string') : [];
   } catch {
@@ -42,16 +43,16 @@ function touchIndex(projectId) {
   try {
     const next = [projectId, ...readIndex().filter((id) => id !== projectId)];
     for (const stale of next.slice(MAX_PROJECTS)) {
-      localStorage.removeItem(keyFor(stale));
+      secureStorage.removeItem(keyFor(stale));
     }
-    localStorage.setItem(INDEX_KEY, JSON.stringify(next.slice(0, MAX_PROJECTS)));
+    secureStorage.setItem(INDEX_KEY, JSON.stringify(next.slice(0, MAX_PROJECTS)));
   } catch { /* quota / private mode */ }
 }
 
 export function readCachedChat(projectId) {
   if (!projectId) return [];
   try {
-    const raw = localStorage.getItem(keyFor(projectId));
+    const raw = secureStorage.getItem(keyFor(projectId));
     const parsed = raw ? JSON.parse(raw) : null;
     return Array.isArray(parsed) ? parsed.filter((m) => m && m.id) : [];
   } catch {
@@ -76,7 +77,7 @@ export function writeCachedChat(projectId, messages) {
     try {
       // Keep the TAIL: the thread renders oldest→newest and the bottom is what
       // anyone actually looks at when they come back.
-      localStorage.setItem(keyFor(job.projectId), JSON.stringify(job.messages.slice(-MAX_MESSAGES)));
+      secureStorage.setItem(keyFor(job.projectId), JSON.stringify(job.messages.slice(-MAX_MESSAGES)));
       touchIndex(job.projectId);
     } catch { /* quota — the tab just waits for the fetch next time */ }
   }, 500);
@@ -84,8 +85,8 @@ export function writeCachedChat(projectId, messages) {
 
 export function clearCachedChat(projectId) {
   try {
-    if (projectId) { localStorage.removeItem(keyFor(projectId)); return; }
-    for (const id of readIndex()) localStorage.removeItem(keyFor(id));
-    localStorage.removeItem(INDEX_KEY);
+    if (projectId) { secureStorage.removeItem(keyFor(projectId)); return; }
+    for (const id of readIndex()) secureStorage.removeItem(keyFor(id));
+    secureStorage.removeItem(INDEX_KEY);
   } catch { /* ignore */ }
 }

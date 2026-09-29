@@ -24,6 +24,7 @@
 // only sealed files are.
 
 import { supabase } from './supabaseClient';
+import { secureStorage } from './secureStore';
 import { phoneUploadHoldFile } from './platform';
 import { loadSealKey, saveSealKey } from './phoneUploadLocal';
 import { newSealKey, isSealKey, unsealBytes, webOpen, looksSealed, SEALED_MIME } from './phoneUploadCrypto';
@@ -37,10 +38,10 @@ const POLL_MS = 5000;
 // session for the same token, so a phone can keep its page.
 const keptKey = (userId, projectId) => `docvex:phone-upload:cloud:v1:${userId || '_'}:${projectId || '_'}`;
 function loadKept(userId, projectId) {
-  try { return JSON.parse(localStorage.getItem(keptKey(userId, projectId)) || 'null'); } catch { return null; }
+  try { return JSON.parse(secureStorage.getItem(keptKey(userId, projectId)) || 'null'); } catch { return null; }
 }
 function saveKept(userId, projectId, v) {
-  try { localStorage.setItem(keptKey(userId, projectId), JSON.stringify(v)); } catch { /* storage refused */ }
+  try { secureStorage.setItem(keptKey(userId, projectId), JSON.stringify(v)); } catch { /* storage refused */ }
 }
 
 /**

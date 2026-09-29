@@ -7,11 +7,15 @@
 // (the user's own documents and their .docvex/ folder) are never touched.
 
 import { forgetFolderKeys } from './projectFolderKey';
+import { wipeSecureStore } from './secureStore';
 
 const OURS = /^(docvex[.:]|sb-|supabase\.)/i;
 
 export async function wipeLocalUserData() {
   forgetFolderKeys();
+  // The encrypted store first: its memory is dropped and nothing pending is
+  // written back into the index main is about to delete.
+  try { await wipeSecureStore({ persistent: true }); } catch { /* keep going */ }
   let main = null;
   try {
     main = await window.electronAPI?.wipeLocalData?.();

@@ -11,16 +11,23 @@
 // Queries are normalised before they're keyed, so "Car Crash", "car  crash "
 // and "car crash" are one entry rather than three.
 
+import { secureStorage, registerSecureMerge, subscribeSecureKeys } from './secureStore';
 const KEY = 'docvex:ai-search-answers:v1';
 const MAX_ENTRIES = 80;
 const TTL_MS = 7 * 24 * 60 * 60 * 1000;   // a week; the signature does the real invalidating
 
 let store = null;
 
+// The map lives in the ENCRYPTED store (lib/secureStore), which lands after
+// sign-in: entries written before that are merged in, and the copy read
+// before is dropped so the next read sees the whole map.
+registerSecureMerge(KEY, (mine, stored) => JSON.stringify({ ...(JSON.parse(stored || '{}') || {}), ...(JSON.parse(mine || '{}') || {}) }));
+subscribeSecureKeys(KEY, () => { store = null; });
+
 function load() {
   if (store) return store;
   try {
-    const raw = localStorage.getItem(KEY);
+    const raw = secureStorage.getItem(KEY);
     const parsed = raw ? JSON.parse(raw) : null;
     store = parsed && typeof parsed === 'object' ? parsed : {};
   } catch {
@@ -37,7 +44,7 @@ function persist() {
       keys.sort((a, b) => (s[a]?.at || 0) - (s[b]?.at || 0));
       for (const k of keys.slice(0, keys.length - MAX_ENTRIES)) delete s[k];
     }
-    localStorage.setItem(KEY, JSON.stringify(s));
+    secureStorage.setItem(KEY, JSON.stringify(s));
   } catch { /* quota — session-only cache is still a win */ }
 }
 
@@ -79,5 +86,5 @@ export function writeAnswer(signature, query, hits) {
 
 export function clearAiSearchAnswers() {
   store = {};
-  try { localStorage.removeItem(KEY); } catch { /* ignore */ }
+  try { secureStorage.removeItem(KEY); } catch { /* ignore */ }
 }

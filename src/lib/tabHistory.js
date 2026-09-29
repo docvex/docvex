@@ -12,18 +12,30 @@
 // entry and draws them itself). `label` / `detail` are what the menu shows
 // by default; `data` is what the tab needs to run or open the entry again.
 
+import { secureStorage, registerSecureMerge } from './secureStore';
 export const HISTORY_CAP = 400;
+
+// A log appended to before the encrypted store landed (lib/secureStore) is
+// merged with the stored one, by id, oldest first.
+const mergeLogs = (mine, stored) => {
+  const a = JSON.parse(stored || '[]'); const b = JSON.parse(mine || '[]');
+  if (!Array.isArray(a) || !Array.isArray(b)) return mine;
+  const seen = new Set(a.map((e) => e?.id));
+  return JSON.stringify([...a, ...b.filter((e) => !seen.has(e?.id))].slice(-HISTORY_CAP));
+};
+registerSecureMerge('docvex:history:', mergeLogs);
+registerSecureMerge('docvex:legislation:history:v1', mergeLogs);
 
 const keyFor = (tab) => (tab === 'legislation' ? 'docvex:legislation:history:v1' : `docvex:history:${tab}:v1`);
 
 const read = (tab) => {
   try {
-    const arr = JSON.parse(localStorage.getItem(keyFor(tab)) || '[]');
+    const arr = JSON.parse(secureStorage.getItem(keyFor(tab)) || '[]');
     return Array.isArray(arr) ? arr : [];
   } catch { return []; }
 };
 const write = (tab, arr) => {
-  try { localStorage.setItem(keyFor(tab), JSON.stringify(arr.slice(-HISTORY_CAP))); } catch { /* full or refused — the log is a convenience */ }
+  try { secureStorage.setItem(keyFor(tab), JSON.stringify(arr.slice(-HISTORY_CAP))); } catch { /* full or refused — the log is a convenience */ }
 };
 
 /** Every entry of a tab's log, oldest first. */

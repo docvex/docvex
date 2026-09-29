@@ -14,6 +14,7 @@ import {
   quitApp,
 } from '../lib/platform';
 import { wipeLocalUserData } from '../lib/localWipe';
+import { hydrateSecureStore, wipeSecureStore } from '../lib/secureStore';
 
 // The OAuth callback: the custom protocol the OS routes back to main, which
 // forwards it as `oauth:callback-url` (see handleDeepLinkUrl below).
@@ -77,6 +78,15 @@ export function AuthProvider({ children }) {
   // second time — one stream, one source of truth.
   // event ∈ INITIAL_SESSION | SIGNED_IN | SIGNED_OUT | TOKEN_REFRESHED | USER_UPDATED | …
   const [lastAuthEvent, setLastAuthEvent] = useState(null);
+
+  // The encrypted per-user store (lib/secureStore) follows the signed-in user
+  // in EVERY window: loaded when the user is known, dropped from memory (its
+  // pending writes flushed first) when nobody is signed in any more.
+  const userId = session?.user?.id || null;
+  useEffect(() => {
+    if (userId) { void hydrateSecureStore(userId); return; }
+    if (!loading) void wipeSecureStore();
+  }, [userId, loading]);
 
   useEffect(() => {
     // Subscribe FIRST. supabase-js v2 fires an INITIAL_SESSION event on

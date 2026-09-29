@@ -15,9 +15,19 @@
 // DocViewer. Cross-window consistency piggybacks on the `storage` event, same
 // as the notification history.
 
+import { secureStorage, subscribeSecureKeys, registerSecureMerge } from './secureStore';
 const STORAGE_PREFIX = 'docvex.activityLog.v1.';
 const ANONYMOUS_BUCKET = '_anonymous';
 const LOG_CAP = 2000;
+
+// Events appended before the encrypted store landed (lib/secureStore) are
+// merged with the stored log, newest first, by id.
+registerSecureMerge(STORAGE_PREFIX, (mine, stored) => {
+  const a = JSON.parse(mine || '[]'); const b = JSON.parse(stored || '[]');
+  if (!Array.isArray(a) || !Array.isArray(b)) return mine;
+  const seen = new Set(a.map((e) => e?.id));
+  return JSON.stringify([...a, ...b.filter((e) => !seen.has(e?.id))].slice(0, 2000));
+});
 const MAX_AGE_MS = 90 * 24 * 60 * 60 * 1000;
 
 // In-window change signal (localStorage `storage` events only fire in OTHER
@@ -69,7 +79,7 @@ export function activityStorageKey(userId) {
 
 function readBucket(key) {
   try {
-    const raw = localStorage.getItem(key);
+    const raw = secureStorage.getItem(key);
     if (!raw) return [];
     const parsed = JSON.parse(raw);
     return Array.isArray(parsed) ? parsed : [];
@@ -116,7 +126,7 @@ export function appendActivityEvent(userId, event) {
   };
   try {
     const next = prune([entry, ...readBucket(key)], now);
-    localStorage.setItem(key, JSON.stringify(next));
+    secureStorage.setItem(key, JSON.stringify(next));
   } catch {
     return null; // quota / private mode — non-fatal, fire-and-forget
   }
@@ -129,17 +139,16 @@ export function appendActivityEvent(userId, event) {
 export function subscribeActivity(userId, callback) {
   const key = activityStorageKey(userId);
   const onLocal = (e) => { if (e?.detail?.key === key) callback(); };
-  const onStorage = (e) => { if (e.key === key) callback(); };
+  const offSecure = subscribeSecureKeys(key, (k) => { if (k == null || k === key) callback(); });
   window.addEventListener(LOCAL_EVENT, onLocal);
-  window.addEventListener('storage', onStorage);
   return () => {
     window.removeEventListener(LOCAL_EVENT, onLocal);
-    window.removeEventListener('storage', onStorage);
+    offSecure();
   };
 }
 
 export function clearActivity(userId) {
-  try { localStorage.removeItem(activityStorageKey(userId)); } catch { /* non-fatal */ }
+  try { secureStorage.removeItem(activityStorageKey(userId)); } catch { /* non-fatal */ }
   try { window.dispatchEvent(new CustomEvent(LOCAL_EVENT, { detail: { key: activityStorageKey(userId) } })); } catch { /* ignore */ }
 }
 

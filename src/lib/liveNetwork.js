@@ -37,6 +37,7 @@ import { loadScanFeatures } from './scanFeatures';
 import {
   getScan, setScanState, finishScan, isScanRunning, subscribeScans, scanStopRequested, clearScanStop,
 } from './scanRunner';
+import { secureStorage } from './secureStore';
 
 const SETTLE_MS = 1800;
 const MAX_WAIT_MS = 8000;
@@ -70,15 +71,15 @@ const norm = (dir) => String(dir || '').replace(/\\/g, '/').replace(/\/+$/, '').
 // ── Settings (consent + pause), per project folder, on this device ─────────
 export const LIVE_DEFAULTS = { on: false, recordings: false, paused: false };
 export function loadLiveSettings(dir) {
-  try { return { ...LIVE_DEFAULTS, ...(JSON.parse(localStorage.getItem(KEY + norm(dir)) || 'null') || {}) }; } catch { return { ...LIVE_DEFAULTS }; }
+  try { return { ...LIVE_DEFAULTS, ...(JSON.parse(secureStorage.getItem(KEY + norm(dir)) || 'null') || {}) }; } catch { return { ...LIVE_DEFAULTS }; }
 }
 function loadList(prefix, dir) {
-  try { const v = JSON.parse(localStorage.getItem(prefix + norm(dir)) || '[]'); return new Set(Array.isArray(v) ? v : []); } catch { return new Set(); }
+  try { const v = JSON.parse(secureStorage.getItem(prefix + norm(dir)) || '[]'); return new Set(Array.isArray(v) ? v : []); } catch { return new Set(); }
 }
 function saveList(prefix, dir, set) {
   try {
-    if (set.size) localStorage.setItem(prefix + norm(dir), JSON.stringify([...set].slice(-5000)));
-    else localStorage.removeItem(prefix + norm(dir));
+    if (set.size) secureStorage.setItem(prefix + norm(dir), JSON.stringify([...set].slice(-5000)));
+    else secureStorage.removeItem(prefix + norm(dir));
   } catch { /* full — the tags still stand */ }
 }
 const loadPending = (dir) => loadList(PENDING_KEY, dir);
@@ -109,7 +110,7 @@ export function useLiveNetwork(dir) {
 export function setLiveSettings(dir, patch) {
   if (!dir) return;
   const next = { ...loadLiveSettings(dir), ...patch };
-  try { localStorage.setItem(KEY + norm(dir), JSON.stringify(next)); } catch { /* per device */ }
+  try { secureStorage.setItem(KEY + norm(dir), JSON.stringify(next)); } catch { /* per device */ }
   patchState(dir, { settings: next });
   const engine = engines.get(norm(dir));
   if (!engine) return;

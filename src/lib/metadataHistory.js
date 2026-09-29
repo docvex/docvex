@@ -19,6 +19,7 @@
 // under before; it is still read for a file the index hasn't answered for yet,
 // still written when main isn't there, and moved across on first hydration.
 import { peekFacet, putFacet, clearFacet, sameSize, indexAvailable } from './projectIndexClient';
+import { secureStorage } from './secureStore';
 
 const KEY_PREFIX = 'docvex:doc-viewer:metadata:';
 
@@ -26,13 +27,13 @@ const KEY_PREFIX = 'docvex:doc-viewer:metadata:';
 export const METADATA_PREFIX = KEY_PREFIX;
 
 function safeRead(key) {
-  try { return localStorage.getItem(key); } catch { return null; }
+  try { return secureStorage.getItem(key); } catch { return null; }
 }
 function safeWrite(key, value) {
-  try { localStorage.setItem(key, value); return true; } catch { return false; }
+  try { secureStorage.setItem(key, value); return true; } catch { return false; }
 }
 function safeRemove(key) {
-  try { localStorage.removeItem(key); return true; } catch { return false; }
+  try { secureStorage.removeItem(key); return true; } catch { return false; }
 }
 
 // Returns the stored { groups, warnings, extractedAt } | null. Pass the file's

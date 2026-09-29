@@ -13,16 +13,17 @@
 // the old localStorage store: one key per id, with a small LRU cap so it can't
 // grow unbounded.
 import { peekFacet, putFacet, parseEnvelopeId } from './projectIndexClient';
+import { secureStorage } from './secureStore';
 
 const PREFIX = 'docvex:doc-viewer:envelope:';
 const INDEX_KEY = 'docvex:doc-viewer:envelope:index';
 const MAX_ENTRIES = 32;
 
 function readIndex() {
-  try { return JSON.parse(localStorage.getItem(INDEX_KEY)) || []; } catch { return []; }
+  try { return JSON.parse(secureStorage.getItem(INDEX_KEY)) || []; } catch { return []; }
 }
 function writeIndex(list) {
-  try { localStorage.setItem(INDEX_KEY, JSON.stringify(list)); } catch { /* ignore */ }
+  try { secureStorage.setItem(INDEX_KEY, JSON.stringify(list)); } catch { /* ignore */ }
 }
 function keyFor(id) { return PREFIX + encodeURIComponent(id); }
 
@@ -43,7 +44,7 @@ export function loadEnvelope(id) {
     if (b64) { try { return decode(b64); } catch { /* fall through */ } }
   }
   let raw;
-  try { raw = localStorage.getItem(keyFor(id)); } catch { return null; }
+  try { raw = secureStorage.getItem(keyFor(id)); } catch { return null; }
   if (!raw) return null;
   try {
     const env = decode(raw);
@@ -87,18 +88,18 @@ function saveLegacy(id, data) {
   idx.push(id);
   while (idx.length > MAX_ENTRIES) {
     const victim = idx.shift();
-    try { localStorage.removeItem(keyFor(victim)); } catch { /* ignore */ }
+    try { secureStorage.removeItem(keyFor(victim)); } catch { /* ignore */ }
   }
   try {
-    localStorage.setItem(keyFor(id), data);
+    secureStorage.setItem(keyFor(id), data);
     writeIndex(idx);
   } catch {
     // Quota hit — drop the oldest half and retry once.
     try {
       const half = idx.slice(0, Math.floor(idx.length / 2));
-      half.forEach((k) => { try { localStorage.removeItem(keyFor(k)); } catch { /* ignore */ } });
+      half.forEach((k) => { try { secureStorage.removeItem(keyFor(k)); } catch { /* ignore */ } });
       const remaining = idx.slice(half.length);
-      localStorage.setItem(keyFor(id), data);
+      secureStorage.setItem(keyFor(id), data);
       writeIndex(remaining);
     } catch { /* give up — fall back to recomputing next time */ }
   }

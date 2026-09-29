@@ -63,7 +63,7 @@ export default function SideDrawer({
     try { const v = Number(localStorage.getItem(widthKey)); return v ? clamp(v) : defaultWidth; } catch { return defaultWidth; }
   });
   const [dragging, setDragging] = useState(false);
-  const keepWidth = (w) => { if (widthKey) { try { localStorage.setItem(widthKey, String(w)); } catch { /* per-device nicety */ } } };
+  const keepWidth = (w) => { if (widthKey) { try { localStorage.setItem(widthKey, String(w)); } catch { /* per-device nicety */ } } }; // secure-store-ok: a drawer width (widthKey is a UI key)
 
   const startDrag = (e) => {
     if (e.button !== 0) return;

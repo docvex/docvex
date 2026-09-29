@@ -29,6 +29,7 @@
 // `rel` is the source's path inside the project, so a collection still finds
 // its files on another machine.
 import { localFolderApi, readLocalBlob } from './localFolder';
+import { secureStorage } from './secureStore';
 import { askProjectAi, crossrefPassports, passportFiles } from './projectAi';
 import { clearAiFacet, getAiFacet, saveAiFacet, stampFor } from './aiData';
 import { extractImageText } from './textRegions';
@@ -423,7 +424,7 @@ export const scanInternals = { passportBatch, crossReference, graphGroups, conne
 // What the scan knows is kept with the project, in its settings store `web`
 // (`.docvex/settings/web.json`, lib/projectIndexClient — it travels with the
 // folder and with account sync). It used to be a hidden `.docvex-web.json`
-// beside the files plus a localStorage copy; both are read ONCE when the store
+// beside the files plus a copy in the encrypted secure store (lib/secureStore); both are read ONCE when the store
 // has nothing, moved into it, and removed:
 //   files:       { [rel]: { size, mtime, method, understanding } } — every file
 //                scanned and what the AI understood of it
@@ -455,7 +456,7 @@ async function readWeb(projectDir, projectId) {
       // Nothing in the store yet: the old homes, once.
       const legacy = await readLegacyWeb(projectDir);
       if (legacy && await putSetting(projectId, SETTINGS_STORES.web, { ...legacy, updatedAt: Date.now() })) {
-        try { localStorage.removeItem(WEB_LS + projectDir); } catch { /* harmless leftover */ }
+        try { secureStorage.removeItem(WEB_LS + projectDir); } catch { /* harmless leftover */ }
         try { await localFolderApi.deleteFiles({ dir: projectDir, paths: [resolveInProject(projectDir, WEB_FILE)] }); } catch { /* harmless leftover */ }
       }
       return legacy;
@@ -474,7 +475,7 @@ async function readLegacyWeb(projectDir) {
     if (st && !st.error) web = JSON.parse(await (await readLocalBlob(path)).text());
   } catch { /* none yet — try the machine's copy */ }
   if (!web) {
-    try { web = JSON.parse(localStorage.getItem(WEB_LS + projectDir) || 'null'); } catch { web = null; }
+    try { web = JSON.parse(secureStorage.getItem(WEB_LS + projectDir) || 'null'); } catch { web = null; }
   }
   return shapeWeb(web);
 }
@@ -485,7 +486,7 @@ async function writeWeb(projectDir, web, projectId) {
   // No store (or it refused): this machine's copy only, so the next run is
   // still cheap. It is never written into the case folder in clear any more —
   // the index writes it there sealed (projectIndex/folderSeal.js).
-  try { localStorage.setItem(WEB_LS + projectDir, JSON.stringify(value)); } catch { /* full — the next scan redoes it */ }
+  try { secureStorage.setItem(WEB_LS + projectDir, JSON.stringify(value)); } catch { /* full — the next scan redoes it */ }
 }
 
 // A name as it can be compared: no diacritics, no case, no punctuation, no
@@ -941,7 +942,7 @@ export async function eraseScanMemory(projectDir, { projectId } = {}) {
   // The web index, in every home it has had.
   const empty = { version: 1, files: {}, collections: [], graph: null, updatedAt: Date.now() };
   if (projectId && settingsAvailable()) await putSetting(projectId, SETTINGS_STORES.web, empty).catch(() => {});
-  try { localStorage.removeItem(WEB_LS + projectDir); } catch { /* harmless */ }
+  try { secureStorage.removeItem(WEB_LS + projectDir); } catch { /* harmless */ }
   try {
     const st = await localFolderApi.stat(resolveInProject(projectDir, WEB_FILE));
     if (st && !st.error) await localFolderApi.deleteFiles({ dir: projectDir, paths: [resolveInProject(projectDir, WEB_FILE)] });

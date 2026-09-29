@@ -13,6 +13,7 @@ import { setIfChanged } from './syncClock';
 import {
   SETTINGS_STORES, peekSetting, putSetting, projectDirOf, folderColorsToRel, folderColorsFromRel, subscribeIndex,
 } from './projectIndexClient';
+import { secureStorage } from './secureStore';
 
 // Swatches offered in the folder context menu. `value: null` is the "Default"
 // entry that clears the override and falls back to the theme accent.
@@ -34,7 +35,7 @@ const keyFor = folderColorsKey;
 
 function loadMirror(projectId) {
   try {
-    const raw = localStorage.getItem(keyFor(projectId));
+    const raw = secureStorage.getItem(keyFor(projectId));
     const parsed = raw ? JSON.parse(raw) : null;
     return parsed && typeof parsed === 'object' ? parsed : {};
   } catch {

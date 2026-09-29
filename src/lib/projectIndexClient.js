@@ -34,6 +34,8 @@
 // Every kind of per-file knowledge, in one place. `local` kinds never leave
 // this machine (main keeps them out of `.docvex/`, account sync leaves them
 // out) — the face descriptions are biometric data.
+import { secureStorage, secureKeys } from './secureStore';
+
 export const KNOWLEDGE_KINDS = {
   text: { store: 'aiData' },          // a picture's text with positions (lib/textRegions)
   ocr: { store: 'aiData' },           // the paid Claude transcription (lib/identityExtract)
@@ -685,13 +687,28 @@ export function legacyStampStale(stamp, now) {
   return false;
 }
 
+// The legacy keys now live in the ENCRYPTED store (lib/secureStore moves them
+// out of localStorage at sign-in); a copy still in localStorage (read before
+// that, or on a machine with no encrypted backend) is read too, and removed
+// from both once the index has it.
 function lsKeys() {
-  const out = [];
-  try { for (let i = 0; i < localStorage.length; i += 1) { const k = localStorage.key(i); if (k) out.push(k); } } catch { /* none */ }
-  return out;
+  const out = new Set(secureKeys('docvex'));
+  try { for (let i = 0; i < localStorage.length; i += 1) { const k = localStorage.key(i); if (k) out.add(k); } } catch { /* none */ }
+  return [...out];
 }
-const lsRead = (k) => { try { return localStorage.getItem(k); } catch { return null; } };
-const lsRemove = (k) => { try { localStorage.removeItem(k); } catch { /* keep going */ } };
+const lsRead = (k) => {
+  const v = secureStorage.getItem(k);
+  if (v != null) return v;
+  try { return localStorage.getItem(k); } catch { return null; }
+};
+const lsRemove = (k) => {
+  secureStorage.removeItem(k);
+  try { localStorage.removeItem(k); } catch { /* keep going */ }
+};
+const lsWrite = (k, v) => {
+  secureStorage.setItem(k, v);
+  try { localStorage.removeItem(k); } catch { /* keep going */ }
+};
 
 async function statOf(path) {
   if (!has('stat')) return undefined;
@@ -708,7 +725,7 @@ async function statOf(path) {
 // up exactly what failed before.
 let migrating = Promise.resolve();
 export function migrateLegacy({ dir = null, onlyPath = null, projectId = null } = {}) {
-  if (!indexAvailable() || typeof localStorage === 'undefined') return Promise.resolve(0);
+  if (!indexAvailable()) return Promise.resolve(0);
   const run = migrating.then(() => migrateNow({ dir, onlyPath, projectId })).catch(() => 0);
   migrating = run;
   return run;
@@ -778,7 +795,7 @@ async function migrateNow({ dir, onlyPath }) {
     try {
       const map = JSON.parse(lsRead(LEGACY.fileIndex) || '{}') || {};
       for (const p of mapDone) delete map[p];
-      if (Object.keys(map).length) localStorage.setItem(LEGACY.fileIndex, JSON.stringify(map));
+      if (Object.keys(map).length) lsWrite(LEGACY.fileIndex, JSON.stringify(map));
       else lsRemove(LEGACY.fileIndex);
     } catch { /* stays; it is only read as a fallback */ }
   }
@@ -787,7 +804,7 @@ async function migrateNow({ dir, onlyPath }) {
     const idx = JSON.parse(lsRead(LEGACY.envelopeIndex) || '[]');
     if (Array.isArray(idx)) {
       const left = idx.filter((id) => lsRead(LEGACY.envelope + encodeURIComponent(id)) != null);
-      if (left.length !== idx.length) localStorage.setItem(LEGACY.envelopeIndex, JSON.stringify(left));
+      if (left.length !== idx.length) lsWrite(LEGACY.envelopeIndex, JSON.stringify(left));
     }
   } catch { /* the cache rebuilds its index as it goes */ }
   return moved;
@@ -800,7 +817,7 @@ async function migrateNow({ dir, onlyPath }) {
 // and a put main refused leaves a key behind on purpose for the next run.
 const MIGRATION_MARK = 'migration:localStorage:v1';
 async function markMigrated(projectId, dir) {
-  if (!has('privatePut') || typeof localStorage === 'undefined') return;
+  if (!has('privatePut')) return;
   const keys = lsKeys().filter((k) => Object.values(LEGACY).some((pfx) => k.startsWith(pfx)));
   if (collectLegacy(keys, lsRead, { inside: dir }).length) return;
   const seen = await ipc.privateGet({ projectId, userId: '_device', key: MIGRATION_MARK });

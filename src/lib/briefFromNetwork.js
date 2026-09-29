@@ -25,6 +25,7 @@ import { DOC_TEMPLATES, templateById, foldText } from './docTemplates';
 import { PARTY_FIELDS } from './docBrief';
 import { localFolderApi } from './localFolder';
 import { readProjectsDir } from './projectsDir';
+import { secureStorage } from './secureStore';
 
 const MODEL = 'claude-sonnet-4-6';
 const SUGGEST_KEY = 'docvex:brief-network:suggest:v1:';
@@ -104,8 +105,8 @@ export function networkDigest(net, max = DIGEST_MAX) {
   return out;
 }
 
-const readCache = (key) => { try { return JSON.parse(localStorage.getItem(key) || 'null'); } catch { return null; } };
-const writeCache = (key, value) => { try { localStorage.setItem(key, JSON.stringify(value)); } catch { /* full — the next open asks again */ } };
+const readCache = (key) => { try { return JSON.parse(secureStorage.getItem(key) || 'null'); } catch { return null; } };
+const writeCache = (key, value) => { try { secureStorage.setItem(key, JSON.stringify(value)); } catch { /* full — the next open asks again */ } };
 
 // Files the model named, kept only when the network has them.
 function knownRels(net, list) {

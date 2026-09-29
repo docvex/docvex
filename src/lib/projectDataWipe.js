@@ -29,6 +29,7 @@ import { METADATA_PREFIX } from './metadataHistory';
 import { OCR_HISTORY_PREFIX } from './extractionHistory';
 import { CONVERSATION_PREFIX, listConversations, clearConversation } from './conversationHistory';
 import { normPath } from './projectIndexClient';
+import { secureStorage, secureKeys } from './secureStore';
 
 // Per-file localStorage caches, all keyed `<prefix><absolute file path>`.
 // (The envelope cache has no exported constant — its prefix is inlined here
@@ -49,8 +50,11 @@ function purgeByPrefixUnder(prefixes, dir) {
   const root = String(dir || '').replace(/[\\/]+$/, '').toLowerCase();
   const doomed = [];
   try {
-    for (let i = 0; i < localStorage.length; i += 1) {
-      const key = localStorage.key(i);
+    // The ENCRYPTED store (lib/secureStore) holds them now; a legacy copy
+    // still in localStorage goes too.
+    let lsKeys = [];
+    try { lsKeys = Object.keys(localStorage); } catch { lsKeys = []; }
+    for (const key of new Set([...secureKeys('docvex'), ...lsKeys])) {
       if (!key) continue;
       const prefix = prefixes.find((p) => key.startsWith(p));
       if (!prefix) continue;
@@ -59,7 +63,10 @@ function purgeByPrefixUnder(prefixes, dir) {
       const path = key.slice(prefix.length).toLowerCase();
       if (path.startsWith(root)) doomed.push(key);
     }
-    for (const key of doomed) localStorage.removeItem(key);
+    for (const key of doomed) {
+      secureStorage.removeItem(key);
+      try { localStorage.removeItem(key); } catch { /* refused */ }
+    }
   } catch { /* storage unavailable — nothing to purge */ }
   return doomed.length;
 }

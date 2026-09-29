@@ -11,6 +11,7 @@
 // the on-disk path captured when the timeline was built.
 
 import { setIfChanged } from './syncClock';
+import { secureStorage } from './secureStore';
 
 const TIMELINE_KEY_PREFIX = 'docvex:case-timeline:v1:';
 
@@ -23,7 +24,7 @@ export function timelineKeyFor(projectId) {
 export function loadCaseTimeline(projectId) {
   if (!projectId) return null;
   try {
-    const raw = localStorage.getItem(timelineKeyFor(projectId));
+    const raw = secureStorage.getItem(timelineKeyFor(projectId));
     const parsed = raw ? JSON.parse(raw) : null;
     if (parsed && Array.isArray(parsed.events) && parsed.events.length > 0) return parsed;
   } catch { /* corrupt entry — treat as absent */ }

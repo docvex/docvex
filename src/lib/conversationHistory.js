@@ -18,10 +18,12 @@
 // Every conversation of the user is loaded once (`privateList`) and served from
 // memory, so the reads stay synchronous.
 //
-// Without main's side, or signed out, it is the localStorage store it was; the
-// old keys are moved across on the first load and removed once main has them.
+// Without main's side it is the per-file key store it was — now the ENCRYPTED
+// secure store (lib/secureStore), never localStorage (V5); those keys are moved
+// into the private table on the first load and removed once main has them.
 import { supabase } from './supabaseClient';
 import { privateAvailable, privateList, privatePut, registerPathHydrator } from './projectIndexClient';
+import { secureStorage, secureKeys, subscribeSecureStore } from './secureStore';
 
 const KEY_PREFIX = 'docvex:doc-viewer:conversation:';
 const PRIVATE_PREFIX = 'conversation:';
@@ -30,13 +32,13 @@ const PRIVATE_PREFIX = 'conversation:';
 export const CONVERSATION_PREFIX = KEY_PREFIX;
 
 function safeRead(key) {
-  try { return localStorage.getItem(key); } catch { return null; }
+  try { return secureStorage.getItem(key); } catch { return null; }
 }
 function safeWrite(key, value) {
-  try { localStorage.setItem(key, value); return true; } catch { return false; }
+  try { secureStorage.setItem(key, value); return true; } catch { return false; }
 }
 function safeRemove(key) {
-  try { localStorage.removeItem(key); return true; } catch { return false; }
+  try { secureStorage.removeItem(key); return true; } catch { return false; }
 }
 
 // Normalise a file path into a STABLE key. The same file can reach us with
@@ -102,10 +104,15 @@ export function ensureLoaded() {
 // A Doc Viewer window awaits hydratePath before its first read; this makes
 // that include the conversations.
 registerPathHydrator(() => ensureLoaded());
+// The secure store lands after sign-in (and brings any keys moved out of
+// localStorage): fold those into the private table too.
+subscribeSecureStore(({ source }) => {
+  if (source === 'hydrate' && userId && loadedFor === userId) void migrateLegacy(userId);
+});
 
 async function migrateLegacy(who) {
   let keys = [];
-  try { keys = Object.keys(localStorage).filter((k) => k.startsWith(KEY_PREFIX)); } catch { return; }
+  try { keys = secureKeys(KEY_PREFIX); } catch { return; }
   for (const k of keys) {
     const raw = safeRead(k);
     const rec = parseRecord(raw);
@@ -275,11 +282,7 @@ export function migrateConversationsUnder(oldDir, newDir) {
   let moved = 0;
   const paths = new Set();
   if (usingPrivate()) for (const f of store.keys()) if (f.startsWith(from)) paths.add(f);
-  try {
-    for (const k of Object.keys(localStorage)) {
-      if (k.startsWith(KEY_PREFIX + from)) paths.add(k.slice(KEY_PREFIX.length));
-    }
-  } catch { /* storage unavailable */ }
+  for (const k of secureKeys(KEY_PREFIX + from)) paths.add(k.slice(KEY_PREFIX.length));
   for (const f of paths) {
     if (migrateConversation(f, to + f.slice(from.length))) moved += 1;
   }
@@ -293,8 +296,7 @@ export async function listConversations() {
   await ensureLoaded();
   const out = new Map();
   try {
-    for (const k of Object.keys(localStorage)) {
-      if (!k.startsWith(KEY_PREFIX)) continue;
+    for (const k of secureKeys(KEY_PREFIX)) {
       const raw = safeRead(k);
       const rec = raw && JSON.parse(raw);
       if (rec && typeof rec === 'object') out.set(folded(k.slice(KEY_PREFIX.length)), rec);
