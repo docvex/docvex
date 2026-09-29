@@ -13,8 +13,28 @@
 // Stored: localStorage `docvex:phone-upload:local:v2:<userId>:<projectId>` →
 //   { token, dir, folder, project, port }. (v1 keys, per project only, are
 //   dropped — their owner is unknown.)
+// The address's FILE KEY (the QR code's fragment, lib/phoneUploadCrypto) is
+// NOT kept there: it is in the encrypted store (lib/secureStore,
+// `docvex:phone-upload-key:<route>:<userId>:<projectId>`). "New address" makes
+// a new token AND a new key.
 
 import { phoneUploadStart, phoneUploadStop } from './platform';
+import { secureGet, secureSet, secureRemove, whenSecureStoreReady } from './secureStore';
+
+// ── The addresses' file keys, in the encrypted store ─────────────────────
+const sealKeyKey = (route, userId, projectId) => `docvex:phone-upload-key:${route}:${userId || '_'}:${projectId || '_'}`;
+// The store answers from memory once hydrated; wait for that (briefly) so a
+// kept key isn't taken for a missing one right after launch.
+async function storeReady() {
+  try { await Promise.race([whenSecureStoreReady(), new Promise((r) => setTimeout(r, 3000))]); } catch { /* answer from what is there */ }
+}
+export async function loadSealKey(route, userId, projectId) {
+  await storeReady();
+  try { return secureGet(sealKeyKey(route, userId, projectId)) || ''; } catch { return ''; }
+}
+export function saveSealKey(route, userId, projectId, key) {
+  try { if (key) secureSet(sealKeyKey(route, userId, projectId), key); else secureRemove(sealKeyKey(route, userId, projectId)); } catch { /* memory only */ }
+}
 
 const PREFIX = 'docvex:phone-upload:local:v2:';
 const key = (userId, projectId) => `${PREFIX}${userId || '_'}:${projectId || '_'}`;
@@ -27,6 +47,7 @@ function saveLocalLink(userId, projectId, link) {
 }
 export function clearLocalLink(userId, projectId) {
   try { localStorage.removeItem(key(userId, projectId)); } catch { /* storage refused */ }
+  saveSealKey('local', userId, projectId, '');
 }
 
 /**
@@ -36,12 +57,16 @@ export function clearLocalLink(userId, projectId) {
  */
 export async function ensureLocalLink({ userId, projectId, dir, project, folder, fresh = false, hold = false }) {
   const kept = loadLocalLink(userId, projectId);
-  if (fresh && kept?.token) { await phoneUploadStop(kept.token); clearLocalLink(userId, projectId); }
+  if (fresh && kept?.token) { await phoneUploadStop(kept.token); clearLocalLink(userId, projectId); saveSealKey('local', userId, projectId, ''); }
+  const keptKey = fresh ? '' : await loadSealKey('local', userId, projectId);
   const res = await phoneUploadStart({
     dir, project: project || kept?.project || '', folder, hold, owner: userId || '',
-    token: fresh ? undefined : kept?.token, port: kept?.port,
+    token: fresh ? undefined : kept?.token, key: keptKey || undefined, port: kept?.port,
   });
-  if (res?.ok) saveLocalLink(userId, projectId, { token: res.token, dir, folder, project: project || kept?.project || '', port: res.port });
+  if (res?.ok) {
+    saveLocalLink(userId, projectId, { token: res.token, dir, folder, project: project || kept?.project || '', port: res.port });
+    if (res.key) saveSealKey('local', userId, projectId, res.key);
+  }
   return res;
 }
 

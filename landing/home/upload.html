@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="robots" content="noindex">
 <meta name="referrer" content="no-referrer">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-ADyUs+Q/e72MIQp5TDOIdaFhND78NqTC735ahyFb4QY='; style-src 'unsafe-inline'; img-src blob: data:; media-src blob: mediastream:; connect-src https://pntxlvhkqfryyyxlqytr.supabase.co https://pntxlvhkqfryyyxlqytr.storage.supabase.co; base-uri 'none'; form-action 'none'">
 <meta name="theme-color" content="#F9F9FA" media="(prefers-color-scheme: light)">
 <meta name="theme-color" content="#16181A" media="(prefers-color-scheme: dark)">
 <title>Upload to DocVex</title>
@@ -336,8 +337,118 @@
 <script>
 (function () {
   var CFG = {"mode":"cloud","project":"","folder":"","base":"","fn":"https://pntxlvhkqfryyyxlqytr.supabase.co/functions/v1/phone-upload","anon":"sb_publishable_2JXDUwP4MFAk9t78UELKpA_99CImHfW","computer":"","dev":false,"shortcut":"","glyphs":{"icons":{"pdf":"\u003cspan class=\"fx-glyph fx-glyph-icon\">\u003csvg class=\"fx-type-icon\" viewBox=\"0 0 24 24\" aria-hidden=\"true\" style=\"width:100%;height:100%\">\u003crect x=\"4.6\" y=\"2.5\" width=\"14.8\" height=\"19\" rx=\"1.7\" fill=\"#fff\" stroke=\"rgba(0,0,0,0.16)\" stroke-width=\"0.8\">\u003c/rect>\u003cpath d=\"M6.8 5.9h10.4M6.8 8.5h10.4M14.8 11.1h2.4M14.8 13.7h2.4\" stroke=\"#B5473F\" stroke-opacity=\"0.5\" stroke-width=\"1.25\" stroke-linecap=\"round\">\u003c/path>\u003crect x=\"1.8\" y=\"11.4\" width=\"13.4\" height=\"10.1\" rx=\"1.8\" fill=\"#B5473F\">\u003c/rect>\u003ctext x=\"8.5\" y=\"17.9\" text-anchor=\"middle\" font-family=\"var(--font-display, sans-serif)\" font-size=\"4\" font-weight=\"800\" letter-spacing=\"0.2\" fill=\"#fff\" stroke=\"#fff\" stroke-width=\"0.35\" stroke-linejoin=\"round\" paint-order=\"stroke\">PDF\u003c/text>\u003c/svg>\u003c/span>","doc":"\u003cspan class=\"fx-glyph fx-glyph-icon\">\u003csvg class=\"fx-type-icon\" viewBox=\"0 0 24 24\" aria-hidden=\"true\" style=\"width:100%;height:100%\">\u003crect x=\"4.6\" y=\"2.5\" width=\"14.8\" height=\"19\" rx=\"1.7\" fill=\"#fff\" stroke=\"rgba(0,0,0,0.16)\" stroke-width=\"0.8\">\u003c/rect>\u003cpath d=\"M6.8 5.9h10.4M6.8 8.5h10.4M6.8 11.1h7\" stroke=\"#185ABD\" stroke-opacity=\"0.5\" stroke-width=\"1.25\" stroke-linecap=\"round\">\u003c/path>\u003crect x=\"1.8\" y=\"11.4\" width=\"11\" height=\"10.1\" rx=\"1.8\" fill=\"#185ABD\">\u003c/rect>\u003ctext x=\"7.3\" y=\"18.35\" text-anchor=\"middle\" font-family=\"var(--font-display, sans-serif)\" font-size=\"5.8\" font-weight=\"800\" fill=\"#fff\" stroke=\"#fff\" stroke-width=\"0.35\" stroke-linejoin=\"round\" paint-order=\"stroke\">W\u003c/text>\u003c/svg>\u003c/span>","xls":"\u003cspan class=\"fx-glyph fx-glyph-icon\">\u003csvg class=\"fx-type-icon\" viewBox=\"0 0 24 24\" aria-hidden=\"true\" style=\"width:100%;height:100%\">\u003crect x=\"4.6\" y=\"2.5\" width=\"14.8\" height=\"19\" rx=\"1.7\" fill=\"#fff\" stroke=\"rgba(0,0,0,0.16)\" stroke-width=\"0.8\">\u003c/rect>\u003cpath d=\"M6.8 6.1h10.4M6.8 9h10.4M10.6 4.6v6.9M14.1 4.6v6.9\" stroke=\"#107C41\" stroke-opacity=\"0.5\" stroke-width=\"1.1\">\u003c/path>\u003crect x=\"1.8\" y=\"11.4\" width=\"11\" height=\"10.1\" rx=\"1.8\" fill=\"#107C41\">\u003c/rect>\u003ctext x=\"7.3\" y=\"18.35\" text-anchor=\"middle\" font-family=\"var(--font-display, sans-serif)\" font-size=\"5.8\" font-weight=\"800\" fill=\"#fff\" stroke=\"#fff\" stroke-width=\"0.35\" stroke-linejoin=\"round\" paint-order=\"stroke\">X\u003c/text>\u003c/svg>\u003c/span>","ppt":"\u003cspan class=\"fx-glyph fx-glyph-icon\">\u003csvg class=\"fx-type-icon\" viewBox=\"0 0 24 24\" aria-hidden=\"true\" style=\"width:100%;height:100%\">\u003crect x=\"4.6\" y=\"2.5\" width=\"14.8\" height=\"19\" rx=\"1.7\" fill=\"#fff\" stroke=\"rgba(0,0,0,0.16)\" stroke-width=\"0.8\">\u003c/rect>\u003ccircle cx=\"9.3\" cy=\"7.6\" r=\"3.1\" fill=\"none\" stroke=\"#C43E1C\" stroke-opacity=\"0.5\" stroke-width=\"1.2\">\u003c/circle>\u003cpath d=\"M14.2 6h3.2M14.2 8.5h3.2M14.2 11h3.2\" stroke=\"#C43E1C\" stroke-opacity=\"0.5\" stroke-width=\"1.2\" stroke-linecap=\"round\">\u003c/path>\u003crect x=\"1.8\" y=\"11.4\" width=\"11\" height=\"10.1\" rx=\"1.8\" fill=\"#C43E1C\">\u003c/rect>\u003ctext x=\"7.3\" y=\"18.35\" text-anchor=\"middle\" font-family=\"var(--font-display, sans-serif)\" font-size=\"5.8\" font-weight=\"800\" fill=\"#fff\" stroke=\"#fff\" stroke-width=\"0.35\" stroke-linejoin=\"round\" paint-order=\"stroke\">P\u003c/text>\u003c/svg>\u003c/span>","zip":"\u003cspan class=\"fx-glyph fx-glyph-icon\">\u003csvg class=\"fx-type-icon\" viewBox=\"0 0 24 24\" aria-hidden=\"true\">\u003cpath class=\"fx-type-base\" d=\"M2.6 6.6a2.2 2.2 0 0 1 2.2-2.2h4.2l2 2h8.2a2.2 2.2 0 0 1 2.2 2.2v8.6a2.2 2.2 0 0 1-2.2 2.2H4.8a2.2 2.2 0 0 1-2.2-2.2z\">\u003c/path>\u003cline class=\"fx-zip-teeth\" x1=\"12\" y1=\"9.2\" x2=\"12\" y2=\"19.3\">\u003c/line>\u003ccircle class=\"fx-type-detail\" cx=\"12\" cy=\"9.4\" r=\"1.8\">\u003c/circle>\u003crect class=\"fx-type-detail\" x=\"11.25\" y=\"9.4\" width=\"1.5\" height=\"3.5\" rx=\"0.75\">\u003c/rect>\u003c/svg>\u003c/span>","img":"\u003cspan class=\"fx-glyph fx-glyph-icon\">\u003csvg class=\"fx-type-icon\" viewBox=\"0 0 24 24\" aria-hidden=\"true\">\u003crect class=\"fx-type-base\" x=\"3\" y=\"4\" width=\"18\" height=\"16\" rx=\"2.6\">\u003c/rect>\u003ccircle class=\"fx-type-detail\" cx=\"8.5\" cy=\"9.5\" r=\"2\">\u003c/circle>\u003cpath class=\"fx-type-detail\" d=\"M4 19 L9.5 12.5 L13 16 L16 12.5 L20 19 Z\">\u003c/path>\u003c/svg>\u003c/span>","vid":"\u003cspan class=\"fx-glyph fx-glyph-vid\">\u003csvg class=\"fx-glyph-play\" viewBox=\"0 0 24 24\" aria-hidden=\"true\">\u003cpath d=\"M8 5.14v13.72a1 1 0 0 0 1.53.85l10.78-6.86a1 1 0 0 0 0-1.7L9.53 4.29A1 1 0 0 0 8 5.14z\" fill=\"currentColor\">\u003c/path>\u003c/svg>\u003c/span>","aud":"\u003cspan class=\"fx-glyph fx-glyph-aud\">\u003csvg class=\"fx-glyph-audio\" viewBox=\"0 0 24 24\" aria-hidden=\"true\">\u003cg fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\">\u003cpath d=\"M3 10.5v3\">\u003c/path>\u003cpath d=\"M6.5 7.5v9\">\u003c/path>\u003cpath d=\"M10 4.5v15\">\u003c/path>\u003cpath d=\"M13.5 8.5v7\">\u003c/path>\u003cpath d=\"M17 6v12\">\u003c/path>\u003cpath d=\"M20.5 9.5v5\">\u003c/path>\u003c/g>\u003c/svg>\u003c/span>","txt":"\u003cspan class=\"fx-glyph fx-glyph-icon fx-glyph-generic fx-glyph-txt\">\u003csvg class=\"fx-type-icon\" viewBox=\"0 0 24 24\" aria-hidden=\"true\">\u003crect class=\"fx-type-base\" x=\"4\" y=\"2.5\" width=\"16\" height=\"19\" rx=\"2.6\">\u003c/rect>\u003crect class=\"fx-type-detail\" x=\"7\" y=\"7\" width=\"10\" height=\"1.8\" rx=\"0.9\">\u003c/rect>\u003crect class=\"fx-type-detail\" x=\"7\" y=\"11\" width=\"10\" height=\"1.8\" rx=\"0.9\">\u003c/rect>\u003crect class=\"fx-type-detail\" x=\"7\" y=\"15\" width=\"7\" height=\"1.8\" rx=\"0.9\">\u003c/rect>\u003c/svg>\u003c/span>","collection":"\u003cspan class=\"fx-glyph fx-glyph-icon fx-glyph-identity fx-glyph-collection\">\u003csvg class=\"fx-type-icon\" viewBox=\"0 0 24 24\" aria-hidden=\"true\">\u003crect class=\"fx-type-base\" x=\"4.4\" y=\"3.6\" width=\"15.2\" height=\"16.8\" rx=\"2.4\">\u003c/rect>\u003cg class=\"fx-idn-mark\">\u003cpath d=\"M9.4 9.6l5 1.6M9.2 11.2l2.4 4.2M14.8 12.6l-2.2 3\">\u003c/path>\u003ccircle cx=\"8.6\" cy=\"9.2\" r=\"1.5\">\u003c/circle>\u003ccircle cx=\"15.6\" cy=\"11.6\" r=\"1.5\">\u003c/circle>\u003ccircle cx=\"12\" cy=\"16.4\" r=\"1.5\">\u003c/circle>\u003c/g>\u003c/svg>\u003c/span>","gen":"\u003cspan class=\"fx-glyph fx-glyph-icon fx-glyph-generic\">\u003csvg class=\"fx-type-icon\" viewBox=\"0 0 24 24\" aria-hidden=\"true\">\u003crect class=\"fx-type-base\" x=\"4\" y=\"2.5\" width=\"16\" height=\"19\" rx=\"2.6\">\u003c/rect>\u003ctext class=\"fx-type-detail\" x=\"12\" y=\"16.2\" text-anchor=\"middle\" font-family=\"var(--font-display, sans-serif)\" font-size=\"11\" font-weight=\"800\">?\u003c/text>\u003c/svg>\u003c/span>"},"cats":{"pdf":"pdf","doc":"doc","docx":"doc","docm":"doc","dot":"doc","dotx":"doc","dotm":"doc","rtf":"doc","odt":"doc","pages":"doc","xls":"xls","xlsx":"xls","xlsm":"xls","xlsb":"xls","xlt":"xls","xltx":"xls","xltm":"xls","csv":"xls","ods":"xls","numbers":"xls","ppt":"ppt","pptx":"ppt","pptm":"ppt","pps":"ppt","ppsx":"ppt","ppsm":"ppt","pot":"ppt","potx":"ppt","potm":"ppt","odp":"ppt","key":"ppt","jpg":"img","jpeg":"img","png":"img","gif":"img","webp":"img","svg":"img","heic":"img","bmp":"img","tif":"img","tiff":"img","mp4":"vid","mov":"vid","avi":"vid","mkv":"vid","webm":"vid","m4v":"vid","mp3":"aud","wav":"aud","m4a":"aud","aac":"aud","ogg":"aud","oga":"aud","flac":"aud","opus":"aud","wma":"aud","aif":"aud","aiff":"aud","txt":"txt","md":"txt","log":"txt","zip":"zip","rar":"zip","7z":"zip","tar":"zip","gz":"zip","dvc":"collection"}}};
+  var phoneSealer = function phoneSealer(g, opts) {
+  var CHUNK = opts && opts.chunk || 4 * 1024 * 1024;
+  var subtle = !(opts && opts.noble) && g.crypto && g.crypto.subtle && g.isSecureContext !== false ? g.crypto.subtle : null;
+  var gcm = g.__dvxGcm || null;
+  var enc = new TextEncoder();
+  function b64d(str) {
+    var s = String(str || "").replace(/-/g, "+").replace(/_/g, "/");
+    var bin = g.atob(s + "===".slice((s.length + 3) % 4));
+    var out = new Uint8Array(bin.length);
+    for (var i = 0; i < bin.length; i += 1) out[i] = bin.charCodeAt(i);
+    return out;
+  }
+  function hexOf(b) {
+    var s = "";
+    for (var i = 0; i < b.length; i += 1) s += (b[i] < 16 ? "0" : "") + b[i].toString(16);
+    return s;
+  }
+  function nonce(prefix, i) {
+    var n = new Uint8Array(12);
+    n.set(prefix, 0);
+    new DataView(n.buffer).setUint32(8, i >>> 0, false);
+    return n;
+  }
+  function aad(ctx, fileId, i, last) {
+    return enc.encode("DVXP1|" + ctx + "|" + hexOf(fileId) + "|" + i + "|" + (last ? 1 : 0));
+  }
+  function headerBytes(file) {
+    return enc.encode(JSON.stringify({ n: String(file.name || "file"), t: String(file.type || ""), s: file.size || 0, c: CHUNK }));
+  }
+  async function sealOne(key, n, a, pt) {
+    if (key.web) return new Uint8Array(await subtle.encrypt({ name: "AES-GCM", iv: n, additionalData: a, tagLength: 128 }, key.web, pt));
+    return gcm(key.raw, n, a).encrypt(pt);
+  }
+  return {
+    available: !!(subtle || gcm),
+    engine: subtle ? "webcrypto" : gcm ? "noble" : "",
+    importKey: async function(b64) {
+      var raw = b64d(b64);
+      if (raw.length !== 32) throw new Error("bad_key");
+      if (subtle) return { raw, web: await subtle.importKey("raw", raw, { name: "AES-GCM" }, false, ["encrypt"]) };
+      if (!gcm) throw new Error("no_crypto");
+      return { raw, web: null };
+    },
+    sealedSize: function(file) {
+      var size = file.size || 0;
+      return 33 + headerBytes(file).length + 16 + size + 16 * Math.max(1, Math.ceil(size / CHUNK));
+    },
+    seal: async function(key, ctx, file, onPart) {
+      var size = file.size || 0;
+      var n = Math.max(1, Math.ceil(size / CHUNK));
+      var fileId = g.crypto.getRandomValues(new Uint8Array(16));
+      var prefix = g.crypto.getRandomValues(new Uint8Array(8));
+      var hdr = await sealOne(key, nonce(prefix, 0), aad(ctx, fileId, 0, false), headerBytes(file));
+      var head = new Uint8Array(33 + hdr.length);
+      head.set([68, 86, 88, 80, 1], 0);
+      head.set(fileId, 5);
+      head.set(prefix, 21);
+      new DataView(head.buffer).setUint32(29, hdr.length, false);
+      head.set(hdr, 33);
+      var offset = 0;
+      for (var i = 1; i <= n; i += 1) {
+        var from = (i - 1) * CHUNK;
+        var to = Math.min(size, from + CHUNK);
+        var slice = file.slice(from, to);
+        var pt = new Uint8Array(slice.arrayBuffer ? await slice.arrayBuffer() : await new Response(slice).arrayBuffer());
+        var ct = await sealOne(key, nonce(prefix, i), aad(ctx, fileId, i, i === n), pt);
+        var part = ct;
+        if (i === 1) {
+          part = new Uint8Array(head.length + ct.length);
+          part.set(head, 0);
+          part.set(ct, head.length);
+        }
+        await onPart(part, { offset, last: i === n, plainDone: to, fileId: hexOf(fileId) });
+        offset += part.length;
+      }
+      return { fileId: hexOf(fileId), size: offset };
+    }
+  };
+};
+  // The address: the token and the file key come in the URL FRAGMENT
+  // (#t=…&k=…), which never leaves the phone — the cloud page's token also in
+  // ?t= as before. Both are taken out of the address bar at once and kept for
+  // this tab only (sessionStorage), so a reload still works.
   var q = new URLSearchParams(location.search);
-  var token = q.get('t') || '';
+  var h = new URLSearchParams(String(location.hash || '').replace(/^#/, ''));
+  var kept = null;
+  try { kept = JSON.parse(sessionStorage.getItem('docvex-upload') || 'null'); } catch (e) { kept = null; }
+  var token = h.get('t') || q.get('t') || '';
+  var keyB64 = h.get('k') || '';
+  if (!keyB64 && kept && kept.k && (!token || kept.t === token)) { token = token || kept.t; keyB64 = kept.k; }
+  if (location.hash) {
+    try { history.replaceState(null, '', location.pathname + location.search); } catch (e) { /* the address keeps it */ }
+  }
+  if (token && keyB64) { try { sessionStorage.setItem('docvex-upload', JSON.stringify({ t: token, k: keyB64 })); } catch (e) { /* this tab only */ } }
+  // Every file is sealed on this phone before it is sent (AES-256-GCM,
+  // lib/phoneUploadCrypto): WebCrypto on the https cloud page, the bundled
+  // @noble/ciphers on the plain-http Wi-Fi page.
+  var sealer = phoneSealer ? phoneSealer(window) : null;
+  var sealKey = null;
+  function keyReady() {
+    if (sealKey) return Promise.resolve(sealKey);
+    if (!sealer || !sealer.available || !keyB64) return Promise.reject(new Error('no_key'));
+    return sealer.importKey(keyB64).then(function (k) { sealKey = k; return k; });
+  }
+  // The Wi-Fi route's requests: the token rides in a header, never the path.
+  var API = '/api';
+  function lfetch(sub, opts) {
+    opts = opts || {};
+    opts.headers = Object.assign({ 'x-docvex-token': token }, opts.headers || {});
+    opts.cache = 'no-store';
+    return fetch(API + sub, opts);
+  }
   var $ = function (id) { return document.getElementById(id); };
   var maxBytes = 0;
   var busy = 0;
@@ -415,21 +526,41 @@
 
   // ── The two routes ──
   function info() {
+    if (!token || !keyB64) return Promise.resolve({ ok: false, error: 'no_key' });
+    if (!sealer || !sealer.available) return Promise.resolve({ ok: false, error: 'no_crypto' });
     if (CFG.mode === 'local') {
-      return fetch(CFG.base + '/info').then(function (r) { return r.json(); });
+      return lfetch('/info').then(function (r) { return r.json(); });
     }
-    if (!token) return Promise.resolve({ ok: false, error: 'unknown' });
     return fnCall({ action: 'info' });
   }
+  // Wi-Fi: the sealed file goes up a piece at a time (one request per
+  // ~4 MB chunk), so a phone never holds a whole video twice. The computer
+  // opens each piece as it arrives and answers the last one.
+  // Cloud: sealed whole (≤50 MB) and PUT to a signed upload URL; the row says
+  // only "encrypted" — the name and type travel inside the sealed file.
   function upload(file, onProgress, partnerId) {
-    if (CFG.mode === 'local') {
-      return put('POST', CFG.base + '/file?name=' + encodeURIComponent(file.name || 'file') + (partnerId ? '&partner=' + encodeURIComponent(partnerId) : ''), file, { 'content-type': 'application/octet-stream' }, onProgress);
-    }
-    return fnCall({ action: 'sign', name: file.name, size: file.size, type: file.type }).then(function (s) {
-      if (!s || !s.ok) throw new Error(s && s.error === 'too_large' ? 'Too large (max ' + fmt(s.maxBytes || 0) + ')' : (s && s.error) || 'refused');
-      return put('PUT', s.signedUrl, file, { 'content-type': file.type || 'application/octet-stream', 'x-upsert': 'false', apikey: CFG.anon }, onProgress)
-        .then(function () { return fnCall({ action: 'done', path: s.path, name: file.name, size: file.size, type: file.type }); })
-        .then(function (d) { if (!d || !d.ok) throw new Error((d && d.error) || 'not recorded'); return d; });
+    return keyReady().then(function (key) {
+      var sealedTotal = sealer.sealedSize(file);
+      if (CFG.mode === 'local') {
+        var last = null;
+        return sealer.seal(key, token, file, function (part, at) {
+          var url = '/up?u=' + at.fileId + '&o=' + at.offset + '&end=' + (at.last ? 1 : 0) + (partnerId ? '&partner=' + encodeURIComponent(partnerId) : '');
+          return put('POST', API + url, part, { 'content-type': 'application/octet-stream', 'x-docvex-token': token }, function (p) {
+            onProgress(Math.min(1, (at.offset + p * part.length) / sealedTotal));
+          }).then(function (r) { last = r; });
+        }).then(function () { return last; });
+      }
+      var parts = [];
+      return sealer.seal(key, token, file, function (part) { parts.push(part); return Promise.resolve(); }).then(function () {
+        var blob = new Blob(parts, { type: 'application/octet-stream' });
+        parts = null;
+        return fnCall({ action: 'sign', name: 'encrypted', size: blob.size, type: 'application/x-docvex-sealed', sealed: true }).then(function (s) {
+          if (!s || !s.ok) throw new Error(s && s.error === 'too_large' ? 'Too large (max ' + fmt(s.maxBytes || 0) + ')' : (s && s.error) || 'refused');
+          return put('PUT', s.signedUrl, blob, { 'content-type': 'application/octet-stream', 'x-upsert': 'false', apikey: CFG.anon }, onProgress)
+            .then(function () { return fnCall({ action: 'done', path: s.path, name: 'encrypted', size: blob.size, type: 'application/x-docvex-sealed', sealed: true }); })
+            .then(function (d) { if (!d || !d.ok) throw new Error((d && d.error) || 'not recorded'); return d; });
+        });
+      });
     });
   }
 
@@ -464,7 +595,7 @@
     var ids = Object.keys(watching);
     if (!ids.length) { clearInterval(watchTimer); watchTimer = 0; return; }
     (CFG.mode === 'local'
-      ? fetch(CFG.base + '/status?ids=' + encodeURIComponent(ids.join(',')), { cache: 'no-store' }).then(function (r) { return r.json(); })
+      ? lfetch('/status?ids=' + encodeURIComponent(ids.join(','))).then(function (r) { return r.json(); })
       : fnCall({ action: 'status', ids: ids }))
       .then(function (d) {
         if (!d || !d.ok) return;
@@ -594,6 +725,8 @@
   $('route').textContent = routeLabel(CFG.computer);
   info().then(function (r) {
     if (!r || !r.ok) {
+      if (r && r.error === 'no_key') return ended('Scan the QR code again', 'This address is missing its encryption key. Open Import in DocVex and scan the QR code with this phone’s camera.');
+      if (r && r.error === 'no_crypto') return ended('This browser can’t encrypt the files', 'Open the QR code in Safari or Chrome.');
       if (r && r.error === 'expired') return ended('This code has expired', 'Open Import in DocVex again for a new QR code.');
       return ended('This code is no longer valid', 'Open Import in DocVex on your computer and scan the new QR code.');
     }
@@ -619,7 +752,7 @@
       // Given up on after 2.5s: a closed server can leave a request hanging.
       var ctl = window.AbortController ? new AbortController() : null;
       var t = setTimeout(function () { if (ctl) ctl.abort(); }, 2500);
-      return fetch(CFG.base + '/info', { cache: 'no-store', signal: ctl ? ctl.signal : undefined })
+      return lfetch('/info', { signal: ctl ? ctl.signal : undefined })
         .then(function (res) { clearTimeout(t); return res.ok ? res.json() : { ok: false }; })
         .catch(function () { clearTimeout(t); return { ok: false }; });
     }
@@ -655,7 +788,8 @@
     if (CFG.mode === 'local') {
       var how = document.createElement('details');
       how.className = 'howto';
-      var addr = location.origin + CFG.base;
+      // (A Shortcut cannot encrypt: it sends to the address's plain route.)
+      var addr = location.origin + '/u/' + token;
       how.innerHTML = '<summary>Send Live Photos with their movement (Shortcut)</summary>'
         + (CFG.shortcut ? '<a class="btn primary" id="scAdd">Add the “Send to DocVex” Shortcut</a><p>Then in Photos: select Live Photos → Share → <b>Send to DocVex</b>, and scan this computer’s QR code.</p>' : '')
         + '<p>' + (CFG.shortcut ? 'Or build it yourself' : 'Build it once in the Shortcuts app') + ' — it sends each photo and its movement:</p>'
@@ -827,7 +961,7 @@
   if (CFG.dev && CFG.mode === 'local') {
     var seen = null;
     setInterval(function () {
-      fetch(CFG.base + '/dev', { cache: 'no-store' }).then(function (r) { return r.json(); }).then(function (d) {
+      lfetch('/dev').then(function (r) { return r.json(); }).then(function (d) {
         if (seen === null) { seen = d.v; return; }
         if (d.v !== seen && !busy && !queue.length) location.reload();
       }).catch(function () {});

@@ -1,9 +1,21 @@
 // Upload from a phone over the LOCAL NETWORK — the first of the Files tab's two
 // Import QR codes. The desktop app runs a small HTTP server on this machine's
-// Wi-Fi / Ethernet address; the QR code carries one-time link
-// http://<lan ip>:<port>/u/<token>, the phone opens it, and every file it sends
-// is written straight into the folder the Files tab is showing. Nothing goes
-// through the cloud.
+// Wi-Fi / Ethernet address; the QR code carries the link
+// http://<lan ip>:<port>/p#t=<token>&k=<key>, the phone opens it, and every file
+// it sends waits in the folder the Files tab is showing. Nothing goes through
+// the cloud.
+//
+// ENCRYPTED (plain http cannot be, so the FILES are): the token and a random
+// 256-bit key per address ride in the URL FRAGMENT, which a browser never
+// sends over the network. The page seals every file on the phone (AES-256-GCM,
+// lib/phoneUploadCrypto — @noble/ciphers inlined, since http pages have no
+// WebCrypto) and sends it in pieces to /api/up with the token in a header;
+// this server opens each piece, checks every tag and deletes anything that
+// does not open. Name and type travel sealed. That defeats anyone LISTENING
+// on the network; someone who can TAMPER with it could serve the phone a
+// different page, which is why the Import window recommends the cloud route on
+// shared or guest networks. (The older /u/<token>/… routes stay for saved
+// addresses and the Shortcut, which posts plain files.)
 //
 // Safety:
 //   - a session is a random 144-bit token. It is KEPT: the renderer remembers
@@ -42,8 +54,8 @@
 // starting a session rereads the folder's waiting files.
 //
 // Registered from main.js (`registerPhoneUpload`). IPC:
-//   phone-upload:start  { dir, project, folder, token?, owner?, port? } → { ok, token, urls, port, computer, expiresAt }
-//                       (`token`: a kept one to go on using — the address stays the same)
+//   phone-upload:start  { dir, project, folder, token?, key?, owner?, port? } → { ok, token, key, urls, port, computer, expiresAt }
+//                       (`token` + `key`: kept ones to go on using — the address stays the same)
 //   phone-upload:stop   token
 //   phone-upload:hold   { token, hold }        hold new files for approval, or not
 //   phone-upload:pending { owner } → [{ id, token, name, size, path, at }]  that owner's files waiting
@@ -71,9 +83,19 @@ import { execFile } from 'node:child_process';
 import { app } from 'electron';
 import { phoneUploadPage } from './lib/phoneUploadPage';
 import { PHONE_GLYPHS, PHONE_GLYPH_CATS, PHONE_GLYPH_CSS } from './lib/phoneUploadGlyphs';
+import { createUnsealer, nodeOpen, isSealKey, phoneSealerSource } from './lib/phoneUploadCrypto';
+import { NOBLE_GCM_JS } from './lib/phoneUploadCrypto.generated';
 
-// The Files tab's file-type icons for the page (it can't import them itself).
+// The Files tab's file-type icons for the page (it can't import them itself),
+// and the page's encryption: the phone's half as source, noble's AES-GCM (the
+// page is plain http, where WebCrypto is off) and the CSP's script hashes.
 const GLYPHS = { icons: PHONE_GLYPHS, cats: PHONE_GLYPH_CATS, css: PHONE_GLYPH_CSS };
+const PAGE_CRYPTO = {
+  sealer: phoneSealerSource(),
+  noble: NOBLE_GCM_JS,
+  hash: (js) => crypto.createHash('sha256').update(js, 'utf8').digest('base64'),
+};
+const OPEN = nodeOpen(crypto);
 
 // ── Hot reload in development ──────────────────────────────────────────────
 // Under `npm start` the page is NOT the copy bundled into main (a main-process
@@ -91,7 +113,7 @@ function pageMtime() {
   try { return fs.statSync(PAGE_SRC).mtimeMs; } catch { return 0; }
 }
 function renderPage(cfg) {
-  if (!DEV) return phoneUploadPage({ ...cfg, glyphs: GLYPHS });
+  if (!DEV) return phoneUploadPage({ ...cfg, ...PAGE_CRYPTO, glyphs: GLYPHS });
   const mtime = pageMtime();
   if (mtime && mtime !== devPage.mtime) {
     try {
@@ -106,7 +128,7 @@ function renderPage(cfg) {
       devPage = { mtime, fn: devPage.fn };
     }
   }
-  return (devPage.fn || phoneUploadPage)({ ...cfg, glyphs: GLYPHS, dev: true });
+  return (devPage.fn || phoneUploadPage)({ ...cfg, ...PAGE_CRYPTO, glyphs: GLYPHS, dev: true });
 }
 
 const PORTS = [47810, 47811, 47812, 47813, 47814, 47815];
@@ -115,7 +137,7 @@ const TOKEN_RE = /^[A-Za-z0-9_-]{24,64}$/;
 const MAX_BYTES = 4 * 1024 * 1024 * 1024;
 const PROGRESS_MS = 200;
 
-const sessions = new Map();   // token → { dir, project, folder, expiresAt, sender, hold, owner }
+const sessions = new Map();   // token → { dir, project, folder, expiresAt, sender, hold, owner, key }
 const owners = new Map();     // token → owner — outlives the session, so a held file's owner is known after it ends
 const COMPUTER = (() => { try { return os.hostname() || ''; } catch { return ''; } })();
 const pending = new Map();    // id → { id, token, name, size, path, dir, at }
@@ -383,16 +405,160 @@ async function receive(req, res, token, s, rawName, partnerId = '') {
   });
 }
 
+// ── SEALED uploads (the page's own route) ────────────────────────────────
+// The page seals every file with the address's key (lib/phoneUploadCrypto —
+// the key travels only in the QR code's fragment) and sends it a piece at a
+// time: POST /api/up?u=<file id>&o=<offset>&end=<0|1>[&partner=], each body
+// the next bytes of the sealed file (~one 4 MB chunk). Each piece is OPENED as
+// it arrives — every tag checked — and only plaintext that passed is written
+// to the hidden .part; anything that fails to open (tampered, wrong key, cut
+// short, pieces out of order) deletes the .part and is refused. The name and
+// type come out of the sealed header.
+const PIECE_MAX = 16 * 1024 * 1024 + 70 * 1024;   // the largest chunk + the header
+const UPLOAD_IDLE_MS = 10 * 60 * 1000;
+const UPLOADS_PER_ADDRESS = 8;
+const uploads = new Map();   // `${token}|${file id}` → state
+function readBody(req, max) {
+  return new Promise((resolve, reject) => {
+    const parts = []; let n = 0; let over = false;
+    req.on('data', (c) => { if (over) return; n += c.length; if (n > max) { over = true; parts.length = 0; req.resume(); } else parts.push(c); });
+    req.on('end', () => (over ? reject(Object.assign(new Error('too_large'), { status: 413 })) : resolve(Buffer.concat(parts, n))));
+    req.on('aborted', () => reject(Object.assign(new Error('connection_lost'), { status: 499 })));
+    req.on('error', reject);
+  });
+}
+function writeAll(out, bufs) {
+  return new Promise((resolve, reject) => {
+    const next = (i) => {
+      if (i >= bufs.length) return resolve();
+      const ok = out.write(bufs[i], (err) => { if (err) reject(err); });
+      if (ok) next(i + 1); else out.once('drain', () => next(i + 1));
+    };
+    next(0);
+  });
+}
+async function dropUpload(st, error, notifyIt = true) {
+  if (st.gone) return;
+  st.gone = true;
+  clearTimeout(st.timer);
+  uploads.delete(st.key);
+  try { st.out.destroy(); } catch { /* closed */ }
+  await fsp.rm(st.part, { force: true }).catch(() => {});
+  if (notifyIt && st.announced && !st.quiet) send(st.s, st.token, { type: 'error', id: st.id, name: st.name, size: st.size, received: st.received, error });
+}
+async function receiveSealed(req, res, token, s, url) {
+  const u = String(url.searchParams.get('u') || '');
+  const offset = Number(url.searchParams.get('o'));
+  const end = url.searchParams.get('end') === '1';
+  if (!/^[a-f0-9]{32}$/.test(u) || !Number.isSafeInteger(offset) || offset < 0) { req.resume(); return reply(res, 400, { ok: false, error: 'bad_request' }); }
+  if (!s.key) { req.resume(); return reply(res, 409, { ok: false, error: 'no_key' }); }
+  const key = `${token}|${u}`;
+  let st = uploads.get(key);
+  if (!st) {
+    if (offset !== 0) { req.resume(); return reply(res, 409, { ok: false, error: 'unknown_upload' }); }
+    if ([...uploads.values()].filter((x) => x.token === token).length >= UPLOADS_PER_ADDRESS) { req.resume(); return reply(res, 429, { ok: false, error: 'too_many' }); }
+    const id = crypto.randomBytes(6).toString('hex');
+    const hold = !!s.hold;
+    const holdDir = path.join(s.dir, INCOMING);
+    if (hold) { try { await fsp.mkdir(holdDir, { recursive: true }); } catch { /* the write reports it */ } }
+    const part = path.join(hold ? holdDir : s.dir, `.docvex-upload-${id}.part`);
+    st = {
+      key, token, s, id, hold, part, offset: 0, received: 0, size: 0, name: '', quiet: false, announced: false, busy: false, gone: false,
+      unsealer: createUnsealer({ key: s.key, ctx: token, open: OPEN, maxBytes: MAX_BYTES }),
+      out: fs.createWriteStream(part), last: 0, timer: null,
+    };
+    st.out.on('error', () => { dropUpload(st, 'write_failed'); });
+    uploads.set(key, st);
+  } else if (st.busy) {
+    req.resume(); return reply(res, 409, { ok: false, error: 'busy' });
+  } else if (offset !== st.offset) {
+    req.resume(); return reply(res, 409, { ok: false, error: 'bad_offset', offset: st.offset });
+  }
+  st.busy = true;
+  clearTimeout(st.timer);
+  st.timer = setTimeout(() => { dropUpload(st, 'timed_out'); }, UPLOAD_IDLE_MS);
+  s.expiresAt = Date.now() + SESSION_MS;
+  let body;
+  try { body = await readBody(req, PIECE_MAX); } catch (e) {
+    st.busy = false;
+    if (e?.status === 413) await dropUpload(st, 'too_large');
+    // A dropped connection: the piece can be sent again at the same offset.
+    return reply(res, e?.status || 500, { ok: false, error: e?.message || 'failed' });
+  }
+  try {
+    const plain = await st.unsealer.push(body);
+    if (!st.announced && st.unsealer.header) {
+      const h = st.unsealer.header;
+      st.name = cleanName(h.name);
+      st.size = h.size;
+      st.quiet = !!partnerOf(st.name);
+      st.announced = true;
+      if (!st.quiet) send(s, token, { type: 'start', id: st.id, name: st.name, size: st.size, received: 0 });
+    }
+    if (plain.length) await writeAll(st.out, plain);
+    st.offset += body.length;
+    st.received += plain.reduce((n, p) => n + p.length, 0);
+    const now = Date.now();
+    if (!st.quiet && now - st.last > PROGRESS_MS) { st.last = now; send(s, token, { type: 'progress', id: st.id, name: st.name, size: st.size, received: st.received }); }
+    if (!end) { st.busy = false; return reply(res, 200, { ok: true, offset: st.offset }); }
+    await st.unsealer.end();
+  } catch (e) {
+    // Did not open: tampered, the wrong key or address, cut short. Nothing of
+    // it is kept.
+    await dropUpload(st, 'not_decrypted');
+    return reply(res, 400, { ok: false, error: e?.code === 'too_large' ? 'too_large' : 'not_decrypted' });
+  }
+  clearTimeout(st.timer);
+  uploads.delete(key);
+  st.gone = true;
+  await new Promise((resolve) => st.out.end(resolve));
+  const partnerId = String(url.searchParams.get('partner') || '').slice(0, 24);
+  try {
+    if (st.hold) {
+      const r = await holdArrived({ token, dir: s.dir, name: st.name, fromPath: st.part, size: st.received, sender: s.sender, partnerId });
+      return reply(res, r.ok ? 200 : 409, r.ok ? { ...r, size: st.received } : r);
+    }
+    const partner = partnerOf(st.name);
+    const final = await freeName(s.dir, partner ? `${partner.stem}.${partner.ext}` : st.name);
+    const dest = path.join(s.dir, final);
+    await fsp.rename(st.part, dest);
+    send(s, token, { type: 'done', id: st.id, name: final, size: st.received, received: st.received, path: dest });
+    return reply(res, 200, { ok: true, name: final, size: st.received });
+  } catch (e) {
+    await fsp.rm(st.part, { force: true }).catch(() => {});
+    if (!st.quiet) send(s, token, { type: 'error', id: st.id, name: st.name, size: st.size, received: st.received, error: e?.message || 'write_failed' });
+    return reply(res, 500, { ok: false, error: e?.message || 'write_failed' });
+  }
+}
+
+// Routes:
+//   GET  /p                      the page (no token in the path — the QR code's
+//                                address is /p#t=<token>&k=<key>, and a fragment
+//                                never crosses the network)
+//   *    /api/<sub>              the page's requests; the token in the
+//                                `x-docvex-token` header
+//   *    /u/<token>[/<sub>]      the older form, token in the path (kept: saved
+//                                addresses, and the Shortcut, which cannot
+//                                encrypt and posts plain files to /u/<token>/file)
 function handle(req, res) {
   const url = new URL(req.url || '/', 'http://x');
+  if (req.method === 'GET' && (url.pathname === '/p' || url.pathname === '/p/')) {
+    return reply(res, 200, renderPage({ mode: 'local' }), 'text/html; charset=utf-8');
+  }
+  let tok = ''; let sub = '';
   const m = /^\/u\/([A-Za-z0-9_-]{16,64})(\/[a-z]*)?$/.exec(url.pathname);
-  const found = m ? findSession(m[1]) : null;
-  if (!found) return reply(res, 404, 'Not found', 'text/plain; charset=utf-8');
+  if (m) { tok = m[1]; sub = m[2] || ''; } else {
+    const a = /^\/api(\/[a-z]+)$/.exec(url.pathname);
+    if (a) { tok = String(req.headers['x-docvex-token'] || ''); sub = a[1]; }
+  }
+  const found = tok && /^[A-Za-z0-9_-]{16,64}$/.test(tok) ? findSession(tok) : null;
+  if (!found) { req.resume(); return reply(res, 404, 'Not found', 'text/plain; charset=utf-8'); }
   const { token, s } = found;
-  const sub = m[2] || '';
   const live = Date.now() < s.expiresAt;
-  if (req.method === 'GET' && (sub === '' || sub === '/')) {
-    return reply(res, 200, renderPage({ mode: 'local', project: s.project, folder: s.folder, computer: COMPUTER, base: `/u/${token}` }), 'text/html; charset=utf-8');
+  if (req.method === 'GET' && m && (sub === '' || sub === '/')) {
+    // An older saved address: the page, which asks for the key the QR code
+    // carries (it has none here) — the project is not named on it.
+    return reply(res, 200, renderPage({ mode: 'local' }), 'text/html; charset=utf-8');
   }
   // What became of the files this phone sent (the page's rejected / added marks).
   if (req.method === 'GET' && sub === '/status') {
@@ -429,6 +595,12 @@ function handle(req, res) {
     });
     return undefined;
   }
+  if (req.method === 'POST' && sub === '/up') {
+    if (!live) { req.resume(); return reply(res, 410, { ok: false, error: 'expired' }); }
+    receiveSealed(req, res, token, s, url).catch((e) => { if (!res.headersSent) reply(res, 500, { ok: false, error: e?.message || 'failed' }); });
+    return undefined;
+  }
+  // Plain (unencrypted) — for the Shortcut only; the page always seals.
   if (req.method === 'POST' && sub === '/file') {
     if (!live) { req.resume(); return reply(res, 410, { ok: false, error: 'expired' }); }
     return receive(req, res, token, s, url.searchParams.get('name'), String(url.searchParams.get('partner') || '').slice(0, 24));
@@ -508,9 +680,13 @@ export function registerPhoneUpload({ ipcMain, guardDir = () => null }) {
     const kept = TOKEN_RE.test(String(payload?.token || '')) ? String(payload.token) : null;
     const token = (kept && findSession(kept)?.token) || kept || crypto.randomBytes(18).toString('base64url');
     const expiresAt = Date.now() + SESSION_MS;
+    // The address's file key (the QR code's fragment): the kept one, else the
+    // running session's, else a new one — a new address always has a new key.
+    const key = isSealKey(payload?.key) && kept ? String(payload.key)
+      : (kept && findSession(kept)?.s?.key) || crypto.randomBytes(32).toString('base64url');
     sessions.set(token, {
       dir, project: String(payload?.project || ''), folder: String(payload?.folder || ''), expiresAt, sender: e.sender,
-      hold: !!payload?.hold, owner: String(payload?.owner || ''),
+      hold: !!payload?.hold, owner: String(payload?.owner || ''), key,
     });
     owners.set(token, String(payload?.owner || ''));
     // Files still waiting from before (a restart) are waiting again.
@@ -533,7 +709,7 @@ export function registerPhoneUpload({ ipcMain, guardDir = () => null }) {
         if (st) image.live = { path: full, ext: m[2].toLowerCase(), size: st.size };
       }
     } catch { /* nothing waiting */ }
-    return { ok: true, token, port, computer: COMPUTER, expiresAt, urls: ips.map((ip) => `http://${ip}:${port}/u/${token}`) };
+    return { ok: true, token, key, port, computer: COMPUTER, expiresAt, urls: ips.map((ip) => `http://${ip}:${port}/p#t=${token}&k=${key}`) };
   });
   ipcMain.handle('phone-upload:hold', (_e, payload) => {
     const f = payload?.token ? findSession(payload.token) : null;
@@ -623,6 +799,7 @@ export function registerPhoneUpload({ ipcMain, guardDir = () => null }) {
   ipcMain.handle('phone-upload:stop', (_e, token) => {
     const f = token ? findSession(token) : null;
     if (f) sessions.delete(f.token);
+    if (f) for (const st of [...uploads.values()]) if (st.token === f.token) dropUpload(st, 'closed');
     closeIfIdle();
     return { ok: true };
   });

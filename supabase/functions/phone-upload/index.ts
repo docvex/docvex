@@ -18,10 +18,18 @@
 //   info    (token)     → { ok, projectName, expiresAt, files, maxBytes }
 //   sign    (token)     { name, size, type } → { signedUrl, path }
 //                       A signed upload URL for ONE file: <session>/<uuid>.
-//   done    (token)     { path, name, size, type } → { ok }
+//   done    (token)     { path, name, size, type, sealed? } → { ok }
 //                       The phone says the upload finished; the file is
 //                       checked to be in the bucket and a row is written,
 //                       which the desktop hears over Realtime.
+//
+// END-TO-END ENCRYPTED (the current page): the phone seals every file with a
+// key that exists only in the QR code's URL fragment (lib/phoneUploadCrypto
+// in the app) — this function, the bucket and the row never see the content,
+// the name or the type. Such a file is marked `sealed: true` (or type
+// SEALED_MIME) and its row is written as name "encrypted", mime SEALED_MIME
+// whatever the phone sent; the desktop opens it. An older page's plain file
+// is recorded as before (an older desktop reads those rows unchanged).
 //   close   (user JWT)  { sessionId } → { ok }   PAUSES a session (the Import
 //                       window closed); `create` with its token reopens it.
 //
@@ -57,6 +65,7 @@ function newToken() {
   const b = crypto.getRandomValues(new Uint8Array(24));
   return btoa(String.fromCharCode(...b)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 }
+const SEALED_MIME = "application/x-docvex-sealed";
 const cleanName = (n: unknown) => String(n || "file").replace(/[\\/:*?"<>|\u0000-\u001f]/g, "_").slice(0, 200) || "file";
 
 Deno.serve(async (req: Request) => {
@@ -195,8 +204,11 @@ Deno.serve(async (req: Request) => {
     const obj = (objs || []).find((o) => o.name === leaf);
     if (!obj) return json({ ok: false, error: "not_uploaded" }, 409);
     const size = Number((obj.metadata as Record<string, unknown> | null)?.size) || Number(body.size) || 0;
+    const sealed = body.sealed === true || String(body.type || "") === SEALED_MIME;
     const { data: row, error } = await db.from("phone_upload_files").insert({
-      session_id: s.id, path, name: cleanName(body.name), size, mime: String(body.type || "").slice(0, 120) || null,
+      session_id: s.id, path, size,
+      name: sealed ? "encrypted" : cleanName(body.name),
+      mime: sealed ? SEALED_MIME : String(body.type || "").slice(0, 120) || null,
     }).select("id").single();
     if (error || !row) return json({ ok: false, error: "record_failed" }, 500);
     await db.from("phone_upload_sessions").update({ file_count: s.file_count + 1, byte_count: s.byte_count + size }).eq("id", s.id);
