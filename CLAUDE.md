@@ -437,6 +437,7 @@ Migrations continued **after** the branching drop (it is NOT the latest): the ad
 
 - Project-scoped reads/writes call `has_project_role(...)` or `has_capability(...)`; deletes typically require admin/owner.
 - Personal rows (`notifications`, `legal_update_states`) gate on `user_id = auth.uid()`.
+- **048 (2026-09-29):** members are added ONLY by `accept_invitation` / `add_creator_as_owner` (no direct INSERT policy); a role change or removal passes `invite_role_allowed` (only an admin grants or touches admin; a custom role must be the project's own) and `has_capability` ignores a custom role of another project; authors / senders / project admins may UPDATE only the columns the app edits (column privileges on `chat_messages`, `private_messages`, `projects`); a reaction must name a message of its project; project-sync deletes need `files.delete_any` or `files.delete_own`; `is_app_admin` needs the caller's CONFIRMED email; anon keeps only `enrollments` INSERT (length-checked, rate-limited by trigger) and `legal_updates` SELECT. A new write path must fit these — add its column to the grants.
 - `accept_invitation` and `delete-user` (Edge Function) bypass RLS via SECURITY DEFINER.
 
 ### Storage
