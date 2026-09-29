@@ -2,11 +2,11 @@
 //
 // Pictures, scanned pages and recordings are read ON THIS COMPUTER unless the
 // project allows otherwise: PaddleOCR / Tesseract for text in images and scans
-// (lib/paddleOcr, lib/ocr `recognizeCanvas`), and nothing at all for audio
-// (there is no local transcription — captions need the switch on). With it on,
-// these go to the providers: images and page scans to Anthropic (the `doc-ai`
-// OCR action, Extract text's AI mode, Picture → Word, AI search's picture
-// descriptions, the MRZ fallback), recordings to OpenAI (Whisper).
+// (lib/paddleOcr, lib/ocr `recognizeCanvas`). Audio is ALWAYS transcribed on
+// this computer (lib/transcribe, local Whisper — V11), so this switch no longer
+// gates it. With it on, images and page scans go to Claude (Anthropic models
+// via Google Cloud Vertex AI, EU): the `doc-ai` OCR action, Extract text's AI
+// mode, Picture → Word, AI search's picture descriptions, the MRZ fallback.
 //
 // This switch governs IMAGES AND AUDIO only. Extracted TEXT still reaches the
 // AI through the features that exist to send it (the AI scan, the advisor,

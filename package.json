@@ -7,7 +7,7 @@
   "private": true,
   "scripts": {
     "prestart": "node scripts/dev-rename-electron.mjs",
-    "postinstall": "node scripts/copy-ocr-assets.mjs && node scripts/copy-face-assets.mjs",
+    "postinstall": "node scripts/copy-ocr-assets.mjs && node scripts/copy-face-assets.mjs && node scripts/copy-whisper-assets.mjs",
     "start": "electron-forge start",
     "start:multi": "node scripts/run-many.mjs",
     "package": "electron-forge package",
@@ -25,6 +25,7 @@
     "site:upload-page": "node scripts/build-upload-page.mjs",
     "test": "node --test tests/*.test.mjs",
     "test:index": "node scripts/test-index.mjs",
+    "check:storage": "node scripts/check-localstorage.mjs",
     "lint": "echo \"No linting configured\""
   },
   "keywords": [],
@@ -58,6 +59,7 @@
     "@fontsource/cinzel": "^5.3.0",
     "@fontsource/inter": "^5.3.0",
     "@fontsource/plus-jakarta-sans": "^5.3.0",
+    "@huggingface/transformers": "^4.3.0",
     "@supabase/supabase-js": "^2.105.4",
     "@tesseract.js-data/eng": "^1.0.0",
     "@tesseract.js-data/ron": "^1.0.0",

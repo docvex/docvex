@@ -24,23 +24,22 @@ const SECURITY_URL = 'https://docvex.ro/security.html';
 const MODELS = [
   {
     name: 'Claude (Opus, Sonnet, Haiku)',
-    by: 'Anthropic',
+    by: 'Anthropic, via Google Cloud Vertex AI (EU region)',
     used: 'Research, the document advisor, drafting and editing, the AI scan of project files, building Word / PowerPoint / Excel files, the legal newsfeed',
     sees: 'Document text and your questions — with names, CNPs, IBANs, addresses and other identifiers replaced by placeholders on this computer first (on by default)',
   },
   {
     name: 'Claude (reading pictures)',
-    by: 'Anthropic',
+    by: 'Anthropic, via Google Cloud Vertex AI (EU region)',
     used: 'Reading text and signatures out of photos and scans, when cloud reading is switched on for the project',
     sees: 'The picture or the part of it you select',
     optional: true,
   },
   {
-    name: 'Whisper',
-    by: 'OpenAI',
-    used: 'Turning recordings into captions, when cloud reading is switched on for the project',
-    sees: 'The audio you ask it to transcribe',
-    optional: true,
+    name: 'Whisper (on this computer)',
+    by: 'Runs locally — no provider',
+    used: 'Turning recordings into captions',
+    sees: 'Nothing leaves your computer: the speech model ships with DocVex',
   },
 ];
 

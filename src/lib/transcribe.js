@@ -1,75 +1,30 @@
-// AI captions/transcript for the DocViewer's audio player AND video pane.
+// AI captions/transcript for the DocViewer's audio player AND video pane —
+// made ON THIS COMPUTER (security fix V11). Nothing is uploaded: Whisper
+// (OpenAI's open, multilingual speech model — Romanian included) runs locally
+// through transformers.js / ONNX Runtime Web in a Web Worker
+// (lib/whisper.worker.js). The model files are served by the app itself
+// (public/models/, fetched once at install by scripts/copy-whisper-assets.mjs)
+// and remote loading is switched off, so no audio and no request leave the
+// machine. OpenAI is no longer used anywhere.
 //
-// The audio bytes are sent to the `doc-ai` Edge Function (task "transcribe"),
-// where OpenAI Whisper does the actual speech-to-text — the OpenAI key stays
-// server-side and the call rides the user's Supabase session like every
-// other doc-ai task.
-//
-// Videos can't be shipped whole: Whisper caps the upload at 25 MB and a video
-// is almost entirely non-audio bytes, so the raw file blows past the cap on
-// anything but a few seconds of footage. For videos we extract just the audio
-// track in the renderer (see extractAudioWav) and send that compact WAV
-// instead — no ffmpeg/native dep, the same Chromium media stack the <video>
-// preview already uses does the demux + decode.
-import { supabase } from './supabaseClient';
-import { isCloudMediaAllowed, cloudMediaOffError } from './cloudMedia';
+// Every kind of media takes the same path: the container (mp3/wav/m4a/…, or a
+// video's mp4/mov/webm/mkv) is decoded by the same Chromium media stack the
+// preview uses, downmixed and resampled to 16 kHz mono — Whisper's own input —
+// and those samples are handed to the worker. No ffmpeg / native dependency.
 
-// Whisper's hard cap is 25 MB of raw audio; base64 inflates that by ~4/3.
-export const TRANSCRIBE_MAX_BYTES = 25 * 1024 * 1024;
+// The largest file read (the whole file is decoded in memory) and the longest
+// recording transcribed. Local transcription has no upload cap, but decoding a
+// multi-gigabyte video would exhaust the window's memory.
+export const TRANSCRIBE_MAX_BYTES = 1024 * 1024 * 1024;
+const MAX_SECONDS = 3 * 60 * 60;
 
-// Whisper resamples everything to 16 kHz mono internally, so extracting the
-// audio at exactly that rate loses no speech detail while shrinking the payload
-// dramatically. 16 kHz mono 16-bit PCM is 32 KB/s, so the 25 MB cap fits
-// ~13 minutes of speech — comfortably more than the clips this panel targets.
+// Whisper works on 16 kHz mono; everything is decoded to exactly that.
 const TARGET_SAMPLE_RATE = 16000;
 
-function arrayBufferToBase64(buf) {
-  const bytes = new Uint8Array(buf);
-  let binary = '';
-  const chunk = 0x8000;
-  for (let i = 0; i < bytes.length; i += chunk) {
-    binary += String.fromCharCode.apply(null, bytes.subarray(i, i + chunk));
-  }
-  return btoa(binary);
-}
-
-// ── Audio extraction (video → WAV) ───────────────────────────────────
-// decodeAudioData demuxes the container (mp4/mov/webm/mkv/…) and hands back the
-// decoded PCM of its audio track; we then downmix to mono + resample to 16 kHz
-// and re-wrap as a small WAV. All offline (no realtime playback), so a short
-// clip extracts in well under a second.
-
-function writeAsciiString(view, offset, str) {
-  for (let i = 0; i < str.length; i += 1) view.setUint8(offset + i, str.charCodeAt(i));
-}
-
-// Mono Float32 samples → 16-bit PCM WAV (ArrayBuffer).
-function monoFloatToWav(samples, sampleRate) {
-  const bytesPerSample = 2;
-  const dataSize = samples.length * bytesPerSample;
-  const buffer = new ArrayBuffer(44 + dataSize);
-  const view = new DataView(buffer);
-  writeAsciiString(view, 0, 'RIFF');
-  view.setUint32(4, 36 + dataSize, true);
-  writeAsciiString(view, 8, 'WAVE');
-  writeAsciiString(view, 12, 'fmt ');
-  view.setUint32(16, 16, true);                              // fmt chunk size
-  view.setUint16(20, 1, true);                               // format = PCM
-  view.setUint16(22, 1, true);                               // channels = mono
-  view.setUint32(24, sampleRate, true);                      // sample rate
-  view.setUint32(28, sampleRate * bytesPerSample, true);     // byte rate (mono)
-  view.setUint16(32, bytesPerSample, true);                  // block align
-  view.setUint16(34, 16, true);                              // bits per sample
-  writeAsciiString(view, 36, 'data');
-  view.setUint32(40, dataSize, true);
-  let offset = 44;
-  for (let i = 0; i < samples.length; i += 1) {
-    const s = Math.max(-1, Math.min(1, samples[i]));
-    view.setInt16(offset, s < 0 ? s * 0x8000 : s * 0x7fff, true);
-    offset += 2;
-  }
-  return buffer;
-}
+// ── Audio extraction (any media → 16 kHz mono samples) ───────────────
+// decodeAudioData demuxes the container (mp3/wav/m4a, or a video's
+// mp4/mov/webm/mkv) and hands back the decoded PCM of its audio track; we then
+// downmix to mono + resample to 16 kHz. All offline (no realtime playback).
 
 // Decode the (possibly video) container's audio track to a PCM AudioBuffer.
 async function decodeMediaAudio(arrayBuffer) {
@@ -96,114 +51,122 @@ async function resampleToMono16k(audioBuffer) {
   src.connect(offline.destination);
   src.start();
   const rendered = await offline.startRendering();
-  return rendered.getChannelData(0); // Float32Array, mono, 16 kHz
+  // A copy of its own, so its buffer can be transferred to the worker.
+  return new Float32Array(rendered.getChannelData(0)); // mono, 16 kHz
 }
 
-// Fetch a media URL (video or audio) and return compact 16 kHz mono WAV bytes
-// of its audio track. Throws a user-facing message on unreadable / audio-less
-// / undecodable input.
-async function extractAudioWav(url) {
+// Fetch a media URL (video or audio) and return its audio track as 16 kHz
+// mono Float32 samples + its duration. Throws a user-facing message on
+// unreadable / audio-less / undecodable input.
+async function extractAudioSamples(url, isVideo) {
+  const what = isVideo ? 'video' : 'audio';
   const res = await fetch(url);
-  if (!res.ok) throw new Error('Couldn’t read the video file.');
+  if (!res.ok) throw new Error(`Couldn’t read the ${what} file.`);
+  const size = Number(res.headers.get('content-length')) || 0;
+  if (size > TRANSCRIBE_MAX_BYTES) throw new Error(`This ${what} file is too large to transcribe here (over 1 GB).`);
   const buf = await res.arrayBuffer();
+  if (buf.byteLength > TRANSCRIBE_MAX_BYTES) throw new Error(`This ${what} file is too large to transcribe here (over 1 GB).`);
   let decoded;
   try {
     decoded = await decodeMediaAudio(buf);
   } catch {
-    throw new Error('Couldn’t extract audio from this video — its format may be unsupported.');
+    throw new Error(`Couldn’t extract audio from this ${what} — its format may be unsupported.`);
   }
   if (!decoded || decoded.length === 0 || decoded.duration === 0) {
-    throw new Error('This video has no audio track to transcribe.');
+    throw new Error(`This ${what} has no audio track to transcribe.`);
+  }
+  if (decoded.duration > MAX_SECONDS) {
+    throw new Error('This recording is too long to transcribe here (over 3 hours).');
   }
   const samples = await resampleToMono16k(decoded);
-  return monoFloatToWav(samples, TARGET_SAMPLE_RATE);
+  return { samples, duration: decoded.duration };
 }
 
-// Map a server-side `{ ok:false, error, detail }` payload to a user-facing
-// message. Shared by the HTTP-error path and the (rarer) 200-with-ok:false path.
-function messageForServerError(code, detail) {
-  switch (code) {
-    case 'ai_not_configured':
-      return 'Audio transcription isn’t configured on the server (the OpenAI key is missing).';
-    case 'audio_too_large':
-      return 'This file is too large to transcribe (over 25 MB).';
-    case 'missing_audio':
-      return 'No audio was sent to transcribe.';
-    case 'invalid_audio':
-      return 'The audio file couldn’t be read.';
-    case 'ai_failed':
-      return `The AI couldn’t transcribe this audio${detail ? ` (${detail})` : ''} — try again.`;
-    default:
-      return 'The AI couldn’t transcribe this audio — try again.';
-  }
+// ── The local engine (lib/whisper.worker.js) ─────────────────────────
+// Multilingual Whisper "small" (quantized 8-bit ONNX, onnx-community): good
+// Romanian at a size a laptop runs. The id is also the folder the model sits in
+// under public/models/ — keep it in step with scripts/copy-whisper-assets.mjs.
+export const WHISPER_MODEL = 'onnx-community/whisper-small';
+
+function appBase() {
+  const base = (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.BASE_URL) || './';
+  return new URL(base.replace(/\/?$/, '/'), window.location.href).href;
 }
 
-// supabase-js turns ANY non-2xx response into `error` (a FunctionsHttpError)
-// whose `.context` is the raw Response — the real `{ ok:false, error }` body
-// lives there, not in `data`. Pull it out so the user sees the actual reason
-// (server not configured, OpenAI rejected the key, etc.) instead of a blanket
-// "you’re offline". Returns null only when there’s no readable body — i.e. a
-// genuine network/relay failure where we really couldn’t reach the service.
-async function serverErrorMessage(error) {
-  try {
-    const res = error?.context;
-    if (res && typeof res.json === 'function') {
-      const body = await res.clone().json();
-      if (body?.error) return messageForServerError(body.error, body.detail);
-    }
-  } catch {
-    // No JSON body to read — fall through to the network message.
+// One worker per window, made on first use and kept (loading the model is the
+// slow part). A job at a time — Whisper on one thread is CPU-bound anyway.
+let worker = null;
+let nextId = 0;
+const waiting = new Map(); // id → { resolve, reject, onProgress }
+function getWorker() {
+  if (worker) return worker;
+  worker = new Worker(new URL('./whisper.worker.js', import.meta.url), { type: 'module', name: 'whisper' });
+  worker.onmessage = ({ data }) => {
+    const job = waiting.get(data?.id);
+    if (!job) return;
+    if (data.type === 'progress') { try { job.onProgress?.(data.progress); } catch { /* ignore */ } return; }
+    waiting.delete(data.id);
+    if (data.ok) job.resolve(data); else job.reject(new Error(data.error || 'failed'));
+  };
+  worker.onerror = (ev) => {
+    const err = new Error(ev?.message || 'The transcription engine couldn’t start.');
+    for (const job of waiting.values()) job.reject(err);
+    waiting.clear();
+    try { worker.terminate(); } catch { /* gone */ }
+    worker = null;
+  };
+  return worker;
+}
+
+let queue = Promise.resolve();
+function runWhisper(samples, onProgress) {
+  const job = queue.then(() => new Promise((resolve, reject) => {
+    const id = ++nextId;
+    waiting.set(id, { resolve, reject, onProgress });
+    // The samples' buffer is transferred, not copied (it can be hundreds of MB).
+    getWorker().postMessage({ id, base: appBase(), model: WHISPER_MODEL, audio: samples }, [samples.buffer]);
+  }));
+  queue = job.catch(() => {});
+  return job;
+}
+
+// Whisper reports no language through the pipeline; Romanian is told by its
+// own letters (the case this app cares about), anything else is left unknown.
+function guessLanguage(text) {
+  return /[ăâîșțşţĂÂÎȘȚŞŢ]/.test(text) ? 'romanian' : null;
+}
+
+function engineMessage(err) {
+  const m = String(err?.message || err || '');
+  if (/not found locally|allowRemoteModels|404|unreadable/i.test(m)) {
+    return 'The speech model isn’t installed on this computer — reinstall DocVex (or run npm install) to add it.';
   }
-  return null;
+  return `Couldn’t transcribe this recording${m ? ` (${m.slice(0, 160)})` : ''} — try again.`;
 }
 
 // url → { text, segments: [{ start, end, text }], language }. segments may
-// be empty if Whisper returned no timed segments (e.g. silent file).
+// be empty if Whisper found no speech (e.g. a silent file).
 //
-// For videos the whole file is far too big for Whisper, so we pull just the
-// audio track out and ship it as a small WAV; audio files go straight through.
-// Refused (before anything is read) unless the project allows cloud reading
-// of audio — there is no local transcription (lib/cloudMedia).
-export async function transcribeAudio(url, mediaType, filename, { projectId } = {}) {
-  if (!isCloudMediaAllowed(projectId || undefined)) throw cloudMediaOffError();
+// Runs entirely on this computer — no upload, so it is NOT gated by the
+// project's cloud-media setting (lib/cloudMedia). `projectId` is accepted for
+// the callers' sake and unused. `onProgress` hears the model loading.
+export async function transcribeAudio(url, mediaType, filename, { onProgress } = {}) {
   const isVideo = (mediaType || '').toLowerCase().startsWith('video/');
-
-  let buf;
-  let sendMediaType;
-  let sendFilename;
-  if (isVideo) {
-    buf = await extractAudioWav(url);
-    sendMediaType = 'audio/wav';
-    sendFilename = filename ? `${filename.replace(/\.[^./\\]+$/, '')}.wav` : 'audio.wav';
-  } else {
-    const res = await fetch(url);
-    if (!res.ok) throw new Error('Couldn’t read the audio file.');
-    buf = await res.arrayBuffer();
-    sendMediaType = mediaType;
-    sendFilename = filename;
+  const { samples, duration } = await extractAudioSamples(url, isVideo);
+  let out;
+  try {
+    out = await runWhisper(samples, onProgress);
+  } catch (err) {
+    throw new Error(engineMessage(err));
   }
-
-  if (buf.byteLength > TRANSCRIBE_MAX_BYTES) {
-    throw new Error(isVideo
-      ? 'This video’s audio is too long to transcribe (over ~13 minutes).'
-      : 'This file is too large to transcribe (over 25 MB).');
-  }
-  const audio = arrayBufferToBase64(buf);
-
-  const { data, error } = await supabase.functions.invoke('doc-ai', {
-    body: { task: 'transcribe', audio, mediaType: sendMediaType, filename: sendFilename },
-  });
-  if (error) {
-    const serverMessage = await serverErrorMessage(error);
-    throw new Error(serverMessage
-      ?? 'Couldn’t reach the AI service — make sure you’re signed in and online.');
-  }
-  if (!data?.ok) {
-    throw new Error(messageForServerError(data?.error, data?.detail));
-  }
-  return {
-    text: (data.text || '').trim(),
-    segments: Array.isArray(data.segments) ? data.segments : [],
-    language: data.language || null,
-  };
+  const segments = (out.chunks || [])
+    .map((c) => {
+      const [s, e] = Array.isArray(c.timestamp) ? c.timestamp : [];
+      const start = Number.isFinite(s) ? s : 0;
+      const end = Number.isFinite(e) ? e : duration;
+      return { start, end: Math.max(start, end), text: String(c.text || '').trim() };
+    })
+    .filter((seg) => seg.text);
+  const text = String(out.text || '').trim();
+  return { text, segments, language: guessLanguage(text) };
 }

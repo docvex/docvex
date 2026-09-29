@@ -43,7 +43,8 @@
 //         lease and records `lastIssue`. With dryRun: the decisions, nothing
 //         written, nothing summarised (still one screening call).
 //
-// Secrets: ANTHROPIC_API_KEY (shared with legal-ai). Optional: LEGAL_FEED_MODEL
+// Secrets: the Claude provider of ../_shared/claude.ts (VERTEX_*, or
+// ANTHROPIC_API_KEY as the fallback — shared with legal-ai). Optional: LEGAL_FEED_MODEL
 // (summaries, default claude-opus-5), LEGAL_FEED_TRIAGE_MODEL (default
 // claude-sonnet-5 — Haiku let through acts the screen excludes by name).
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
@@ -51,11 +52,11 @@ import { createClient, type SupabaseClient } from "https://esm.sh/@supabase/supa
 import {
   type PortalAct, type PortalRecord, actFromRecord, actLabel, attachAnnexes, freeVerdict, mapLimit, mergeJointActs, uniqueActs,
 } from "./portal.ts";
+import { callClaude as claudeTransport, claudeConfigured } from "../_shared/claude.ts";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SUPABASE_ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY")!;
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-const ANTHROPIC_API_KEY = Deno.env.get("ANTHROPIC_API_KEY") ?? "";
 const SUMMARY_MODEL = Deno.env.get("LEGAL_FEED_MODEL") ?? "claude-opus-5";
 const TRIAGE_MODEL = Deno.env.get("LEGAL_FEED_TRIAGE_MODEL") ?? "claude-sonnet-5";
 
@@ -80,7 +81,7 @@ function json(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), { status, headers: { ...cors, "Content-Type": "application/json" } });
 }
 
-// ── Claude (raw REST, like the other functions) ─────────────────────────
+// ── Claude (raw REST through ../_shared/claude.ts) ─────────────────────────
 type ClaudeOpts = {
   model: string;
   system: string;
@@ -102,22 +103,16 @@ async function claudeJson<T>(o: ClaudeOpts): Promise<T> {
       ...(o.effort && !o.model.startsWith("claude-haiku") ? { effort: o.effort } : {}),
     },
   };
-  const headers: Record<string, string> = {
-    "x-api-key": ANTHROPIC_API_KEY,
-    "anthropic-version": "2023-06-01",
-    "content-type": "application/json",
-  };
   // Opus 5 can decline on a safety classifier; let the API retry the same
-  // request on its chosen fallback rather than losing the act.
+  // request on its chosen fallback rather than losing the act. (Server-side
+  // fallbacks are Anthropic-API only: the shared transport drops them on
+  // Vertex, where a refusal is thrown below and the act retried next run.)
+  let beta: string | undefined;
   if (isOpus5) {
-    headers["anthropic-beta"] = "server-side-fallback-2026-07-01";
+    beta = "server-side-fallback-2026-07-01";
     body.fallbacks = "default";
   }
-  const resp = await fetch("https://api.anthropic.com/v1/messages", {
-    method: "POST",
-    headers,
-    body: JSON.stringify(body),
-  });
+  const resp = await claudeTransport(body, { beta });
   if (!resp.ok) throw new Error(`anthropic_${resp.status}: ${(await resp.text()).slice(0, 300)}`);
   const data = await resp.json();
   if (data?.stop_reason === "refusal") throw new Error("refused");
@@ -526,7 +521,7 @@ Deno.serve(async (req: Request) => {
   }
 
   if (body.action === "submit") {
-    if (!ANTHROPIC_API_KEY) return json({ ok: false, error: "ai_not_configured" }, 500);
+    if (!claudeConfigured()) return json({ ok: false, error: "ai_not_configured" }, 500);
     const year = Number(body.year);
     if (!Number.isInteger(year) || year < 2000) return json({ ok: false, error: "bad_year" }, 400);
     const records = Array.isArray(body.records) ? body.records : [];

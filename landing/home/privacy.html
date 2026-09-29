@@ -127,7 +127,7 @@
         <section class="lg-card" id="ai">
           <h2>5. AI features &amp; your content</h2>
           <p class="lg-sub">What is sent, when, and to whom.</p>
-          <p>AI features — document Q&amp;A, summaries, risk review, drafting, OCR text extraction, audio transcription, document generation, and the legal-feed briefing — are powered by third-party AI providers: <strong>Anthropic</strong> (Claude models) and, for audio transcription, <strong>OpenAI</strong> (Whisper). When you have DocVex build an Office file, the draft is created in Anthropic's file storage and code-execution environment and downloaded to your computer.</p>
+          <p>AI features — document Q&amp;A, summaries, risk review, drafting, OCR text extraction, audio transcription, document generation, and the legal-feed briefing — are powered by <strong>Anthropic models via Google Cloud Vertex AI (EU region)</strong>: Claude, run by Google Cloud in a European Union data centre. Audio transcription runs <strong>on your own computer</strong> — recordings are never uploaded — and Office files are built on your computer too.</p>
           <ul class="lg-list">
             <li>Content is transmitted to an AI provider <strong>only when you invoke an AI feature on it</strong>, or when you have switched on automatic understanding of new files for a project (Section 4) — never otherwise in the background.</li>
             <li>We send the minimum needed: the selected document content, image region, audio track, or prompt.</li>
@@ -145,8 +145,7 @@
               <thead><tr><th>Provider</th><th>Purpose</th><th>Location</th></tr></thead>
               <tbody>
                 <tr><td>Supabase</td><td>Database, authentication, realtime sync, serverless functions (hosted on AWS)</td><td>EU (Ireland, eu-west-1)</td></tr>
-                <tr><td>Anthropic</td><td>AI document features and legal-feed briefing (Claude)</td><td>United States</td></tr>
-                <tr><td>OpenAI</td><td>Audio transcription (Whisper), only when you use captions/transcription</td><td>United States</td></tr>
+                <tr><td>Google Cloud (Vertex AI)</td><td>AI document features and legal-feed briefing — Anthropic models (Claude) via Google Cloud Vertex AI, EU region</td><td>European Union</td></tr>
                 <tr><td>Resend</td><td>Email delivery: invitations, account emails, newsletter confirmations, and support reports with any attachments you add</td><td>United States / EU</td></tr>
                 <tr><td>GitHub</td><td>Hosting the website, application downloads, and the update feed</td><td>United States</td></tr>
                 <tr><td>Google / Microsoft</td><td>Sign-in with Google; Gmail/Outlook sync — only if you connect them</td><td>United States / EU</td></tr>

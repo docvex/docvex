@@ -53,13 +53,23 @@
 // shape as the legal-ai function. Model defaults to claude-opus-4-7,
 // overridable via LEGAL_AI_MODEL (shared with legal-ai) or PROJECT_AI_MODEL.
 //
-// Required Edge Function secret:
-//   ANTHROPIC_API_KEY — Claude API key. When unset, both actions return a
-//   200 with { ok:false, error:"ai_not_configured" } so the client can
-//   show a friendly message instead of treating it as a hard failure.
+// Claude provider (V11): every call goes through ../_shared/claude.ts —
+// Vertex AI in an EU region when VERTEX_PROJECT_ID + VERTEX_SA_KEY are set,
+// else api.anthropic.com with ANTHROPIC_API_KEY. With neither (or with
+// CLAUDE_REQUIRE_EU=1 and no Vertex), actions return a 200 with
+// { ok:false, error:"ai_not_configured" } so the client can show a friendly
+// message. The `office` action needs Anthropic's Files API + Skills, which
+// Vertex lacks: there it answers { ok:false, error:"office_unavailable" } and
+// the client builds the file locally.
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { firmDescriptor, jurisdictionPrompt } from "../_shared/jurisdictions.ts";
 import { handleCrossref, handlePassport } from "./fileGraph.ts";
+import {
+  anthropicFilesHeaders,
+  callClaude as claudeTransport,
+  claudeConfigured,
+  supportsFilesApi,
+} from "../_shared/claude.ts";
 
 const corsHeaders: Record<string, string> = {
   "Access-Control-Allow-Origin": "*",
@@ -77,7 +87,9 @@ function jsonResponse(body: unknown, status = 200): Response {
   });
 }
 
-const ANTHROPIC_API_KEY = Deno.env.get("ANTHROPIC_API_KEY") ?? "";
+// Claude goes through ../_shared/claude.ts (Vertex AI EU, api.anthropic.com as
+// the fallback until the Vertex secrets are set) — see that file.
+const AI_CONFIGURED = () => claudeConfigured();
 const MODEL = Deno.env.get("PROJECT_AI_MODEL")
   ?? Deno.env.get("LEGAL_AI_MODEL")
   ?? "claude-opus-4-7";
@@ -229,21 +241,13 @@ async function callClaude(opts: {
   maxTokens: number;
   model?: string;
 }): Promise<string> {
-  const resp = await fetch("https://api.anthropic.com/v1/messages", {
-    method: "POST",
-    headers: {
-      "x-api-key": ANTHROPIC_API_KEY,
-      "anthropic-version": "2023-06-01",
-      "content-type": "application/json",
-    },
-    body: JSON.stringify({
-      model: opts.model ?? MODEL,
-      max_tokens: opts.maxTokens,
-      system: [
-        { type: "text", text: opts.system, cache_control: { type: "ephemeral" } },
-      ],
-      messages: opts.messages,
-    }),
+  const resp = await claudeTransport({
+    model: opts.model ?? MODEL,
+    max_tokens: opts.maxTokens,
+    system: [
+      { type: "text", text: opts.system, cache_control: { type: "ephemeral" } },
+    ],
+    messages: opts.messages,
   });
 
   if (!resp.ok) {
@@ -353,15 +357,8 @@ function claudePayload(opts: ClaudeOpts): Record<string, unknown> {
   return payload;
 }
 function anthropicFetch(payload: Record<string, unknown>): Promise<Response> {
-  return fetch("https://api.anthropic.com/v1/messages", {
-    method: "POST",
-    headers: {
-      "x-api-key": ANTHROPIC_API_KEY,
-      "anthropic-version": "2023-06-01",
-      "content-type": "application/json",
-    },
-    body: JSON.stringify(payload),
-  });
+  const { stream, ...body } = payload;
+  return claudeTransport(body, { stream: stream === true });
 }
 async function callClaudeRaw(opts: ClaudeOpts): Promise<Record<string, unknown>> {
   const resp = await anthropicFetch(claudePayload(opts));
@@ -467,7 +464,7 @@ async function handleAsk(body: {
   stream?: boolean;
   warm?: boolean;
 }): Promise<Response> {
-  if (!ANTHROPIC_API_KEY) return jsonResponse({ ok: false, error: "ai_not_configured" });
+  if (!AI_CONFIGURED()) return jsonResponse({ ok: false, error: "ai_not_configured" });
 
   const messages = normalizeMessages(body.messages);
   if (messages.length === 0) return jsonResponse({ ok: false, error: "no_messages" }, 400);
@@ -640,7 +637,7 @@ async function handleSuggest(body: {
   mimeType?: string;
   jurisdiction?: string;
 }): Promise<Response> {
-  if (!ANTHROPIC_API_KEY) return jsonResponse({ ok: false, error: "ai_not_configured" });
+  if (!AI_CONFIGURED()) return jsonResponse({ ok: false, error: "ai_not_configured" });
 
   const fileName = (body.fileName && String(body.fileName).trim()) || "the file";
   const excerpt = body.excerpt ? String(body.excerpt).slice(0, 6000) : "";
@@ -683,7 +680,7 @@ async function handleGenerate(body: {
   fileNames?: unknown;
   jurisdiction?: string;
 }): Promise<Response> {
-  if (!ANTHROPIC_API_KEY) return jsonResponse({ ok: false, error: "ai_not_configured" });
+  if (!AI_CONFIGURED()) return jsonResponse({ ok: false, error: "ai_not_configured" });
 
   const template = (body.template && String(body.template).trim()) || "legal document";
   const instructions = (body.instructions && String(body.instructions).trim()) || "";
@@ -758,7 +755,10 @@ async function handleOffice(body: {
   instructions?: string;
   model?: string;
 }): Promise<Response> {
-  if (!ANTHROPIC_API_KEY) return jsonResponse({ ok: false, error: "ai_not_configured" });
+  if (!AI_CONFIGURED()) return jsonResponse({ ok: false, error: "ai_not_configured" });
+  // Agent Skills, code execution and the Files API are not on Vertex AI: the
+  // client builds the file locally instead (lib/documentGen.js, Path B).
+  if (!supportsFilesApi()) return jsonResponse({ ok: false, error: "office_unavailable" });
   const kind = String(body.kind ?? "").toLowerCase();
   const skill = OFFICE_SKILLS[kind];
   if (!skill) return jsonResponse({ ok: false, error: "unsupported_kind" }, 400);
@@ -791,25 +791,16 @@ async function handleOffice(body: {
 
   let resp: Response;
   try {
-    resp = await fetch("https://api.anthropic.com/v1/messages", {
-      method: "POST",
-      headers: {
-        "x-api-key": ANTHROPIC_API_KEY,
-        "anthropic-version": "2023-06-01",
-        "anthropic-beta": OFFICE_BETAS,
-        "content-type": "application/json",
-      },
-      body: JSON.stringify({
-        model,
-        // Enough budget for the skill to write (and revise) real python in the
-        // sandbox without stopping before the file is saved, but not so high that
-        // the wall-clock run trips the Edge function's time limit.
-        max_tokens: 16000,
-        container: { skills: [{ type: "anthropic", skill_id: skill, version: "latest" }] },
-        tools: [{ type: "code_execution_20250825", name: "code_execution" }],
-        messages: [{ role: "user", content: userText }],
-      }),
-    });
+    resp = await claudeTransport({
+      model,
+      // Enough budget for the skill to write (and revise) real python in the
+      // sandbox without stopping before the file is saved, but not so high that
+      // the wall-clock run trips the Edge function's time limit.
+      max_tokens: 16000,
+      container: { skills: [{ type: "anthropic", skill_id: skill, version: "latest" }] },
+      tools: [{ type: "code_execution_20250825", name: "code_execution" }],
+      messages: [{ role: "user", content: userText }],
+    }, { beta: OFFICE_BETAS });
   } catch (err) {
     return jsonResponse({ ok: false, error: "ai_failed", detail: String((err as Error)?.message ?? err).slice(0, 400) }, 502);
   }
@@ -835,11 +826,7 @@ async function handleOffice(body: {
   // The generated file sits in Anthropic's Files API until it is deleted — it
   // has no expiry of its own. It holds client content, so it is deleted as soon
   // as it has been read (or failed to be), whatever the outcome.
-  const filesHeaders = {
-    "x-api-key": ANTHROPIC_API_KEY,
-    "anthropic-version": "2023-06-01",
-    "anthropic-beta": FILES_BETA,
-  };
+  const filesHeaders = anthropicFilesHeaders(FILES_BETA);
   const deleteOutput = async () => {
     try {
       const r = await fetch(`https://api.anthropic.com/v1/files/${fileId}`, { method: "DELETE", headers: filesHeaders });
@@ -894,9 +881,9 @@ Deno.serve(async (req: Request) => {
     case "office":
       return handleOffice(body);
     case "passport":
-      return handlePassport(body, { apiKey: ANTHROPIC_API_KEY, pickModel, json: jsonResponse });
+      return handlePassport(body, { configured: AI_CONFIGURED(), pickModel, json: jsonResponse });
     case "crossref":
-      return handleCrossref(body, { apiKey: ANTHROPIC_API_KEY, pickModel, json: jsonResponse });
+      return handleCrossref(body, { configured: AI_CONFIGURED(), pickModel, json: jsonResponse });
     default:
       return jsonResponse({ error: "unknown_action" }, 400);
   }
