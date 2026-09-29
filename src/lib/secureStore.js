@@ -77,7 +77,7 @@
 // | docvex.notifications.v1.<user>                  | context/NotificationsContext | notification history (file names)
 // | docvex.activityLog.v1.<user>                    | lib/activityLog            | file actions, file names / paths
 // | docvex:sync:clock:v1, docvex:sync:gone:v1:*     | lib/syncClock              | keyed by the above keys (paths)
-// | docvex:sync:ledger:<project>                    | lib/projectSync (NOT MOVED — other owner) | synced paths
+// | docvex:sync:ledger:<project>                    | lib/projectSync            | synced paths
 // | docvex:data-web:v1:<dir>                        | lib/dataCollections (NOT MOVED — other owner) | scan understanding of every file
 // | docvex:phone-upload:(local:v2|cloud:v1):*       | lib/phoneUpload* (NOT MOVED — other owner) | upload tokens
 // | docvex:pseudonymize:(v1|guess:v1):<project>     | lib/pseudonymizeSetting (NOT MOVED — other owner) | per-project setting
@@ -141,6 +141,7 @@ export const SECURE_PREFIXES = Object.freeze([
   'docvex.activityLog.v1.',
   'docvex:sync:clock:v1',
   'docvex:sync:gone:v1:',
+  'docvex:sync:ledger:',             // synced paths (lib/projectSync)
   'docvex:data-web:v1:',            // what the scan understood of every file
   'docvex:phone-upload:local:v2:',  // upload address tokens
   'docvex:phone-upload:cloud:v1:',
@@ -196,7 +197,6 @@ export const ALLOWED_LOCALSTORAGE_PREFIXES = Object.freeze([
   'docvex:design:drawer-w',
   'docvex:my:drawer-w',
   // Owned by other modules, pending their move (see the inventory above).
-  'docvex:sync:ledger:',
   'docvex:pseudonymize:',           // a mode per project ('off' / 'all'), no data
 ]);
 

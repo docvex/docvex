@@ -84,7 +84,13 @@ export function AuthProvider({ children }) {
   // pending writes flushed first) when nobody is signed in any more.
   const userId = session?.user?.id || null;
   useEffect(() => {
-    if (userId) { void hydrateSecureStore(userId); return; }
+    if (userId) {
+      void hydrateSecureStore(userId);
+      // End-to-end keys (lib/e2e): made on this device on first sign-in, so
+      // they exist before the first project is opened.
+      void import('../lib/e2e/identity').then((m) => m.ensureIdentity()).catch(() => {});
+      return;
+    }
     if (!loading) void wipeSecureStore();
   }, [userId, loading]);
 

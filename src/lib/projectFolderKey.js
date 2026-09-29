@@ -1,87 +1,98 @@
 // The project's FOLDER KEY — what seals everything DocVex writes about a
 // project's files outside this machine's own index: the knowledge shards and
 // settings in the case folder's `.docvex/` (src/projectIndex/folderSeal.js)
-// and the data bundles account sync uploads (lib/projectSyncData). One key per
-// project, made and kept by the server (`get_project_folder_key`, migration
-// 045) and handed only to the project's members, so every member reads the
-// same folder on every machine while a copy of the folder on its own (a
-// OneDrive share, a USB stick, the sync bucket) holds no readable text.
+// and the data bundles account sync uploads (lib/projectSyncData).
 //
-// Fetched once per project per session; a failure (offline, signed out, a
-// server without the migration) is not remembered, so the next ask retries.
-// The index keeps the key it was given, so it works offline after that.
+// Since migration 046 it is the project's END-TO-END key ring
+// (lib/e2e/projectKeys): made on a member's device, stored on the server only
+// sealed to each member's identity key, versioned (a new version after a
+// member leaves). A project from before 046 used the server-held key of
+// migration 045 — that key is adopted as version 1, handed to every member as
+// a grant, and then deleted from the server (`retire_server_folder_key`).
+//
+// Fetched once per project per session; a failure (offline, signed out, no
+// grant yet) is not remembered, so the next ask retries. The index keeps the
+// ring it was given, so it works offline after that.
 
-import { supabase } from './supabaseClient';
 import { ipc } from './projectIndexClient';
+import {
+  getProjectKeyRing, ringToIndexKeys, forgetProjectKeys, subscribeProjectKeys,
+} from './e2e/projectKeys';
+import { forgetIdentity } from './e2e/identity';
+import { forgetDmKeys } from './e2e/dmKeys';
+import {
+  isJsonEnvelope, sealJsonDoc, openJsonDoc,
+} from './e2e/envelope';
+import { b64dec, b64enc } from './e2e/bytes';
 
-const keys = new Map(); // projectId → Promise<string | null>
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+// The ring, or null.
+export const projectKeyRing = (projectId) => getProjectKeyRing(projectId);
 
-export function projectFolderKey(projectId) {
-  if (!projectId || !UUID.test(String(projectId))) return Promise.resolve(null);
-  let p = keys.get(projectId);
-  if (!p) {
-    p = (async () => {
-      try {
-        const { data, error } = await supabase.rpc('get_project_folder_key', { p_project_id: projectId });
-        return !error && typeof data === 'string' && data ? data : null;
-      } catch { return null; }
-    })();
-    keys.set(projectId, p);
-    p.then((k) => { if (!k && keys.get(projectId) === p) keys.delete(projectId); });
-  }
-  return p;
+// The CURRENT key (base64) — for callers that only write.
+export async function projectFolderKey(projectId) {
+  const ring = await getProjectKeyRing(projectId);
+  return ring ? b64enc(ring.keys.get(ring.current)) : null;
 }
 
-// Fetch the key and give it to the index (which seals the folder with it).
-// Fire-and-forget safe: never throws.
-const handed = new Set();
+// Fetch the ring and give it to the index (which seals the folder with it).
+// Fire-and-forget safe: never throws. Handed again whenever the ring changes
+// (a rotation, a newer grant arriving).
+const handed = new Map(); // projectId → signature of the ring handed
+const ringSig = (ring) => [...ring.keys.keys()].sort((a, b) => a - b).join(',');
 export async function ensureFolderKey(projectId) {
-  const key = await projectFolderKey(projectId);
-  if (key && !handed.has(projectId)) {
-    const res = await ipc.projectFolderKey({ projectId, key });
-    if (res?.ok) handed.add(projectId);
-  }
-  return key;
+  try {
+    const ring = await getProjectKeyRing(projectId);
+    if (!ring) return null;
+    const sig = ringSig(ring);
+    if (handed.get(projectId) !== sig) {
+      const res = await ipc.projectFolderKey({
+        projectId,
+        key: b64enc(ring.keys.get(ring.current)),
+        version: ring.current,
+        keys: ringToIndexKeys(ring),
+      });
+      if (res?.ok) handed.set(projectId, sig);
+    }
+    return b64enc(ring.keys.get(ring.current));
+  } catch { return null; }
 }
+// A ring that changed after it was handed (rotation) reaches the index too.
+subscribeProjectKeys((projectId) => { if (handed.has(projectId)) ensureFolderKey(projectId); });
 
 // Forget everything (sign-out / erase data).
 export function forgetFolderKeys() {
-  keys.clear();
   handed.clear();
+  forgetProjectKeys();
+  forgetDmKeys();
+  forgetIdentity();
 }
 
-// ── Sealing a sync bundle (WebCrypto, same format as folderSeal.js) ─────────
-const b64 = {
-  enc: (u8) => { let s = ''; for (let i = 0; i < u8.length; i += 0x8000) s += String.fromCharCode(...u8.subarray(i, i + 0x8000)); return btoa(s); },
-  dec: (s) => Uint8Array.from(atob(s), (c) => c.charCodeAt(0)),
-};
-const importKey = (keyB64) => crypto.subtle.importKey('raw', b64.dec(keyB64), 'AES-GCM', false, ['encrypt', 'decrypt']);
+// ── Sealing a sync bundle ──────────────────────────────────────────────────
+// New bundles: the e2e JSON envelope (lib/e2e/envelope), bound to its purpose,
+// project and key version. Old ones: `{ v: 2, alg: 'A256GCM', data }` under
+// the legacy key (= version 1), still read.
+export const isLegacySealedBundle = (json) => !!json && typeof json === 'object'
+  && json.v === 2 && json.alg === 'A256GCM' && typeof json.data === 'string' && json.e2e == null;
+export const isSealedBundle = (json) => isJsonEnvelope(json) || isLegacySealedBundle(json);
 
-export const isSealedBundle = (json) => !!json && typeof json === 'object'
-  && json.v === 2 && json.alg === 'A256GCM' && typeof json.data === 'string';
-
-// → { v: 2, alg, data: base64(iv 12 | tag 16 | ciphertext) }
-export async function sealBundle(keyB64, value) {
-  const key = await importKey(keyB64);
-  const iv = crypto.getRandomValues(new Uint8Array(12));
-  const out = new Uint8Array(await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, new TextEncoder().encode(JSON.stringify(value))));
-  // WebCrypto appends the 16-byte tag; the folder format puts it after the iv.
-  const ct = out.subarray(0, out.length - 16);
-  const tag = out.subarray(out.length - 16);
-  const all = new Uint8Array(12 + 16 + ct.length);
-  all.set(iv, 0); all.set(tag, 12); all.set(ct, 28);
-  return { v: 2, alg: 'A256GCM', data: b64.enc(all) };
+// `ring` from projectKeyRing; `purpose` e.g. 'sync.data.shared'; `scope` the
+// project id (plus the user id for a private bundle).
+export async function sealBundle(ring, value, { purpose, scope }) {
+  if (!ring) throw new Error('no_project_key');
+  return sealJsonDoc(ring.keys.get(ring.current), ring.current, value, { purpose, scope });
 }
 
-export async function openBundle(keyB64, json) {
-  const key = await importKey(keyB64);
-  const raw = b64.dec(json.data);
-  const iv = raw.subarray(0, 12);
-  const tag = raw.subarray(12, 28);
-  const ct = raw.subarray(28);
-  const joined = new Uint8Array(ct.length + 16);
-  joined.set(ct, 0); joined.set(tag, ct.length);
-  const plain = await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, key, joined);
+export async function openBundle(ring, json, { purpose, scope }) {
+  if (!ring) throw new Error('no_project_key');
+  if (isJsonEnvelope(json)) return openJsonDoc(async (kv) => ring.keys.get(kv) || null, json, { purpose, scope });
+  // Legacy (045): iv 12 | tag 16 | ciphertext, no AAD, the v1 key.
+  const k1 = ring.keys.get(1);
+  if (!k1) throw new Error('no_key_for_version');
+  const key = await crypto.subtle.importKey('raw', k1, 'AES-GCM', false, ['decrypt']);
+  const raw = b64dec(json.data);
+  const joined = new Uint8Array(raw.length - 12);
+  joined.set(raw.subarray(28), 0);
+  joined.set(raw.subarray(12, 28), raw.length - 28);
+  const plain = await crypto.subtle.decrypt({ name: 'AES-GCM', iv: raw.subarray(0, 12) }, key, joined);
   return JSON.parse(new TextDecoder().decode(plain));
 }

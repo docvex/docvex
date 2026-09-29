@@ -11,6 +11,7 @@ import Tooltip from '../components/Tooltip';
 import Toggle from '../components/Toggle';
 import { STATUS_OPTIONS, DEFAULT_STATUS_KEY, updateStatus } from '../lib/userStatus';
 import { downloadMyData } from '../lib/dataExport';
+import KeyRecoveryPanel from '../components/KeyRecoveryPanel';
 import './Account.css';
 
 function formatDate(iso, withTime = false) {
@@ -577,6 +578,11 @@ export default function Account() {
         <div style={{ marginTop: 16 }}>
           <Toggle on={newsOn} onChange={onNews} label="E-mail me the Legal Newsfeed (weekly)" />
         </div>
+      </section>
+
+      <section className="account-card">
+        <h2 className="account-card-title">Encryption keys</h2>
+        <KeyRecoveryPanel />
       </section>
 
       <DangerZone subtitle="Irreversible actions for your account. Proceed with care.">

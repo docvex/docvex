@@ -17,6 +17,7 @@ import {
 } from './knowledge.js';
 import {
   SEALED_EXT, folderKeyFromBase64, isFolderKey, isSealedFolderJson, openFromFolder, sealForFolder,
+  makeFolderKeyRing, sameFolderKeys, folderRingToJson,
 } from './folderSeal.js';
 import { openJson, sealJson } from './seal.js';
 
@@ -69,8 +70,14 @@ export function createProjectIndexService({ userDataDir, broadcast = () => {}, o
     if (p.folderKey === undefined) {
       p.folderKey = null;
       try {
-        const stored = p.db.getMeta('folderKey');
-        if (stored) p.folderKey = folderKeyFromBase64(openJson(stored)) || null;
+        // The key RING (every version, migration 046) when there is one, else
+        // the single pre-046 key as version 1.
+        const ring = p.db.getMeta('folderKeys');
+        if (ring) p.folderKey = makeFolderKeyRing(openJson(ring)) || null;
+        if (!p.folderKey) {
+          const stored = p.db.getMeta('folderKey');
+          if (stored) p.folderKey = folderKeyFromBase64(openJson(stored)) || null;
+        }
       } catch { p.folderKey = null; }
     }
     return p.folderKey;
@@ -493,15 +500,28 @@ export function createProjectIndexService({ userDataDir, broadcast = () => {}, o
   // project's database, then the folder is brought in line in the background:
   // plain shards and settings are sealed, and what the index knows but the
   // folder doesn't (written while there was no key) is written out.
-  async function projectFolderKey({ projectId, key } = {}) {
-    const buf = folderKeyFromBase64(key);
-    if (!buf) return { ok: false, error: 'bad_key' };
+  // `keys` ([{ version, key }], lib/e2e/projectKeys) is the whole ring since
+  // migration 046; a caller that sends only `key` (+ optional `version`) is
+  // read as a ring of that one key. Versions already known are KEPT when a
+  // shorter ring arrives (reading needs every version ever written with).
+  async function projectFolderKey({ projectId, key, version, keys } = {}) {
+    const given = Array.isArray(keys) && keys.length
+      ? keys
+      : [{ version: Number(version) || 1, key }];
+    const incoming = makeFolderKeyRing(given);
+    if (!incoming) return { ok: false, error: 'bad_key' };
     const p = loaded(projectId);
     if (!p) return { ok: false, error: 'not_found' };
     const had = keyOf(p);
-    if (had && had.equals(buf)) return { ok: true, changed: false };
-    p.folderKey = buf;
-    p.db.setMeta('folderKey', sealJson(buf.toString('base64')));
+    const merged = makeFolderKeyRing([
+      ...(folderRingToJson(had) || []),
+      ...(folderRingToJson(incoming) || []),
+    ]);
+    if (had && sameFolderKeys(had, merged)) return { ok: true, changed: false };
+    p.folderKey = merged;
+    p.db.setMeta('folderKeys', sealJson(folderRingToJson(merged)));
+    // The newest key also under the old name, for a build that predates rings.
+    p.db.setMeta('folderKey', sealJson(merged.current.toString('base64')));
     p.sealing = (p.sealing || Promise.resolve()).then(() => sealFolder(p)).catch(() => {});
     return { ok: true, changed: true };
   }

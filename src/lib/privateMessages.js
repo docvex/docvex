@@ -13,7 +13,36 @@
 //   edited_at     timestamptz?
 //   deleted_at    timestamptz?  — soft-delete tombstone
 
+//
+// END-TO-END (migration 046): `body` is ciphertext under the CONVERSATION's
+// key (lib/e2e/dmKeys — sealed to both people's identity keys; not even other
+// project members, nor the server, can read it), bound to the message id. Rows
+// come back from here DECRYPTED; one this device can't open reads as
+// UNREADABLE_TEXT with `body_unreadable: true`. Rows from before are plain.
+
 import { supabase, realtimeSuffix } from './supabaseClient';
+import { encryptDmText, decryptDmText } from './e2e/dmKeys';
+import { UNREADABLE_TEXT } from './e2e/projectKeys';
+import { E2E_REQUIRED, orderedAsync } from './e2e/policy';
+
+export async function decryptPrivateRow(row) {
+  if (!row || typeof row.body !== 'string' || !row.body) return row;
+  try {
+    const r = await decryptDmText(row.project_id, row.sender_id, row.recipient_id, row.body, { rowId: row.id });
+    if (r.ok) return r.encrypted ? { ...row, body: r.text, body_encrypted: true } : row;
+  } catch { /* below */ }
+  return { ...row, body: UNREADABLE_TEXT, body_unreadable: true, body_encrypted: true };
+}
+const decryptRows = (rows) => Promise.all((rows || []).map(decryptPrivateRow));
+
+async function sealBody(projectId, senderId, recipientId, id, text) {
+  try {
+    return await encryptDmText(projectId, senderId, recipientId, text, { rowId: id });
+  } catch (err) {
+    if (E2E_REQUIRED) throw err;
+    return text;
+  }
+}
 
 const TABLE = 'private_messages';
 const COLS = 'id, project_id, sender_id, recipient_id, body, created_at, edited_at, deleted_at';
@@ -38,7 +67,7 @@ export async function listPrivateMessages(projectId, viewerId, partnerId, { limi
     )
     .order('created_at', { ascending: false })
     .limit(limit);
-  return { data: Array.isArray(data) ? data.slice().reverse() : [], error };
+  return { data: Array.isArray(data) ? await decryptRows(data.slice().reverse()) : [], error };
 }
 
 // Insert a new DM. Returns the inserted row so the caller can
@@ -49,17 +78,21 @@ export async function sendPrivateMessage({ projectId, senderId, recipientId, bod
   }
   const trimmed = (body || '').trim();
   if (!trimmed) return { data: null, error: new Error('Empty message') };
+  const id = globalThis.crypto.randomUUID();
+  let stored;
+  try { stored = await sealBody(projectId, senderId, recipientId, id, trimmed); } catch (err) { return { data: null, error: err }; }
   const { data, error } = await supabase
     .from(TABLE)
     .insert({
+      id,
       project_id: projectId,
       sender_id: senderId,
       recipient_id: recipientId,
-      body: trimmed,
+      body: stored,
     })
     .select(COLS)
     .single();
-  return { data, error };
+  return { data: data ? { ...data, body: trimmed, body_encrypted: stored !== trimmed } : data, error };
 }
 
 // Edit your own private message. RLS limits the update to
@@ -69,13 +102,18 @@ export async function editPrivateMessage(id, body) {
   if (!id) return { data: null, error: new Error('Missing id') };
   const trimmed = (body || '').trim();
   if (!trimmed) return { data: null, error: new Error('Empty message') };
+  const { data: row, error: rErr } = await supabase.from(TABLE)
+    .select('project_id, sender_id, recipient_id').eq('id', id).maybeSingle();
+  if (rErr || !row) return { data: null, error: rErr || new Error('Message not found') };
+  let sealed;
+  try { sealed = await sealBody(row.project_id, row.sender_id, row.recipient_id, id, trimmed); } catch (err) { return { data: null, error: err }; }
   const { data, error } = await supabase
     .from(TABLE)
-    .update({ body: trimmed, edited_at: new Date().toISOString() })
+    .update({ body: sealed, edited_at: new Date().toISOString() })
     .eq('id', id)
     .select(COLS)
     .single();
-  return { data, error };
+  return { data: data ? await decryptPrivateRow(data) : data, error };
 }
 
 // Soft-delete: flip deleted_at + null the body so an admin reading
@@ -97,8 +135,17 @@ export async function deletePrivateMessage(id) {
 // so the renderer only sees rows for conversations it should see.
 // Returns an unsubscribe function. INSERT / UPDATE / DELETE all flow
 // through `onChange(payload)`.
-export function subscribePrivateMessages(projectId, onChange) {
+const decryptPayload = async (payload) => {
+  if (!payload || typeof payload !== 'object') return payload;
+  const out = { ...payload };
+  if (payload.new && typeof payload.new === 'object') out.new = await decryptPrivateRow(payload.new);
+  if (payload.old && typeof payload.old === 'object' && payload.old.body) out.old = await decryptPrivateRow(payload.old);
+  return out;
+};
+
+export function subscribePrivateMessages(projectId, onChangeRaw) {
   if (!projectId) return () => {};
+  const onChange = orderedAsync(onChangeRaw)(decryptPayload);
   const channel = supabase
     .channel(`private_messages:${projectId}:${realtimeSuffix()}`)
     .on(

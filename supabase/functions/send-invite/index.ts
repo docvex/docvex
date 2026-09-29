@@ -205,6 +205,15 @@ Deno.serve(async (req: Request) => {
 
     const projectQ = await admin.from("projects").select("name").eq("id", project_id).single();
     projectName = projectQ.data?.name ?? "a project";
+    // Project names are end-to-end encrypted (lib/e2e): the server can't read
+    // them. The inviter's app sends the name as they see it, for this one
+    // e-mail only; without it the invitation says "a project".
+    if (projectName.startsWith("e2e:")) {
+      const shown = typeof (body as Record<string, unknown>)?.project_display_name === "string"
+        ? String((body as Record<string, unknown>).project_display_name).replace(/[\r\n<>]/g, " ").trim().slice(0, 200)
+        : "";
+      projectName = shown || "a project";
+    }
   }
 
   const inviterEmail = user.email ?? "a teammate";

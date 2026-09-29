@@ -137,6 +137,8 @@ Deno.serve(async (req: Request) => {
       if (!p) return json({ ok: false, error: "no_project" }, 403);
       projectName = p.name || projectName;
     }
+    // End-to-end encrypted names (lib/e2e) are never shown — or sent — to the phone.
+    if (projectName.startsWith("e2e:")) projectName = "";
 
     // Housekeeping: the user's sessions that ended a day ago — their leftover
     // objects (a desktop closed before taking them) and the rows.
@@ -181,6 +183,7 @@ Deno.serve(async (req: Request) => {
     if (s.project_id) {
       const { data: p } = await db.from("projects").select("name").eq("id", s.project_id).maybeSingle();
       projectName = p?.name || "";
+      if (projectName.startsWith("e2e:")) projectName = "";
     }
     return json({ ok: true, projectName, expiresAt: s.expires_at, files: s.file_count, maxBytes: MAX_BYTES });
   }

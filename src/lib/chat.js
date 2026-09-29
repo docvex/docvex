@@ -14,7 +14,46 @@
 //   edited_at          timestamptz?
 //   deleted_at         timestamptz?  — soft delete tombstone
 
+//
+// END-TO-END (migration 046): `body` is stored as ciphertext
+// (`e2e:v1:p<version>:…`, lib/e2e/envelope) under the project's key, bound to
+// the message's id — which is why the id is made here rather than by the
+// database. Every function below hands back rows with the body DECRYPTED, so
+// components never see ciphertext; a body this device can't open yet reads as
+// UNREADABLE_TEXT with `body_unreadable: true`. Rows written before encryption
+// are plain and read as they are. Mentions, attachments and times stay in
+// clear — the mention trigger needs them, and they carry no message text.
+
 import { supabase, realtimeSuffix } from './supabaseClient';
+import { encryptProjectText, decryptProjectText, UNREADABLE_TEXT } from './e2e/projectKeys';
+import { E2E_REQUIRED, orderedAsync } from './e2e/policy';
+
+const PURPOSE = 'chat.body';
+
+// One row, body decrypted. Never throws.
+export async function decryptChatRow(row) {
+  if (!row || typeof row.body !== 'string' || !row.body) return row;
+  try {
+    const r = await decryptProjectText(row.project_id, row.body, { purpose: PURPOSE, rowId: row.id });
+    if (r.ok) return r.encrypted ? { ...row, body: r.text, body_encrypted: true } : row;
+    return { ...row, body: UNREADABLE_TEXT, body_unreadable: true, body_encrypted: true };
+  } catch {
+    return { ...row, body: UNREADABLE_TEXT, body_unreadable: true, body_encrypted: true };
+  }
+}
+export const decryptChatRows = (rows) => Promise.all((rows || []).map(decryptChatRow));
+
+// The body to store for message `id`. Throws when the key isn't here and
+// encryption is required.
+async function sealBody(projectId, id, text) {
+  try {
+    return await encryptProjectText(projectId, text, { purpose: PURPOSE, rowId: id });
+  } catch (err) {
+    if (E2E_REQUIRED) throw err;
+    return text;
+  }
+}
+const newId = () => globalThis.crypto.randomUUID();
 
 const TABLE = 'chat_messages';
 // parent_id / pinned_at / pinned_by added in migration 026 (Variant B:
@@ -38,7 +77,7 @@ export async function listChatMessages(projectId, { limit = 100 } = {}) {
     .is('parent_id', null)
     .order('created_at', { ascending: false })
     .limit(limit);
-  return { data: Array.isArray(data) ? data.slice().reverse() : [], error };
+  return { data: Array.isArray(data) ? await decryptChatRows(data.slice().reverse()) : [], error };
 }
 
 // Insert a new message. mentions / attached_file_ids default to empty
@@ -57,18 +96,22 @@ export async function sendChatMessage({
   if (!trimmed) {
     return { data: null, error: new Error('Empty message') };
   }
+  const id = newId();
+  let stored;
+  try { stored = await sealBody(projectId, id, trimmed); } catch (err) { return { data: null, error: err }; }
   const { data, error } = await supabase
     .from(TABLE)
     .insert({
+      id,
       project_id: projectId,
       author_id: authorId,
-      body: trimmed,
+      body: stored,
       mentions: Array.from(new Set(mentions || [])).filter(Boolean),
       attached_file_ids: Array.from(new Set(attachedFileIds || [])).filter(Boolean),
     })
     .select(COLS)
     .single();
-  return { data, error };
+  return { data: data ? { ...data, body: trimmed, body_encrypted: stored !== trimmed } : data, error };
 }
 
 // Edit your own message. RLS limits the update to author_id =
@@ -76,10 +119,19 @@ export async function sendChatMessage({
 // Mentions can change on edit (typing a new @ in an edit) — the
 // notification trigger re-fires on UPDATE for that case; existing
 // mentions deduplicate via the per-(message, user) dedupe_key.
-export async function editChatMessage(id, { body, mentions, attachedFileIds }) {
+// `projectId` saves a round trip; without it the message's project is looked up.
+export async function editChatMessage(id, { body, mentions, attachedFileIds, projectId = null }) {
   if (!id) return { data: null, error: new Error('Missing id') };
   const patch = { edited_at: new Date().toISOString() };
-  if (typeof body === 'string') patch.body = body.trim();
+  if (typeof body === 'string') {
+    let pid = projectId;
+    if (!pid) {
+      const { data: row, error: rErr } = await supabase.from(TABLE).select('project_id').eq('id', id).maybeSingle();
+      if (rErr || !row) return { data: null, error: rErr || new Error('Message not found') };
+      pid = row.project_id;
+    }
+    try { patch.body = await sealBody(pid, id, body.trim()); } catch (err) { return { data: null, error: err }; }
+  }
   if (Array.isArray(mentions)) {
     patch.mentions = Array.from(new Set(mentions)).filter(Boolean);
   }
@@ -92,7 +144,7 @@ export async function editChatMessage(id, { body, mentions, attachedFileIds }) {
     .eq('id', id)
     .select(COLS)
     .single();
-  return { data, error };
+  return { data: data ? await decryptChatRow(data) : data, error };
 }
 
 // Soft-delete: flip deleted_at + null the body so a curious admin
@@ -118,8 +170,19 @@ export async function deleteChatMessage(id) {
 // unsubscribe function. INSERT / UPDATE / DELETE all flow through
 // `onChange(payload)` — soft deletes arrive as UPDATEs with
 // deleted_at set, true row deletes (project cascade) as DELETE.
-export function subscribeChatMessages(projectId, onChange) {
+// Realtime rows carry the stored ciphertext; they are decrypted before
+// `onChange` sees them, in the order they arrived.
+const decryptPayload = async (payload) => {
+  if (!payload || typeof payload !== 'object') return payload;
+  const out = { ...payload };
+  if (payload.new && typeof payload.new === 'object') out.new = await decryptChatRow(payload.new);
+  if (payload.old && typeof payload.old === 'object' && payload.old.body) out.old = await decryptChatRow(payload.old);
+  return out;
+};
+
+export function subscribeChatMessages(projectId, onChangeRaw) {
   if (!projectId) return () => {};
+  const onChange = orderedAsync(onChangeRaw)(decryptPayload);
   const channel = supabase
     .channel(`chat_messages:${projectId}:${realtimeSuffix()}`)
     .on(
@@ -149,7 +212,7 @@ export async function listThreadReplies(parentId) {
     .select(COLS)
     .eq('parent_id', parentId)
     .order('created_at', { ascending: true });
-  return { data: data || [], error };
+  return { data: await decryptChatRows(data || []), error };
 }
 
 // All replies across the project in one shot — lets the renderer build
@@ -163,7 +226,7 @@ export async function listProjectReplies(projectId) {
     .eq('project_id', projectId)
     .not('parent_id', 'is', null)
     .order('created_at', { ascending: true });
-  return { data: data || [], error };
+  return { data: await decryptChatRows(data || []), error };
 }
 
 export async function sendThreadReply({ projectId, authorId, parentId, body, mentions = [] }) {
@@ -172,18 +235,22 @@ export async function sendThreadReply({ projectId, authorId, parentId, body, men
   }
   const trimmed = (body || '').trim();
   if (!trimmed) return { data: null, error: new Error('Empty reply') };
+  const id = newId();
+  let stored;
+  try { stored = await sealBody(projectId, id, trimmed); } catch (err) { return { data: null, error: err }; }
   const { data, error } = await supabase
     .from(TABLE)
     .insert({
+      id,
       project_id: projectId,
       author_id: authorId,
       parent_id: parentId,
-      body: trimmed,
+      body: stored,
       mentions: Array.from(new Set(mentions || [])).filter(Boolean),
     })
     .select(COLS)
     .single();
-  return { data, error };
+  return { data: data ? { ...data, body: trimmed, body_encrypted: stored !== trimmed } : data, error };
 }
 
 // ───── Pin / unpin (migration 026 RPC) ──────────────────────────────

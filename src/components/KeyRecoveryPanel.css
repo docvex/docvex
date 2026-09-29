@@ -1,0 +1,37 @@
+.krp { display: flex; flex-direction: column; gap: 12px; }
+.krp-lead { margin: 0; color: var(--text-secondary); font-size: 0.82rem; line-height: 1.5; }
+.krp-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.krp-pill {
+  --pill-tone: var(--text-muted);
+  display: inline-flex; align-items: center;
+  height: var(--ds-pill-h, 20px); padding: 0 var(--ds-pill-pad, 8px);
+  border-radius: var(--ds-pill-radius, 999px);
+  font-size: var(--ds-tag-size, 10.4px); font-weight: var(--ds-pill-weight, 600);
+  color: var(--pill-tone);
+  background: color-mix(in srgb, var(--pill-tone) 12%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--pill-tone) 30%, transparent);
+}
+.krp-pill.is-ok { --pill-tone: var(--success); }
+.krp-pill.is-warn { --pill-tone: var(--warning); }
+.krp-fp { font-size: 0.72rem; color: var(--text-muted); letter-spacing: 0.04em; }
+.krp-block { display: flex; flex-direction: column; gap: 8px; padding-top: 12px; border-top: 1px solid var(--ds-hairline, var(--border)); }
+.krp-block h3 { margin: 0; font-size: 0.86rem; color: var(--text-primary); }
+.krp-block p { margin: 0; font-size: 0.78rem; color: var(--text-secondary); }
+.krp-input {
+  max-width: 360px; height: 30px; padding: 0 10px;
+  border-radius: var(--ds-control-radius, 4.8px); border: 1px solid var(--border);
+  background: var(--bg-input); color: var(--text-primary); font: inherit; font-size: 0.8rem;
+}
+.krp-input:focus { outline: none; border-color: var(--accent); }
+.krp-btn {
+  align-self: flex-start; height: 30px; padding: 0 14px; border-radius: var(--ds-control-radius, 4.8px);
+  border: 1px solid var(--accent); background: var(--accent); color: var(--text-on-accent);
+  font: inherit; font-size: 0.8rem; font-weight: 600; cursor: pointer;
+}
+.krp-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+.krp-reset { display: flex; flex-direction: column; gap: 6px; margin-top: 6px; }
+.krp-danger { align-self: flex-start; }
+.krp-note { margin: 0; font-size: 0.78rem; }
+.krp-note.is-ok { color: var(--success); }
+.krp-note.is-err { color: var(--danger-text, var(--danger)); }
+@media (max-width: 480px) { .krp-input { max-width: 100%; } }
