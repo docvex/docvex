@@ -27,7 +27,7 @@
 
 import { pageForQuery } from './legalSearch';
 import { askProjectAi, askProjectAiStream, warmProjectAi } from './projectAi';
-import { buildProjectDigest } from './aiProjectContext';
+import { buildProjectDigest, focusDigest } from './aiProjectContext';
 import { findFollowableRefs } from './lawRefs';
 import { recordText, viewForRef } from './portalRecords';
 
@@ -148,8 +148,10 @@ export function saveAiModel(id) {
   try { localStorage.setItem(MODEL_KEY, id); } catch { /* quota */ }
   try { window.dispatchEvent(new CustomEvent('docvex:ai-settings')); } catch { /* no window */ }
 }
+// OFF unless switched on (V9, privacy by default — GDPR Art. 25(2)): the
+// project's files go to the AI only when the user asks for it.
 export function loadAiProjectFiles() {
-  try { return localStorage.getItem(FILES_KEY) !== '0'; } catch { return true; }
+  try { return localStorage.getItem(FILES_KEY) === '1'; } catch { return false; }
 }
 export function saveAiProjectFiles(on) {
   try { localStorage.setItem(FILES_KEY, on ? '1' : '0'); } catch { /* quota */ }
@@ -449,7 +451,7 @@ export async function prepareTurn({ surface, question, choice, project, files, w
     S.portals ? gatherPortals(question).then((r) => { timing.portals = performance.now() - t0; return r; }) : Promise.resolve({ blocks: [], read: [] }),
   ]);
   const notes = [];
-  const digest = ctx === TIMEOUT ? '' : ctx;
+  const digest = ctx === TIMEOUT ? '' : focusDigest(ctx, question);
   if (useFiles && ctx === TIMEOUT) notes.push('The project’s files took too long to gather, so this answer was written without them.');
   const missed = portals.read.filter((r) => !r.ok);
   if (missed.length) notes.push(`Could not read from the portals: ${missed.map((r) => `${r.label} (${r.error})`).join(', ')}.`);
@@ -472,7 +474,7 @@ export async function warmTurn({ surface, choice, draft = '', project, files, wi
   const S = AI_SURFACES[surface];
   const useFiles = !!(S.projectFiles && withFiles && project?.id);
   const digest = useFiles ? await withLimit(projectContext(project, files), AI_LIMITS.contextMs) : '';
-  const context = stableContext(S, { project, digest: digest === TIMEOUT ? '' : digest, openFile, rules });
+  const context = stableContext(S, { project, digest: digest === TIMEOUT ? '' : focusDigest(digest, draft), openFile, rules });
   if (!context) return;
   const cached = withManners(context);
   const pick = aiModel(choice);

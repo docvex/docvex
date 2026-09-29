@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { useSearchParams } from 'react-router-dom';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import { SAFE_MD } from '../lib/safeMarkdown';
 import FilePreview from '../components/FilePreview';
 import CursorSpotlight from '../components/CursorSpotlight';
 import Tooltip from '../components/Tooltip';
@@ -59,7 +60,7 @@ import { splitChoices, dropUnanswered } from '../lib/aiChoices';
 import { AI_PROMPTS, paragraphFrame, paragraphAck, prepareTurn, askAi, historyTurns, withData, withStyle, warmTurn, aiModel, modelName, FALLBACK_MODEL } from '../lib/aiEngine';
 import AiControls, { useAiSettings } from '../components/AiControls';
 import AiAnswer from '../components/AiAnswer';
-import { splitEdits, withEditRule, applyReplyEdits } from '../lib/aiFileEdits';
+import { splitEdits, withEditRule, proposeReplyEdits } from '../lib/aiFileEdits';
 import AiEdits from '../components/AiEdits';
 // What a reply SHOWS: its text without the edit and choices blocks.
 const replyBody = (t) => splitChoices(splitEdits(t).body).body;
@@ -2635,7 +2636,7 @@ function DocTextPane({ file, url, dir, sep, onWhatsAppDetected }) {
               </div>
             )}
             {isMarkdown ? (
-              <div className="dv-text-md"><ReactMarkdown remarkPlugins={[remarkGfm]}>{content.slice(0, PRE_MAX_CHARS)}</ReactMarkdown></div>
+              <div className="dv-text-md"><ReactMarkdown {...SAFE_MD} remarkPlugins={[remarkGfm]}>{content.slice(0, PRE_MAX_CHARS)}</ReactMarkdown></div>
             ) : (
               <pre className="dv-text-pre">{highlightPlain(plainText.slice(0, PRE_MAX_CHARS), plainQuery)}</pre>
             )}
@@ -4693,7 +4694,7 @@ function MultitoolAdvisorProvider({ file, footSlot = null, quickSlot = null, gen
     // The project files the reply changes (lib/aiFileEdits) — applied, then
     // reported under it with Undo.
     let edits = [];
-    try { edits = await applyReplyEdits(res.text, (await listProjectFiles()).files); } catch { edits = []; }
+    try { edits = await proposeReplyEdits(res.text, (await listProjectFiles()).files); } catch { edits = []; }
     if (stopped()) return;
     setMessages((m) => [...m, { role: 'assistant', content: res.text, at: Date.now(), usage: res.usage, ...meta, ...(edits.length ? { edits } : null) }]);
   }, [genMode, file, versions, activeVersion, addUsage, applyGenResult, buildProjectFilesNote, prepare, runParaTurn, listProjectFiles, aiSettings.style]);
@@ -4779,7 +4780,7 @@ function MultitoolAdvisorProvider({ file, footSlot = null, quickSlot = null, gen
       return;
     }
     let edits = [];
-    try { edits = await applyReplyEdits(res.text, (await listProjectFiles()).files); } catch { edits = []; }
+    try { edits = await proposeReplyEdits(res.text, (await listProjectFiles()).files); } catch { edits = []; }
     setMessages((m) => [...m, { role: 'assistant', content: res.text, at: Date.now(), usage: res.usage, ...(edits.length ? { edits } : null) }]);
   }, [pendingAsk, busy, file, model, addUsage, applyGenResult, listProjectFiles]);
 

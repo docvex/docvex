@@ -12,6 +12,12 @@
 // phone numbers, e-mail addresses, and addresses introduced by the words
 // that introduce them (domiciliat în, cu sediul în, adresa…).
 //
+// Added 2026-09-29 (V8) — identifiers that let anyone find the person on a
+// public register even when their name is masked: court FILE numbers ("Dosarul
+// nr. 1234/3/2026" — portal.just.ro lists the parties), land-register (CF) and
+// cadastral / topo numbers (ANCPI names the owner), number plates, bank-card
+// numbers (Luhn) and a birth date stated as such ("născut la 12.03.1985").
+//
 // NEVER touched: amounts, dates and citations of law. Every span that
 // overlaps one is dropped (`protectedSpans`: lib/lawRefs `findLawRefs`, dates,
 // amounts), and of two overlapping spans the longer wins.
@@ -19,7 +25,7 @@ import { decodeCnp, isMrzLine, parseAddress, countyName } from '../roIdDocuments
 import { findCuiRefs, findLawRefs } from '../lawRefs';
 
 /**
- * @typedef {'CNP'|'CUI'|'IBAN'|'CI'|'MRZ'|'TEL'|'EMAIL'|'ADRESA'} Layer1Type
+ * @typedef {'CNP'|'CUI'|'IBAN'|'CI'|'MRZ'|'TEL'|'EMAIL'|'ADRESA'|'DOSAR'|'CF'|'CAD'|'AUTO'|'CARD'|'NASTERE'} Layer1Type
  * @typedef {{ start: number, end: number, type: Layer1Type, value: string, meta?: string[] }} Span
  */
 
@@ -168,7 +174,73 @@ function findAddressSpans(text) {
   return out;
 }
 
-const DETECTORS = [findMrzSpans, findCnpSpans, findCuiSpans, findIbanSpans, findIdDocSpans, findPhoneSpans, findEmailSpans, findAddressSpans];
+// Court file numbers: "Dosar(ul) nr. 1234/3/2026", "dosar 567/299/2025/a1".
+function findCaseFileSpans(text) {
+  const out = [];
+  for (const m of text.matchAll(/\bdos(?:ar(?:ul|ului)?|\.)\s*(?:nr\.?|num[aă]r(?:ul)?)?\s*:?\s*(\d{1,6}\/\d{1,4}\/\d{4}(?:\/a\d{1,3}(?:\.\d{1,3})?)?\**)(?![\d/])/giu)) {
+    const start = m.index + m[0].length - m[1].length;
+    out.push({ start, end: m.index + m[0].length, type: 'DOSAR', value: m[1], meta: [m[1].split('/')[2] || ''].filter(Boolean) });
+  }
+  return out;
+}
+
+// Land register: "cartea funciară nr. 123456", "CF nr. 12345-C1-U3".
+// Cadastral / topographic: "număr cadastral 123456", "nr. cad. 1234", "nr. topo 567/2/1".
+function findLandSpans(text) {
+  const out = [];
+  for (const m of text.matchAll(/(?:\bcart(?:e|ea|ii)\s+funciar[eăa]|\bC\.?\s?F\.?)\s*(?:nr\.?|num[aă]r(?:ul)?)\s*:?\s*(\d{2,8}(?:\s*[-/]\s*[A-Z]{0,2}\d{1,5})*)(?![\d])/gu)) {
+    out.push({ start: m.index + m[0].length - m[1].length, end: m.index + m[0].length, type: 'CF', value: m[1], meta: [] });
+  }
+  for (const m of text.matchAll(/(?:\bnum[aă]r(?:ul)?\s+(?:cadastral|topo(?:grafic)?)|\bnr\.?\s*(?:cad(?:astral)?|topo(?:grafic)?)\.?|\bcadastral(?:ă|a)?|\btopo)\s*(?:nr\.?)?\s*:?\s*(\d{2,8}(?:\s*[/-]\s*[A-Z]?\d{1,5})*)(?![\d])/giu)) {
+    out.push({ start: m.index + m[0].length - m[1].length, end: m.index + m[0].length, type: 'CAD', value: m[1], meta: [] });
+  }
+  return out;
+}
+
+// Romanian number plates: county code (or B) + 2–3 digits + 3 letters.
+const COUNTIES = 'AB|AR|AG|BC|BH|BN|BT|BV|BR|BZ|CS|CL|CJ|CT|CV|DB|DJ|GL|GR|GJ|HR|HD|IL|IS|IF|MM|MH|MS|NT|OT|PH|SM|SJ|SB|SV|TR|TM|TL|VS|VL|VN|B';
+const PLATE_RE = new RegExp(`(?<![A-Z0-9])(${COUNTIES})[ -]?(\\d{2,3})[ -]?([A-Z]{3})(?![A-Za-z0-9])`, 'g');
+function findPlateSpans(text) {
+  const out = [];
+  for (const m of text.matchAll(PLATE_RE)) {
+    if (m[1] !== 'B' && m[2].length === 3) continue; // three digits only in Bucharest
+    out.push({ start: m.index, end: m.index + m[0].length, type: 'AUTO', value: `${m[1]}${m[2]}${m[3]}`, meta: [m[1]] });
+  }
+  return out;
+}
+
+function luhn(digits) {
+  let sum = 0;
+  for (let i = 0; i < digits.length; i += 1) {
+    let d = Number(digits[digits.length - 1 - i]);
+    if (i % 2 === 1) { d *= 2; if (d > 9) d -= 9; }
+    sum += d;
+  }
+  return sum % 10 === 0;
+}
+function findCardSpans(text) {
+  const out = [];
+  for (const m of text.matchAll(/(?<![\d])[2-6]\d{3}(?:[ -]?\d{4}){2}[ -]?\d{3,4}(?:[ -]?\d{1,3})?(?![\d])/g)) {
+    const digits = m[0].replace(/\D/g, '');
+    if (digits.length < 15 || digits.length > 19 || !luhn(digits)) continue;
+    out.push({ start: m.index, end: m.index + m[0].length, type: 'CARD', value: digits, meta: [] });
+  }
+  return out;
+}
+
+// A birth date stated as one (dates in general stay — they carry the case).
+const MONTHS = 'ianuarie|februarie|martie|aprilie|mai|iunie|iulie|august|septembrie|octombrie|noiembrie|decembrie';
+const BIRTH_RE = new RegExp(`(?:n[aă]scut(?:[ăa])?|data\\s+na[sș]terii)\\s*(?:la|pe|[îi]n)?\\s*(?:data\\s+de)?\\s*:?\\s*(\\d{1,2}[./-]\\d{1,2}[./-]\\d{4}|\\d{1,2}\\s+(?:${MONTHS})\\s+\\d{4})`, 'giu');
+function findBirthSpans(text) {
+  const out = [];
+  for (const m of text.matchAll(BIRTH_RE)) {
+    const year = (m[1].match(/\d{4}/) || [''])[0];
+    out.push({ start: m.index + m[0].length - m[1].length, end: m.index + m[0].length, type: 'NASTERE', value: m[1], meta: [year].filter(Boolean) });
+  }
+  return out;
+}
+
+const DETECTORS = [findMrzSpans, findCnpSpans, findCuiSpans, findIbanSpans, findIdDocSpans, findPhoneSpans, findEmailSpans, findAddressSpans, findCaseFileSpans, findLandSpans, findPlateSpans, findCardSpans, findBirthSpans];
 
 /**
  * Non-overlapping spans, longest first on overlap, in text order — none
@@ -186,9 +258,12 @@ export function detectLayer1(text, { protect } = {}) {
   // house and flat numbers can look like a date or an amount ("nr. 12/3"); an
   // address is dropped only when it overlaps a citation of law.
   const clear = all.filter((s) => !guard.some(([a, b]) => s.start < b && a < s.end
-    && (s.type !== 'ADRESA' || isCitation(t, a, b))));
+    && (!DATE_SHAPED.has(s.type) || isCitation(t, a, b))));
   return pickSpans(clear);
 }
+// Types whose numbers can look like a date or an amount ("nr. 12/3", a court
+// file "12/3/2026", a birth date): dropped only over a citation of law.
+const DATE_SHAPED = new Set(['ADRESA', 'DOSAR', 'CF', 'CAD', 'NASTERE']);
 const isCitation = (t, a, b) => /\b(?:art|lege|legea|ordonan|hot[aă]r|cod)/i.test(t.slice(a, b));
 
 /** Longest wins on overlap; ties keep the earlier. @param {Span[]} spans */

@@ -41,6 +41,8 @@ const FAMILY = {
   PERSOANA: 'person', CNP: 'person', CI: 'person',
   FIRMA: 'company', CUI: 'company',
   IBAN: 'iban', MRZ: 'mrz', TEL: 'tel', EMAIL: 'email', ADRESA: 'address',
+  // V8 (2026-09-29)
+  DOSAR: 'case', CF: 'property', CAD: 'property', AUTO: 'vehicle', CARD: 'card', NASTERE: 'birth',
 };
 export const TOKEN_TYPES = Object.keys(FAMILY);
 
@@ -57,6 +59,9 @@ export function normalizeValue(type, value) {
     case 'IBAN': case 'MRZ': return v.replace(/\s+/g, '').toUpperCase();
     case 'CI': return v.replace(/[\s.,:-]+/g, '').toUpperCase();
     case 'EMAIL': return v.toLowerCase();
+    case 'DOSAR': case 'CF': case 'CAD': return v.replace(/\s+/g, '').replace(/\*+$/, '').toUpperCase();
+    case 'AUTO': return v.replace(/[\s-]+/g, '').toUpperCase();
+    case 'CARD': return v.replace(/\D/g, '');
     case 'PERSOANA':
       return fold(v).replace(/[^a-z0-9\s-]/g, ' ').split(/[\s-]+/).filter(Boolean).sort().join(' ');
     case 'FIRMA':

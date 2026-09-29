@@ -435,8 +435,17 @@ export default function DesignSystem() {
               AiEdits, lib/aiFileEdits) — its classes held still: edited (with
               Undo, while the session holds the file's previous bytes), undone,
               and not changed (why). */}
-          <Sample name="AI edit card" of="components/AiEdits .ai-edit — a file an AI reply changed: edited · Undo, undone, not changed" wide>
+          <Sample name="AI edit card" of="components/AiEdits .ai-edit — a change an AI reply proposes: proposed · Apply / Discard (nothing written before Apply), edited · Undo, undone, not changed" wide>
             <div className="ai-edits">
+              <div className="ai-edit">
+                <div className="ai-edit-head">
+                  <span className="ai-edit-file">Contract vânzare.docx</span>
+                  <span className="ai-edit-state">Proposed</span>
+                  <button type="button" className="ai-edit-undo">Apply</button>
+                  <button type="button" className="ai-edit-undo">Discard</button>
+                </div>
+                <div className="ai-edit-line">1 paragraph rewritten</div>
+              </div>
               <div className="ai-edit">
                 <div className="ai-edit-head">
                   <span className="ai-edit-file">PETRE LUCA-ANDREI.dvc</span>

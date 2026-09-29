@@ -15,11 +15,13 @@
 // ONNX Runtime Web: the runtime's WebAssembly is copied to public/ocr/ort/, and
 // the two models (text detection + recognition, Apache-2.0, ~31 MB) are
 // DOWNLOADED once from PaddlePaddle's own Hugging Face repositories into
-// public/ocr/paddle/ (npm doesn't carry them). A failed download only warns:
+// public/ocr/paddle/ (npm doesn't carry them), each checked against its SHA-256
+// in scripts/model-hashes.json (lib/pinnedDownload.mjs). A failed download only warns:
 // the app then falls back to Tesseract.
 import { copyFileSync, existsSync, mkdirSync, statSync, writeFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { dropIfTampered, pinnedDownload, verifyPinned } from './lib/pinnedDownload.mjs';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const out = join(root, 'public', 'ocr');
@@ -73,13 +75,11 @@ mkdirSync(paddleOut, { recursive: true });
 let fetched = 0;
 for (const [url, name, min] of MODELS) {
   const to = join(paddleOut, name);
-  if (existsSync(to) && statSync(to).size >= min) continue;
+  const id = `ocr/paddle/${name}`;
+  dropIfTampered(id, to);
+  if (existsSync(to) && statSync(to).size >= min && verifyPinned(id, to) !== 'unpinned') continue;
   try {
-    const res = await fetch(url, { redirect: 'follow' });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const buf = Buffer.from(await res.arrayBuffer());
-    if (buf.length < min) throw new Error(`only ${buf.length} bytes`);
-    writeFileSync(to, buf);
+    await pinnedDownload(id, url, to, { min });
     fetched += 1;
   } catch (err) {
     console.warn(`[ocr-assets] couldn't download ${name} (${err?.message || err}) — text extraction falls back to Tesseract until it is.`);

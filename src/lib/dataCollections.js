@@ -52,7 +52,9 @@ export const COLLECTION_EXT = 'dvc';
 export const COLLECTION_TYPE = 'docvex/data-collection';
 const MODEL = 'claude-sonnet-4-6';
 const MAX_VIDEO_BYTES = 300 * 1024 * 1024;
-const MAX_AUDIO_BYTES = 25 * 1024 * 1024;
+// Transcription runs on this computer (lib/transcribe, local Whisper): the
+// cap is what the window can decode without stalling, not an upload limit.
+const MAX_AUDIO_BYTES = 300 * 1024 * 1024;
 
 export function isCollectionFile(name) {
   return /\.dvc$/i.test(String(name || '').trim());
@@ -123,9 +125,9 @@ async function readFileForScan(file, { projectId, force }) {
   if (kind === 'video' || kind === 'audio') {
     // Captions only — for a video the pictures are never looked at.
     let cap = force ? null : loadCaptions(file.path);
-    // Transcribing loads the WHOLE file and decodes its sound in the app, and
-    // Whisper takes ~13 minutes of speech at most: a recording bigger than
-    // this is refused before it is loaded (a 1 GB video would stall the window).
+    // Transcribing loads the WHOLE file and decodes its sound in the app: a
+    // recording bigger than this is refused before it is loaded (a 1 GB video
+    // would stall the window).
     const limit = kind === 'video' ? MAX_VIDEO_BYTES : MAX_AUDIO_BYTES;
     if (!cap?.text && Number(file.sizeBytes) > limit) return { error: 'too_large' };
     if (!cap?.text) {
@@ -1025,7 +1027,7 @@ export async function scanProjectFiles(projectDir, { projectId, projectName, for
     stage: 'read', index: n, total: files.length, name: file.name, step, fileFrac, fileAt,
     overall: overallAt(n, fileFrac), done: n + (fileFrac >= 1 ? 1 : 0), skipped: skipped.length, understood, ...extra,
   });
-  let mediaDown = null;       // captions unavailable (no key, offline) — the rest of the media is skipped
+  let mediaDown = null;       // the local transcription engine can't run — the rest of the media is skipped
   const flush = async () => {
     if (!batch.length) return;
     const list = batch; batch = []; batchSize = 0;
@@ -1133,7 +1135,7 @@ export async function scanProjectFiles(projectDir, { projectId, projectName, for
       const why = err?.message || 'unreadable';
       // Transcription not set up (or unreachable): every other recording
       // would fail the same way — don't load them all to find out.
-      if ((kind === 'video' || kind === 'audio') && /configured|reach the AI|signed in|OpenAI|switched off/i.test(why)) mediaDown = why;
+      if ((kind === 'video' || kind === 'audio') && /engine couldn|isn.t supported here|switched off/i.test(why)) mediaDown = why;
       skipped.push({ name: file.name, rel, stamp, error: why });
       sayFile(n, file, 'Skipped — couldn\u2019t be read', 1);
     }
@@ -1214,17 +1216,9 @@ export async function scanProjectFiles(projectDir, { projectId, projectName, for
   // action.
   let faces = { references: [], matches: [], errors: [] };
   if (stop()) return { error: 'cancelled' };
-  // …unless FACIAL RECOGNITION is switched on in the scan's card.
-  if (features.faces) {
-    say({ stage: 'faces', overall: 0.74, step: 'Comparing faces with the identity documents', fileFrac: 0 });
-    faces = await faceStage(entries, {
-      projectId,
-      isCancelled: stop,
-      onProgress: (p) => say({ stage: 'faces', ...p, overall: 0.74 + 0.03 * ((p.index || 0) / Math.max(1, p.total || 1)), step: p.total ? `Comparing faces \u2014 ${Math.min((p.index || 0) + 1, p.total)} of ${p.total}` : 'Comparing faces', fileFrac: (p.index || 0) / Math.max(1, p.total || 1) }),
-    });
-    if (stop()) return { error: 'cancelled' };
-    applyFaces(cols, created, faces, byRel);
-  }
+  // Facial recognition was removed (V12, lib/scanFeatures) — no switch runs it.
+  // With no references applyFaces only CLEARS what earlier scans matched.
+  applyFaces(cols, created, faces, byRel);
 
   // 4. The web: names per collection, links between collections — all local.
   const understandingOf = (rel) => byRel.get(rel)?.understanding;

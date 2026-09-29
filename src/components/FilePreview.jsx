@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import { SAFE_MD } from '../lib/safeMarkdown';
 import { getCachedPdf } from '../lib/pdfCache';
 import { loadPdfModule } from '../lib/pdfWorker';
 import Tooltip from './Tooltip';
@@ -842,7 +843,7 @@ function TextPreview({ signedUrl, file }) {
     <div className="file-preview-text">
       {isMarkdown ? (
         <div className="file-preview-text-markdown">
-          <ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown>
+          <ReactMarkdown {...SAFE_MD} remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown>
         </div>
       ) : (
         <pre className="file-preview-text-pre">{content}</pre>

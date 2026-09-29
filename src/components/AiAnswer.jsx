@@ -1,6 +1,7 @@
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import { SAFE_MD } from '../lib/safeMarkdown';
 import { findFollowableRefs, caenContextOf, findLawRefs, dropOverlaps } from '../lib/lawRefs';
 import { useMorphPill } from './useMorphPill';
 import { refHitPill } from './RefHitPill';
@@ -163,7 +164,7 @@ export default function AiAnswer({ text = '', typing = false, streaming = false,
   const md = useMemo(() => {
     const hits = [];
     const rehype = highlight ? [[rehypeLegalRefs, { ctx: caenContextOf(shown), hits }]] : [];
-    return { hits, el: <ReactMarkdown remarkPlugins={REMARK} rehypePlugins={rehype}>{shown}</ReactMarkdown> };
+    return { hits, el: <ReactMarkdown {...SAFE_MD} remarkPlugins={REMARK} rehypePlugins={rehype}>{shown}</ReactMarkdown> };
   }, [shown, highlight]);
   hitsRef.current = md.hits;
 

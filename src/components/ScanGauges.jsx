@@ -384,12 +384,12 @@ function LiveSection({ dir }) {
         <li>
           <Toggle on={on} onChange={(v) => setLiveSettings(dir, { on: v, ...(v ? { paused: false } : {}) })} label="Understand new files automatically" />
           <span className="sg-feat-note">
-            Every file added to this project from now on (imported, sent from a phone, dropped into the folder or synced) is read and sent to the AI (Anthropic, not used for training) within seconds, then linked into the network. Files already here are read when you tag them — a tagged folder: everything in it, and whatever is added to it later. This device only.
+            Every file added to this project from now on (imported, sent from a phone, dropped into the folder or synced) is read and sent to the AI (Claude via Google Cloud Vertex AI in the EU, not used for training) within seconds, then linked into the network. Files already here are read when you tag them — a tagged folder: everything in it, and whatever is added to it later. This device only.
           </span>
         </li>
         <li className={on ? '' : 'is-off'}>
           <Toggle on={on && recordings} onChange={(v) => on && setLiveSettings(dir, { recordings: v })} label="Include audio & video" />
-          <span className="sg-feat-note">Recordings are transcribed by OpenAI: slower, and paid per minute.</span>
+          <span className="sg-feat-note">Recordings are transcribed on this computer: slower, but no audio leaves it.</span>
         </li>
         <li>
           <Toggle on={!paused} onChange={(v) => setLiveSettings(dir, { paused: !v })} label={paused ? 'Paused' : 'Running'} />
@@ -401,7 +401,7 @@ function LiveSection({ dir }) {
 }
 
 // CLOUD READING OF IMAGES AND AUDIO (lib/cloudMedia): off, pictures and
-// scans are read on this computer and recordings are not transcribed.
+// scans are read on this computer (recordings are always transcribed locally).
 function CloudMediaSection() {
   const { selectedProjectId } = useSelectedProject();
   const on = useSyncExternalStore(subscribeCloudMedia, () => isCloudMediaAllowed(selectedProjectId), () => false);
@@ -416,8 +416,8 @@ function CloudMediaSection() {
           <Toggle on={on} onChange={(v) => setCloudMediaAllowed(selectedProjectId, v)} label="Cloud reading of images & audio" />
           <span className="sg-feat-note">
             {on
-              ? 'Pictures and scanned pages may be sent to Anthropic for reading, and recordings to OpenAI for captions.'
-              : 'Pictures and scanned pages are read on this computer; recordings are not transcribed. Nothing visual or audio leaves this computer.'}
+              ? 'Pictures and scanned pages may be sent to Claude (Anthropic, via Google Cloud Vertex AI in the EU) for reading. Recordings are always transcribed on this computer.'
+              : 'Pictures and scanned pages are read on this computer, and recordings are transcribed on it. Nothing visual or audio leaves this computer.'}
             {' '}This project, this device.
           </span>
         </li>
@@ -440,6 +440,7 @@ function CloudMediaSection() {
 
 // WHAT WAS SENT (lib/pseudonymize/sentLog): the last calls this window made
 // to the AI — masked, sent as it is, or refused — with the masked text itself.
+const SPECIAL_LABEL = { health: 'Health', criminal: 'Criminal', biometric: 'Biometric', 'beliefs-origin': 'Beliefs / origin' };
 function SentLog() {
   const log = useSyncExternalStore(subscribeSentLog, getSentLog, getSentLog);
   const [open, setOpen] = useState(false);
@@ -458,6 +459,7 @@ function SentLog() {
               <button type="button" className="sg-sent-head" onClick={() => setShown(shown === e ? null : e)} disabled={!e.bodyPreview}>
                 <span className={`sg-sent-pill is-${!e.sent ? 'refused' : e.masked ? 'masked' : 'clear'}`}>{!e.sent ? 'Not sent' : e.masked ? 'Masked' : 'Not masked'}</span>
                 <span className="sg-sent-action">{e.usageAction}</span>
+                {(e.flags || []).map((f) => <span key={f} className="sg-sent-pill is-refused">{SPECIAL_LABEL[f] || f}</span>)}
                 <span className="sg-sent-time">{when(e.at)}</span>
               </button>
               {e.reason && <span className="sg-feat-note">{e.reason}</span>}
