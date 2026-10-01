@@ -11,6 +11,7 @@
 // row. Worst case a project that was renamed on another machine shows its old
 // name for the half-second before the fetch resolves.
 
+import { secureStorage } from './secureStore';
 const PREFIX = 'docvex.projects.cache.';
 // Enough to fill several screens of the Hub; past that the cache stops being
 // worth its localStorage footprint.
@@ -20,7 +21,7 @@ const keyFor = (userId) => `${PREFIX}${userId || '_anonymous'}`;
 
 export function readCachedProjects(userId) {
   try {
-    const raw = localStorage.getItem(keyFor(userId));
+    const raw = secureStorage.getItem(keyFor(userId));
     const parsed = raw ? JSON.parse(raw) : null;
     return Array.isArray(parsed) ? parsed.filter((p) => p && p.id) : [];
   } catch {
@@ -31,10 +32,10 @@ export function readCachedProjects(userId) {
 export function writeCachedProjects(userId, projects) {
   if (!Array.isArray(projects)) return;
   try {
-    localStorage.setItem(keyFor(userId), JSON.stringify(projects.slice(0, MAX_CACHED)));
+    secureStorage.setItem(keyFor(userId), JSON.stringify(projects.slice(0, MAX_CACHED)));
   } catch { /* quota / private mode — the Hub just waits for the fetch */ }
 }
 
 export function clearCachedProjects(userId) {
-  try { localStorage.removeItem(keyFor(userId)); } catch { /* ignore */ }
+  try { secureStorage.removeItem(keyFor(userId)); } catch { /* ignore */ }
 }

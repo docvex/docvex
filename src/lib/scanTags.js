@@ -19,6 +19,7 @@
 import {
   SETTINGS_STORES, peekSetting, putSetting, projectIdForDir, projectDirSpellings, subscribeIndex,
 } from './projectIndexClient';
+import { secureStorage, secureKeys, subscribeSecureKeys } from './secureStore';
 
 const KEY = 'docvex:scan-tags:v1:';
 const EVENT = 'docvex:scan-tags-changed';
@@ -33,7 +34,7 @@ export function relInProject(projectDir, path) {
 
 function loadMirror(projectDir) {
   try {
-    const list = JSON.parse(localStorage.getItem(KEY + projectDir) || '[]');
+    const list = JSON.parse(secureStorage.getItem(KEY + projectDir) || '[]');
     return Array.isArray(list) ? list.map(String) : [];
   } catch { return []; }
 }
@@ -48,7 +49,7 @@ export function loadScanTags(projectDir) {
 
 function save(projectDir, set) {
   const list = [...set];
-  try { localStorage.setItem(KEY + projectDir, JSON.stringify(list)); } catch { /* full — the store copy still stands */ }
+  try { secureStorage.setItem(KEY + projectDir, JSON.stringify(list)); } catch { /* full — the store copy still stands */ }
   const projectId = projectIdForDir(projectDir);
   if (projectId) void putSetting(projectId, STORE, list);
   try { window.dispatchEvent(new CustomEvent(EVENT, { detail: { projectDir } })); } catch { /* no window */ }
@@ -93,12 +94,16 @@ export function clearScanTags(projectDir) { save(projectDir, new Set()); }
 // callers compare the folder they hold.
 export function subscribeScanTags(fn) {
   const onLocal = (e) => fn(e.detail?.projectDir || '');
-  const onStorage = (e) => { if (e.key && e.key.startsWith(KEY)) fn(e.key.slice(KEY.length)); };
+  // Another window's mirror, or the encrypted store landing at sign-in (every
+  // folder it holds is reported).
+  const offSecure = subscribeSecureKeys(KEY, (k) => {
+    if (k) fn(k.slice(KEY.length));
+    else for (const kk of secureKeys(KEY)) fn(kk.slice(KEY.length));
+  });
   window.addEventListener(EVENT, onLocal);
-  window.addEventListener('storage', onStorage);
   const off = subscribeIndex((ev) => {
     if (ev.type !== 'settings' || ev.store !== STORE) return;
     for (const dir of projectDirSpellings(ev.projectId)) fn(dir);
   });
-  return () => { window.removeEventListener(EVENT, onLocal); window.removeEventListener('storage', onStorage); off(); };
+  return () => { window.removeEventListener(EVENT, onLocal); offSecure(); off(); };
 }

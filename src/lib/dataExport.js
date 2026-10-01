@@ -7,17 +7,18 @@
 
 import { supabase } from './supabaseClient';
 import { listConversations } from './conversationHistory';
+import { readStoreForSync } from './secureStore';
 
 async function localPart(userId) {
   const out = { conversations: [], keys: {} };
   try { out.conversations = await listConversations(); } catch { /* index not answering */ }
-  try {
-    for (const k of Object.keys(localStorage)) {
-      if (!/^docvex[.:]/i.test(k) || !userId || !k.includes(userId)) continue;
-      const raw = localStorage.getItem(k);
-      try { out.keys[k] = JSON.parse(raw); } catch { out.keys[k] = raw; }
-    }
-  } catch { /* storage unavailable */ }
+  // Both homes: the settings in localStorage and the content in the
+  // encrypted store (lib/secureStore).
+  const all = { ...readStoreForSync('docvex') };
+  for (const [k, raw] of Object.entries(all)) {
+    if (!/^docvex[.:]/i.test(k) || !userId || !k.includes(userId) || raw == null) continue;
+    try { out.keys[k] = JSON.parse(raw); } catch { out.keys[k] = raw; }
+  }
   return out;
 }
 

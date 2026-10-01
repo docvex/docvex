@@ -17,9 +17,7 @@
 <meta name="twitter:title" content="Cookie Policy — DocVex">
 <meta name="twitter:description" content="How DocVex uses cookies and browser storage — essential and preference storage only, no advertising trackers.">
 <meta name="twitter:image" content="https://docvex.ro/assets/logo-lockup.png">
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@500;600;700;800&display=swap" rel="stylesheet">
+<link href="fonts/fonts.css" rel="stylesheet">
 <link rel="stylesheet" href="chrome.css">
 <link rel="stylesheet" href="legal.css">
 <script>(function(){var d=document.documentElement,t='ink';try{t=localStorage.getItem('docvex.site.theme')||'ink';}catch(e){}d.setAttribute('data-theme',t);d.style.backgroundColor=t==='cream'?'#F5F2EA':'#0F172A';})();</script>
@@ -91,9 +89,8 @@
           <p class="lg-sub">External services a page may contact.</p>
           <ul class="lg-list">
             <li><strong>Supabase</strong> — the site and app talk to our EU-hosted backend for sign-in and data sync; the session is stored locally as described above.</li>
-            <li><strong>Google Fonts</strong> — the website loads its typefaces from Google Fonts, which involves a request to Google's servers. The desktop app does not depend on this at runtime.</li>
-            <li><strong>esm.sh</strong> — the website's sign-in and forms load the Supabase client library from the esm.sh CDN, which sees your IP address and browser.</li>
-            <li><strong>Google Maps</strong> — in the app, opening the map for a company's registered office (the ANAF tab) loads Google's map of that public address; Google sees your IP address and the address shown.</li>
+            <li><strong>Fonts and code</strong> — the website's typefaces and its code libraries are served from docvex.ro itself; no request goes to Google Fonts or a third-party CDN.</li>
+            <li><strong>Google Maps</strong> — in the app, opening the map for a company's registered office (the ANAF tab) loads Google's map of that public address, once you agree to it; Google then sees your IP address and the address shown.</li>
             <li><strong>Update check</strong> — the desktop app asks update.electronjs.org and GitHub for new releases, which sees your IP address, platform and app version.</li>
             <li><strong>Public legal portals</strong> — the legislation, court-files, company (ANAF) and CAEN tools send what you search for straight to the Romanian public services that answer it (see the <a href="privacy.html#sharing">Privacy Policy</a>).</li>
             <li><strong>Google / Microsoft sign-in pages</strong> — if you use Google sign-in or connect a mailbox, those providers' own pages set their own cookies under their own policies.</li>

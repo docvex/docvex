@@ -9,8 +9,76 @@
 // to the deployed functions via supabase.functions.invoke(); their bodies and
 // auth handling live in supabase/functions/<name>/index.ts.
 
+//
+// END-TO-END (migration 046): a project's `name`, `description` and
+// `ai_context` are stored as ciphertext (`e2e:v1:p<version>:…`) under the
+// project's key (lib/e2e/projectKeys), bound to the project's id and the
+// column. Every function here DECRYPTS on the way out, so callers see plain
+// text; a name this device can't open yet reads as ENCRYPTED_PROJECT_NAME
+// with `name_unreadable: true`. Projects from before keep their plain values
+// until an admin opens them (`getProject` re-writes them encrypted).
+// Realtime rows (ProjectContext) must go through `decryptProjectRow`.
+
 import { supabase } from './supabaseClient';
 import { coerceJurisdictionCode } from './jurisdictions';
+import {
+  encryptProjectText, decryptProjectText, newProjectKey, registerInitialProjectKey,
+  rotateProjectKey,
+} from './e2e/projectKeys';
+import { encryptText, isEncryptedText } from './e2e/envelope';
+import { E2E_REQUIRED } from './e2e/policy';
+
+export const ENCRYPTED_PROJECT_NAME = 'Encrypted project';
+const FIELDS = [
+  ['name', 'project.name'],
+  ['description', 'project.description'],
+  ['ai_context', 'project.ai_context'],
+];
+
+// A project row with its text columns decrypted. `create: true` may make /
+// adopt the project's key (opening the project); the list passes false.
+export async function decryptProjectRow(row, { create = false } = {}) {
+  if (!row || !row.id) return row;
+  const out = { ...row };
+  for (const [col, purpose] of FIELDS) {
+    if (!isEncryptedText(row[col])) continue;
+    try {
+      const r = await decryptProjectText(row.id, row[col], { purpose, rowId: row.id, create });
+      if (r.ok) { out[col] = r.text; continue; }
+    } catch { /* below */ }
+    out[col] = col === 'name' ? ENCRYPTED_PROJECT_NAME : null;
+    out[`${col}_unreadable`] = true;
+  }
+  return out;
+}
+
+async function sealField(projectId, col, value) {
+  if (value == null || value === '') return value;
+  const purpose = FIELDS.find(([c]) => c === col)[1];
+  try {
+    return await encryptProjectText(projectId, value, { purpose, rowId: projectId });
+  } catch (err) {
+    if (E2E_REQUIRED) throw err;
+    return value;
+  }
+}
+
+// Background: an admin opening a project whose texts are still plain writes
+// them back encrypted. Never throws.
+async function encryptLegacyFields(project) {
+  try {
+    if (!project?.id || !['owner', 'admin'].includes(project.role)) return;
+    const plain = FIELDS.filter(([c]) => typeof project[c] === 'string' && project[c] && !isEncryptedText(project[c]));
+    if (!plain.length) return;
+    const { data: raw } = await supabase.from('projects').select('id, name, description, ai_context').eq('id', project.id).maybeSingle();
+    if (!raw) return;
+    const patch = {};
+    for (const [c] of FIELDS) {
+      if (typeof raw[c] === 'string' && raw[c] && !isEncryptedText(raw[c])) patch[c] = await sealField(project.id, c, raw[c]);
+    }
+    if (Object.keys(patch).length) await supabase.from('projects').update(patch).eq('id', project.id);
+  } catch { /* next open tries again */ }
+}
 
 // Name of the window CustomEvent the picker (and any other consumer of the
 // caller's project list) listens for to invalidate cached project lists.
@@ -87,14 +155,14 @@ export async function listMyProjects() {
   // resource, always an array even when aggregated) so we unwrap the first
   // element. Default to 1 — the caller is at minimum a member of any project
   // returned here, so 0 would be lying.
-  const flat = (data || [])
+  const flat = await Promise.all((data || [])
     .filter((r) => r.project)
-    .map((r) => ({
-      ...r.project,
+    .map(async (r) => ({
+      ...(await decryptProjectRow(r.project)),
       role: r.role,
       member_count: r.project.member_count?.[0]?.count ?? 1,
       members: [],
-    }));
+    })));
 
   // Best-effort: attach a few member profiles per project so the card grid can
   // render an avatar stack instead of a bare count. RLS lets a member read
@@ -144,13 +212,34 @@ export async function createProject({ name, description = null }) {
   const userId = userResult.data.user?.id;
   if (!userId) return { data: null, error: new Error('Not signed in') };
 
+  // The project's first key is made HERE, before the row exists, so the name
+  // is never stored in clear (not even for the moment between two writes).
+  const id = globalThis.crypto.randomUUID();
+  const key = newProjectKey();
+  const plainName = name?.trim();
+  const plainDesc = description?.trim() || null;
+  const seal = (v, purpose) => (v ? encryptText(key, v, { purpose, scope: id, keyRef: 'p1', rowId: id }) : null);
   const { data, error } = await supabase
     .from('projects')
-    .insert({ name: name?.trim(), description: description?.trim() || null, created_by: userId })
+    .insert({
+      id,
+      name: await seal(plainName, 'project.name'),
+      description: await seal(plainDesc, 'project.description'),
+      created_by: userId,
+    })
     .select('*')
     .single();
-  if (!error) notifyProjectsChanged();
-  return { data, error };
+  if (error) return { data, error };
+  // The trigger has made the creator owner — register the key and seal it to
+  // them. Should that fail, the texts are written back in clear rather than
+  // lost for good (and the key made again on the next open).
+  const ok = await registerInitialProjectKey(id, key).catch(() => false);
+  if (!ok) {
+    // A later open (getProject → encryptLegacyFields) encrypts them again.
+    await supabase.from('projects').update({ name: plainName, description: plainDesc }).eq('id', id);
+  }
+  notifyProjectsChanged();
+  return { data: { ...data, name: plainName, description: plainDesc }, error: null };
 }
 
 // Fetch a single project plus the caller's role on it. Two queries because
@@ -204,21 +293,27 @@ export async function getProject(projectId) {
       .maybeSingle();
     if (lErr) return { data: null, error: lErr };
     if (!legacy) return { data: null, error: new Error('Project not found') };
-    return { data: { ...legacy, jurisdiction: null, role: membership?.role ?? null }, error: null };
+    const out = { ...(await decryptProjectRow(legacy, { create: true })), jurisdiction: null, role: membership?.role ?? null };
+    encryptLegacyFields(out);
+    return { data: out, error: null };
   }
   if (pErr) return { data: null, error: pErr };
   if (mErr) return { data: null, error: mErr };
   if (!project) return { data: null, error: new Error('Project not found') };
 
-  return { data: { ...project, role: membership?.role ?? null }, error: null };
+  const out = { ...(await decryptProjectRow(project, { create: true })), role: membership?.role ?? null };
+  encryptLegacyFields(out);
+  return { data: out, error: null };
 }
 
 // Patch a project. RLS "admins update projects" enforces admin+; non-admins
 // get an empty result with no error (Postgres just returns 0 rows).
 export async function updateProject(projectId, patch) {
   const allowed = {};
-  if (typeof patch.name === 'string') allowed.name = patch.name.trim();
-  if ('description' in patch) allowed.description = patch.description?.trim() || null;
+  try {
+    if (typeof patch.name === 'string') allowed.name = await sealField(projectId, 'name', patch.name.trim());
+    if ('description' in patch) allowed.description = await sealField(projectId, 'description', patch.description?.trim() || null);
+  } catch (err) { return { data: null, error: err }; }
   if (Object.keys(allowed).length === 0) return { data: null, error: new Error('No fields to update') };
 
   // Match getProject's narrowed shape — keeps the two return values
@@ -241,9 +336,9 @@ export async function updateProject(projectId, patch) {
       .select(projectFields())
       .single();
     if (lErr) return { data: null, error: lErr };
-    return { data: { ...legacy, jurisdiction: null }, error: null };
+    return { data: { ...(await decryptProjectRow(legacy)), jurisdiction: null }, error: null };
   }
-  return { data, error };
+  return { data: data ? await decryptProjectRow(data) : data, error };
 }
 
 // ── Project AI: context + usage tracking ────────────────────────────────────
@@ -257,16 +352,18 @@ export async function updateProject(projectId, patch) {
 // ai_context_updated_at so the usage/overview surfaces can show "updated N ago".
 export async function updateProjectAiContext(projectId, aiContext) {
   const value = typeof aiContext === 'string' ? aiContext.trim() : '';
+  let stored = null;
+  try { stored = value.length ? await sealField(projectId, 'ai_context', value) : null; } catch (err) { return { data: null, error: err }; }
   const { data, error } = await supabase
     .from('projects')
     .update({
-      ai_context: value.length ? value : null,
+      ai_context: stored,
       ai_context_updated_at: new Date().toISOString(),
     })
     .eq('id', projectId)
     .select('id, ai_context, ai_context_updated_at')
     .single();
-  return { data, error };
+  return { data: data ? { ...data, ai_context: value.length ? value : null } : data, error };
 }
 
 // Persist the project's jurisdiction — which country's law the AI works under
@@ -406,12 +503,22 @@ export async function updateMemberRole(projectId, userId, role) {
 // Admin-only via RLS. The "delete members" policy guards role <> 'owner',
 // so trying to remove an owner just no-ops (zero rows) — explicit check here
 // gives a clearer error to the caller.
+//
+// End-to-end: the database drops the removed member's key grants and retires
+// the project key's newest version; an admin removing someone then makes the
+// NEXT version at once (lib/e2e/projectKeys.rotateProjectKey), so nothing
+// written from now on is readable with a key the removed member holds. What
+// they already had (files synced, texts read) cannot be taken back.
 export async function removeMember(projectId, userId) {
   const { error } = await supabase
     .from('project_members')
     .delete()
     .eq('project_id', projectId)
     .eq('user_id', userId);
+  if (!error) {
+    const me = (await supabase.auth.getSession()).data.session?.user?.id || null;
+    if (me && me !== userId) rotateProjectKey(projectId).catch(() => {});
+  }
   return { data: null, error };
 }
 
@@ -452,9 +559,20 @@ export async function listInvitations(projectId) {
 // then uses the custom role's base_role for the project_members.role enum
 // AND copies custom_role_id onto the new member row. Backward-compat: omit
 // the arg and behaviour is identical to before.
+//
+// End-to-end: the stored project name is ciphertext the function can't read,
+// so the name the INVITER sees is sent along as `project_display_name` for
+// the email alone (the send-invite function should prefer it over the stored
+// name when that starts with `e2e:`). It is not stored — but it does reach the
+// server and the mail provider, as any name in an email does.
 export async function sendInvite(projectId, email, role, customRoleId = null) {
   const body = { project_id: projectId, email, role };
   if (customRoleId) body.custom_role_id = customRoleId;
+  try {
+    const { data: row } = await supabase.from('projects').select('id, name').eq('id', projectId).maybeSingle();
+    const plain = row ? await decryptProjectRow(row) : null;
+    if (plain?.name && !plain.name_unreadable) body.project_display_name = plain.name;
+  } catch { /* the email falls back to "a project" */ }
   const { data, error } = await supabase.functions.invoke('send-invite', { body });
   return { data, error };
 }
@@ -474,6 +592,17 @@ export async function acceptInvite(token) {
   const { data, error } = await supabase.functions.invoke('accept-invite', {
     body: { token },
   });
+  // The name comes back as stored — ciphertext. The new member has no key
+  // grant yet (an admin's device makes it when they next open the project),
+  // so it usually can't be read yet: say "the project" rather than show it.
+  if (data && isEncryptedText(data.project_name)) {
+    let name = null;
+    try {
+      const r = await decryptProjectText(data.project_id, data.project_name, { purpose: 'project.name', rowId: data.project_id });
+      if (r.ok) name = r.text;
+    } catch { /* not granted yet */ }
+    return { data: { ...data, project_name: name }, error };
+  }
   return { data, error };
 }
 

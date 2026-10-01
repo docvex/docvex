@@ -75,7 +75,7 @@ function wrapEmailShell(args: {
   // tighter 34px inset in the mockups (default 36px).
   cardPadding?: string;
   // Copyright line override (raw HTML, trusted constants only) — the
-  // newsletter footer carries the SRL + postal-address line digest mail
+  // newsletter footer carries the operator + postal-address line digest mail
   // legally needs instead of the plain "All rights reserved.".
   copyrightHtml?: string;
   // Extra pre-built footer rows (<tr>…</tr>, raw HTML) appended after the
@@ -436,7 +436,7 @@ export function legalDigestEmail(args: {
     bodyHtml,
     previewText,
     cardPadding: "34px 34px 30px",
-    copyrightHtml: "&copy; 2026 DOCVEX SRL &middot; Str. Exemplu 12, Bucure&#537;ti, Rom&acirc;nia",
+    copyrightHtml: "&copy; 2026 DocVex &middot; Petre Luca Andrei, Str. R&#259;scoalei 1907 nr. 59, Constan&#539;a, Rom&acirc;nia",
     footerExtraHtml: `<tr><td align="center" style="padding:2px 16px 0;color:${COLOR_MUTED};font-size:11px;">
       You receive this because you enabled the Legal Newsfeed digest. <a href="${unsubscribeLink}" style="color:${COLOR_GOLD};text-decoration:underline;">Unsubscribe</a>
     </td></tr>`,
@@ -718,5 +718,40 @@ export function supportReceiptEmail(args: {
     `Typical first response is within one business day. Reply to this email to add more detail to your report.\n\n` +
     `Need to reach us directly? customersupport@docvex.ro\n`;
 
+  return { subject, html, text };
+}
+
+// Newsletter double opt-in: the confirmation asked of an address given on the
+// website (Legea 506/2004 art. 12, GDPR art. 7(1)) — nothing is sent to it
+// again until the link is followed. Every email also carries the one-click
+// unsubscribe link.
+export function newsletterConfirmEmail(args: {
+  confirmUrl: string;
+  unsubscribeUrl: string;
+}): { subject: string; html: string; text: string } {
+  const { confirmUrl, unsubscribeUrl } = args;
+  const subject = "Confirm your DocVex newsletter subscription";
+  const bodyHtml = `
+    <p style="margin:0 0 22px;color:${COLOR_TEXT};font-size:15px;line-height:1.6;text-align:center;">
+      Someone — hopefully you — asked for the DocVex legal briefing to be sent to this address. Press the button to confirm. If it wasn't you, ignore this email: nothing will be sent and the request is deleted within 7 days.
+    </p>
+    ${ctaButton(confirmUrl, "Confirm subscription")}
+    ${dividerRow("20px")}
+    <p style="margin:18px 0 0;color:${COLOR_MUTED};font-size:12px;line-height:1.6;text-align:center;">
+      <a href="${esc(unsubscribeUrl)}" style="color:${COLOR_GOLD};text-decoration:none;">Unsubscribe</a> ·
+      <a href="${APP_URL}/privacy.html" style="color:${COLOR_GOLD};text-decoration:none;">Privacy Policy</a>
+    </p>
+  `;
+  const html = wrapEmailShell({
+    heroTitle: "One click to confirm.",
+    bodyHtml,
+    previewText: "Confirm your DocVex newsletter subscription.",
+  });
+  const text =
+    `Confirm your DocVex newsletter subscription\n\n` +
+    `Someone — hopefully you — asked for the DocVex legal briefing to be sent to this address.\n` +
+    `Confirm: ${confirmUrl}\n\n` +
+    `If it wasn't you, ignore this email: nothing will be sent and the request is deleted within 7 days.\n\n` +
+    `Unsubscribe: ${unsubscribeUrl}\n`;
   return { subject, html, text };
 }

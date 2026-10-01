@@ -24,23 +24,22 @@ const SECURITY_URL = 'https://docvex.ro/security.html';
 const MODELS = [
   {
     name: 'Claude (Opus, Sonnet, Haiku)',
-    by: 'Anthropic',
+    by: 'Anthropic, via Google Cloud Vertex AI (EU region)',
     used: 'Research, the document advisor, drafting and editing, the AI scan of project files, building Word / PowerPoint / Excel files, the legal newsfeed',
     sees: 'Document text and your questions — with names, CNPs, IBANs, addresses and other identifiers replaced by placeholders on this computer first (on by default)',
   },
   {
     name: 'Claude (reading pictures)',
-    by: 'Anthropic',
+    by: 'Anthropic, via Google Cloud Vertex AI (EU region)',
     used: 'Reading text and signatures out of photos and scans, when cloud reading is switched on for the project',
     sees: 'The picture or the part of it you select',
     optional: true,
   },
   {
-    name: 'Whisper',
-    by: 'OpenAI',
-    used: 'Turning recordings into captions, when cloud reading is switched on for the project',
-    sees: 'The audio you ask it to transcribe',
-    optional: true,
+    name: 'Whisper (on this computer)',
+    by: 'Runs locally — no provider',
+    used: 'Turning recordings into captions',
+    sees: 'Nothing leaves your computer: the speech model ships with DocVex',
   },
 ];
 
@@ -87,7 +86,7 @@ export default function SecurityInfoModal({ onClose }) {
             <li>If you connect a mailbox, its access tokens are encrypted before being stored.</li>
             <li>The Playbook keeps an excerpt of each document you import to learn your writing style, with identifiers replaced by placeholders first.</li>
             <li>You can download your data, erase it (including what DocVex keeps on this computer) or delete your account from the Account page. Erasing revokes the session on every device.</li>
-            <li>“Report a problem” sends a screenshot only if you keep it attached. Remove it before sending if client documents are on screen.</li>
+            <li>“Report a problem” attaches a screenshot only if you tick the box for it. Reports, invitations and account emails are delivered by Resend.</li>
           </ul>
         </section>
 
@@ -120,6 +119,7 @@ export default function SecurityInfoModal({ onClose }) {
           <ul className="sec-list">
             <li>Our servers are in the EU; AI providers are in the United States (EU–US Data Privacy Framework / Standard Contractual Clauses). You decide what leaves your machine.</li>
             <li>Searches in the Legislation, Court files and Companies tools go straight to the Romanian public services that answer them.</li>
+            <li>Other services this computer contacts: Google Maps, only after you agree to show a company’s address on a map; GitHub and update.electronjs.org, to check for updates (they see your IP address, system and app version).</li>
             <li>Access, correction, export and erasure are all available from the Account page.</li>
             <li>A Data Processing Agreement is available for firms that need one on file.</li>
           </ul>

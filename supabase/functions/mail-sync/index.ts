@@ -112,8 +112,10 @@ function decodeText(bytes: Uint8Array): string {
 
 // ── Token encryption at rest (AES-256-GCM) ──────────────────────────────
 // Stored format: "v1:" + base64(iv[12] ++ ciphertext). Values without the
-// prefix are treated as legacy plaintext (so an unkeyed dev instance keeps
-// working and a key can be added later without a data migration).
+// prefix are legacy plaintext rows: they are still READ (so the connection
+// keeps working) and re-encrypted the next time they are loaded. Without
+// MAIL_TOKEN_KEY no mailbox can be connected at all — a token is never
+// stored in plain text.
 let cryptoKeyPromise: Promise<CryptoKey> | null = null;
 function getCryptoKey(): Promise<CryptoKey> | null {
   if (!MAIL_TOKEN_KEY) return null;
@@ -126,7 +128,7 @@ function getCryptoKey(): Promise<CryptoKey> | null {
 async function encToken(plain: string | null): Promise<string | null> {
   if (!plain) return plain;
   const keyP = getCryptoKey();
-  if (!keyP) return plain; // no key configured (dev) → store as-is
+  if (!keyP) throw new Error("token_key_missing"); // never store a token in plain text
   const key = await keyP;
   const iv = crypto.getRandomValues(new Uint8Array(12));
   const ct = new Uint8Array(await crypto.subtle.encrypt({ name: "AES-GCM", iv }, key, new TextEncoder().encode(plain)));
@@ -229,12 +231,25 @@ async function loadConn(userId: string): Promise<Conn | null> {
   const safeDec = async (v: string | null): Promise<string | null> => {
     try { return await decToken(v); } catch { return null; }
   };
-  return { ...c, access_token: await safeDec(c.access_token), refresh_token: await safeDec(c.refresh_token) };
+  const out = { ...c, access_token: await safeDec(c.access_token), refresh_token: await safeDec(c.refresh_token) };
+  // A legacy plaintext row is encrypted in place once a key is configured.
+  const plain = (v: string | null) => !!v && !v.startsWith("v1:");
+  if (getCryptoKey() && (plain(c.access_token) || plain(c.refresh_token))) {
+    try {
+      await adminClient().from("user_mail_connections").update({
+        access_token: await encToken(out.access_token),
+        refresh_token: await encToken(out.refresh_token),
+      }).eq("user_id", userId);
+    } catch { /* retried on the next load */ }
+  }
+  return out;
 }
 
 // ── authorize (issue CSRF nonce + build consent URL) ────────────────────
 async function handleAuthorize(userId: string, provider: Provider, redirectUri: string, target: string): Promise<Response> {
   if (!redirectUri) return jsonResponse({ ok: false, error: "missing_redirect" }, 400);
+  // No encryption key → no connection: tokens are only ever stored encrypted.
+  if (!MAIL_TOKEN_KEY) return jsonResponse({ ok: false, error: "provider_not_configured" });
   const configured = provider === "gmail" ? !!GOOGLE_CLIENT_ID : !!MS_CLIENT_ID;
   if (!configured) return jsonResponse({ ok: false, error: "provider_not_configured" });
 
@@ -277,6 +292,7 @@ async function consumeNonce(userId: string, provider: Provider, nonce: string): 
 async function handleConnect(userId: string, provider: Provider, code: string, redirectUri: string, nonce: string): Promise<Response> {
   if (!code || !redirectUri) return jsonResponse({ ok: false, error: "missing_params" }, 400);
   if (!(await consumeNonce(userId, provider, nonce))) return jsonResponse({ ok: false, error: "invalid_state" }, 400);
+  if (!MAIL_TOKEN_KEY) return jsonResponse({ ok: false, error: "provider_not_configured" });
 
   const isG = provider === "gmail";
   if (isG && !GOOGLE_CLIENT_ID) return jsonResponse({ ok: false, error: "provider_not_configured" });

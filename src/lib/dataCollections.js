@@ -29,6 +29,7 @@
 // `rel` is the source's path inside the project, so a collection still finds
 // its files on another machine.
 import { localFolderApi, readLocalBlob } from './localFolder';
+import { secureStorage } from './secureStore';
 import { askProjectAi, crossrefPassports, passportFiles } from './projectAi';
 import { clearAiFacet, getAiFacet, saveAiFacet, stampFor } from './aiData';
 import { extractImageText } from './textRegions';
@@ -52,7 +53,9 @@ export const COLLECTION_EXT = 'dvc';
 export const COLLECTION_TYPE = 'docvex/data-collection';
 const MODEL = 'claude-sonnet-4-6';
 const MAX_VIDEO_BYTES = 300 * 1024 * 1024;
-const MAX_AUDIO_BYTES = 25 * 1024 * 1024;
+// Transcription runs on this computer (lib/transcribe, local Whisper): the
+// cap is what the window can decode without stalling, not an upload limit.
+const MAX_AUDIO_BYTES = 300 * 1024 * 1024;
 
 export function isCollectionFile(name) {
   return /\.dvc$/i.test(String(name || '').trim());
@@ -123,9 +126,9 @@ async function readFileForScan(file, { projectId, force }) {
   if (kind === 'video' || kind === 'audio') {
     // Captions only — for a video the pictures are never looked at.
     let cap = force ? null : loadCaptions(file.path);
-    // Transcribing loads the WHOLE file and decodes its sound in the app, and
-    // Whisper takes ~13 minutes of speech at most: a recording bigger than
-    // this is refused before it is loaded (a 1 GB video would stall the window).
+    // Transcribing loads the WHOLE file and decodes its sound in the app: a
+    // recording bigger than this is refused before it is loaded (a 1 GB video
+    // would stall the window).
     const limit = kind === 'video' ? MAX_VIDEO_BYTES : MAX_AUDIO_BYTES;
     if (!cap?.text && Number(file.sizeBytes) > limit) return { error: 'too_large' };
     if (!cap?.text) {
@@ -421,7 +424,7 @@ export const scanInternals = { passportBatch, crossReference, graphGroups, conne
 // What the scan knows is kept with the project, in its settings store `web`
 // (`.docvex/settings/web.json`, lib/projectIndexClient — it travels with the
 // folder and with account sync). It used to be a hidden `.docvex-web.json`
-// beside the files plus a localStorage copy; both are read ONCE when the store
+// beside the files plus a copy in the encrypted secure store (lib/secureStore); both are read ONCE when the store
 // has nothing, moved into it, and removed:
 //   files:       { [rel]: { size, mtime, method, understanding } } — every file
 //                scanned and what the AI understood of it
@@ -453,7 +456,7 @@ async function readWeb(projectDir, projectId) {
       // Nothing in the store yet: the old homes, once.
       const legacy = await readLegacyWeb(projectDir);
       if (legacy && await putSetting(projectId, SETTINGS_STORES.web, { ...legacy, updatedAt: Date.now() })) {
-        try { localStorage.removeItem(WEB_LS + projectDir); } catch { /* harmless leftover */ }
+        try { secureStorage.removeItem(WEB_LS + projectDir); } catch { /* harmless leftover */ }
         try { await localFolderApi.deleteFiles({ dir: projectDir, paths: [resolveInProject(projectDir, WEB_FILE)] }); } catch { /* harmless leftover */ }
       }
       return legacy;
@@ -472,7 +475,7 @@ async function readLegacyWeb(projectDir) {
     if (st && !st.error) web = JSON.parse(await (await readLocalBlob(path)).text());
   } catch { /* none yet — try the machine's copy */ }
   if (!web) {
-    try { web = JSON.parse(localStorage.getItem(WEB_LS + projectDir) || 'null'); } catch { web = null; }
+    try { web = JSON.parse(secureStorage.getItem(WEB_LS + projectDir) || 'null'); } catch { web = null; }
   }
   return shapeWeb(web);
 }
@@ -480,12 +483,10 @@ async function readLegacyWeb(projectDir) {
 async function writeWeb(projectDir, web, projectId) {
   const value = { ...web, updatedAt: Date.now() };
   if (projectId && settingsAvailable() && await putSetting(projectId, SETTINGS_STORES.web, value)) return;
-  // No store (or it refused): the old homes, so the next run is still cheap.
-  const text = JSON.stringify(value);
-  try { localStorage.setItem(WEB_LS + projectDir, text); } catch { /* full — the file is what counts */ }
-  try {
-    await localFolderApi.writeFiles({ dir: projectDir, files: [{ filename: WEB_FILE, blob: new Blob([text], { type: 'application/json' }) }] });
-  } catch { /* the machine's copy stands */ }
+  // No store (or it refused): this machine's copy only, so the next run is
+  // still cheap. It is never written into the case folder in clear any more —
+  // the index writes it there sealed (projectIndex/folderSeal.js).
+  try { secureStorage.setItem(WEB_LS + projectDir, JSON.stringify(value)); } catch { /* full — the next scan redoes it */ }
 }
 
 // A name as it can be compared: no diacritics, no case, no punctuation, no
@@ -941,7 +942,7 @@ export async function eraseScanMemory(projectDir, { projectId } = {}) {
   // The web index, in every home it has had.
   const empty = { version: 1, files: {}, collections: [], graph: null, updatedAt: Date.now() };
   if (projectId && settingsAvailable()) await putSetting(projectId, SETTINGS_STORES.web, empty).catch(() => {});
-  try { localStorage.removeItem(WEB_LS + projectDir); } catch { /* harmless */ }
+  try { secureStorage.removeItem(WEB_LS + projectDir); } catch { /* harmless */ }
   try {
     const st = await localFolderApi.stat(resolveInProject(projectDir, WEB_FILE));
     if (st && !st.error) await localFolderApi.deleteFiles({ dir: projectDir, paths: [resolveInProject(projectDir, WEB_FILE)] });
@@ -1027,7 +1028,7 @@ export async function scanProjectFiles(projectDir, { projectId, projectName, for
     stage: 'read', index: n, total: files.length, name: file.name, step, fileFrac, fileAt,
     overall: overallAt(n, fileFrac), done: n + (fileFrac >= 1 ? 1 : 0), skipped: skipped.length, understood, ...extra,
   });
-  let mediaDown = null;       // captions unavailable (no key, offline) — the rest of the media is skipped
+  let mediaDown = null;       // the local transcription engine can't run — the rest of the media is skipped
   const flush = async () => {
     if (!batch.length) return;
     const list = batch; batch = []; batchSize = 0;
@@ -1135,7 +1136,7 @@ export async function scanProjectFiles(projectDir, { projectId, projectName, for
       const why = err?.message || 'unreadable';
       // Transcription not set up (or unreachable): every other recording
       // would fail the same way — don't load them all to find out.
-      if ((kind === 'video' || kind === 'audio') && /configured|reach the AI|signed in|OpenAI|switched off/i.test(why)) mediaDown = why;
+      if ((kind === 'video' || kind === 'audio') && /engine couldn|isn.t supported here|switched off/i.test(why)) mediaDown = why;
       skipped.push({ name: file.name, rel, stamp, error: why });
       sayFile(n, file, 'Skipped — couldn\u2019t be read', 1);
     }
@@ -1216,17 +1217,9 @@ export async function scanProjectFiles(projectDir, { projectId, projectName, for
   // action.
   let faces = { references: [], matches: [], errors: [] };
   if (stop()) return { error: 'cancelled' };
-  // …unless FACIAL RECOGNITION is switched on in the scan's card.
-  if (features.faces) {
-    say({ stage: 'faces', overall: 0.74, step: 'Comparing faces with the identity documents', fileFrac: 0 });
-    faces = await faceStage(entries, {
-      projectId,
-      isCancelled: stop,
-      onProgress: (p) => say({ stage: 'faces', ...p, overall: 0.74 + 0.03 * ((p.index || 0) / Math.max(1, p.total || 1)), step: p.total ? `Comparing faces \u2014 ${Math.min((p.index || 0) + 1, p.total)} of ${p.total}` : 'Comparing faces', fileFrac: (p.index || 0) / Math.max(1, p.total || 1) }),
-    });
-    if (stop()) return { error: 'cancelled' };
-    applyFaces(cols, created, faces, byRel);
-  }
+  // Facial recognition was removed (V12, lib/scanFeatures) — no switch runs it.
+  // With no references applyFaces only CLEARS what earlier scans matched.
+  applyFaces(cols, created, faces, byRel);
 
   // 4. The web: names per collection, links between collections — all local.
   const understandingOf = (rel) => byRel.get(rel)?.understanding;

@@ -201,8 +201,10 @@ export default function DataCollectionView({ file }) {
 
   const facts = mergeFacts(recordFacts(doc), doc.facts);
   const regular = doc.sources.filter((s) => s.method !== 'face');
-  const faceRefs = doc.faceReference || [];
-  const faceMatches = doc.faceMatches || [];
+  // Face matches are no longer shown (V12 — facial recognition removed);
+  // a collection written by an older scan loses them on the next scan.
+  const faceRefs = [];
+  const faceMatches = [];
 
   const page = (
       <div className="dcv-inner">
@@ -292,7 +294,7 @@ export default function DataCollectionView({ file }) {
         <section className="dcv-section">
           <h2 className="dcv-h">Sources</h2>
           <ul className="dcv-sources">
-            {[...regular, ...doc.sources.filter((s) => s.method === 'face')].map((s) => (
+            {regular.map((s) => (
               <li className="dcv-source" key={s.rel}>
                 <button type="button" className="dcv-source-thumb" onClick={() => open(s.rel)} aria-label={`Open ${s.name}`}>
                   {s.kind === 'image'

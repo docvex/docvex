@@ -360,6 +360,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // correct release asset for the manual-download update fallback on
   // platforms where the in-app updater can't run (unsigned macOS / Linux).
   getPlatformInfo: () => ipcRenderer.invoke('app:get-platform-info'),
+  // { available, strong, backend, platform } — how well the OS key store
+  // protects DocVex's local keys (Settings → Security).
+  getKeystoreStatus: () => ipcRenderer.invoke('app:keystore-status'),
   checkForUpdates: () => ipcRenderer.invoke('update:check'),
   // Last-known updater status (pull). Lets a renderer that mounted after an
   // update:status push already fired (e.g. background download finished
@@ -398,6 +401,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   knowledgeList: (args) => ipcRenderer.invoke('knowledge:list', args),
   settingsGet: (args) => ipcRenderer.invoke('settings:get', args),
   settingsPut: (args) => ipcRenderer.invoke('settings:put', args),
+  // The project's folder key (projectIndex/folderSeal.js), from the server.
+  projectFolderKey: (args) => ipcRenderer.invoke('project:folder-key', args),
   privateGet: (args) => ipcRenderer.invoke('private:get', args),
   privatePut: (args) => ipcRenderer.invoke('private:put', args),
   privateList: (args) => ipcRenderer.invoke('private:list', args),

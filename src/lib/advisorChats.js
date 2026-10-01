@@ -15,6 +15,7 @@
 // named exports at the foot are the Advisor's instance, as they always were.
 
 import { markGone } from './syncClock';
+import { secureStorage, isSecureStoreReady, whenSecureStoreReady, subscribeSecureKeys } from './secureStore';
 
 export const CHATS_PREFIX = 'docvex.aichat.v3.';
 const ACTIVE_PREFIX = 'docvex.aichat.active.v1.';
@@ -55,10 +56,14 @@ export function createChatStore({ prefix, activePrefix, label, describe }) {
   function persist() {
     const { key, threads, active } = state;
     if (!key) return;
+    // The chats are in the ENCRYPTED store (lib/secureStore), which lands once
+    // the user is known. A write before that would replace the stored list
+    // with what little is in memory: wait for it (the landing merges).
+    if (!isSecureStoreReady()) { void whenSecureStoreReady().then(() => persist()); return; }
     window.clearTimeout(saveTimer);
     saveTimer = window.setTimeout(() => {
-      try { localStorage.setItem(prefix + key, JSON.stringify(threads)); } catch { /* quota */ }
-      try { localStorage.setItem(activePrefix + key, active || ''); } catch { /* quota */ }
+      try { secureStorage.setItem(prefix + key, JSON.stringify(threads)); } catch { /* quota */ }
+      try { secureStorage.setItem(activePrefix + key, active || ''); } catch { /* quota */ }
     }, 120);
   }
   function set(next, { save = true } = {}) {
@@ -66,6 +71,21 @@ export function createChatStore({ prefix, activePrefix, label, describe }) {
     if (save) persist();
     listeners.forEach((fn) => { try { fn(); } catch { /* a listener's own trouble */ } });
   }
+
+  // The store landing (sign-in): read the bound list again; chats made here
+  // meanwhile are kept on top of it.
+  subscribeSecureKeys(prefix, (k) => {
+    if (!state.key || k != null) return;
+    let stored = [];
+    try { const v = JSON.parse(secureStorage.getItem(prefix + state.key) || '[]'); if (Array.isArray(v)) stored = v.filter((t) => t && t.id); } catch { stored = []; }
+    const ids = new Set(stored.map((t) => t.id));
+    const mine = state.threads.filter((t) => !ids.has(t.id));
+    const threads = pinnedFirst([...mine, ...stored]);
+    let { active } = state;
+    if (!active) { try { active = secureStorage.getItem(activePrefix + state.key) || null; } catch { active = null; } }
+    if (!threads.some((t) => t.id === active)) active = threads[0]?.id || null;
+    set({ threads, active }, { save: mine.length > 0 });
+  });
 
   const subscribe = (fn) => { listeners.add(fn); return () => listeners.delete(fn); };
   const getState = () => state;
@@ -76,12 +96,12 @@ export function createChatStore({ prefix, activePrefix, label, describe }) {
   function bind(userKey, scope) {
     const key = scope ? `${userKey || '_anonymous'}.${scope}` : '';
     if (key === state.key) return;
-    if (state.key) { window.clearTimeout(saveTimer); try { localStorage.setItem(prefix + state.key, JSON.stringify(state.threads)); } catch { /* quota */ } }
+    if (state.key) { window.clearTimeout(saveTimer); try { secureStorage.setItem(prefix + state.key, JSON.stringify(state.threads)); } catch { /* quota */ } }
     let threads = [];
     let active = null;
     if (key) {
-      try { const v = JSON.parse(localStorage.getItem(prefix + key) || '[]'); if (Array.isArray(v)) threads = v.filter((t) => t && t.id); } catch { threads = []; }
-      try { active = localStorage.getItem(activePrefix + key) || null; } catch { active = null; }
+      try { const v = JSON.parse(secureStorage.getItem(prefix + key) || '[]'); if (Array.isArray(v)) threads = v.filter((t) => t && t.id); } catch { threads = []; }
+      try { active = secureStorage.getItem(activePrefix + key) || null; } catch { active = null; }
     }
     threads = pinnedFirst(threads);
     if (!threads.some((t) => t.id === active)) active = threads[0]?.id || null;

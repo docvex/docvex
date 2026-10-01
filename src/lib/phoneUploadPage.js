@@ -32,7 +32,8 @@ const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '
  *   mode     'local' | 'cloud'
  *   project  project name to show (local; the cloud page asks the function)
  *   folder   the folder the files land in (local)
- *   base     local: the path prefix the page posts to ("/u/<token>")
+ *   base     (unused since the page seals its files: the Wi-Fi page talks to
+ *            /api/… with the token in a header, taken from the QR fragment)
  *   fn       cloud: the phone-upload function URL
  *   anon     cloud: the Supabase publishable key (public — the gateway wants it)
  *   dev      local, under `npm start`: poll `<base>/dev` and reload on a change
@@ -42,6 +43,14 @@ const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '
  *            scripts/build-phone-glyphs.mjs). HANDED IN by the caller rather
  *            than imported, because the dev hot reload evaluates this file on
  *            its own and cannot follow an import.
+ *   sealer   the phone's half of the file encryption, as SOURCE
+ *            (lib/phoneUploadCrypto `phoneSealerSource()`) — handed in for
+ *            the same reason. Every file is sealed with the key the QR code
+ *            carries in its FRAGMENT (`#k=…`, never sent to any server).
+ *   noble    local: @noble/ciphers' AES-GCM as a script string
+ *            (lib/phoneUploadCrypto.generated.js) — the Wi-Fi page is plain
+ *            http, where browsers switch WebCrypto off
+ *   hash     (text) → base64 SHA-256, for the CSP's script hashes
  */
 // THE "SEND TO DOCVEX" SHORTCUT — an Apple Shortcut does what a web page
 // cannot: take a Live Photo's movement as well as its still, and send both
@@ -51,6 +60,42 @@ const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '
 // with "Copy iCloud Link", and that link pasted HERE — from then on the page
 // offers it as one tap. Empty: the page shows the steps.
 export const SHORTCUT_URL = '';
+
+// The page's Content-Security-Policy, as a <meta>: nothing loads from anywhere
+// (default-src 'none'), the only scripts are the page's own inline ones —
+// allowed BY HASH when the caller hands in `cfg.hash` (text → base64 SHA-256;
+// the desktop server and the build script do), else by 'unsafe-inline' with no
+// origin at all — and the page talks only to where it must: the cloud page to
+// the Supabase project (its functions and the signed upload URLs of its
+// storage), the Wi-Fi page to the computer that served it. Styles stay
+// 'unsafe-inline' (the file-type icons carry style attributes; a style cannot
+// run code). base-uri / form-action shut too.
+function cspMeta(cfg, scripts) {
+  let connect = "'self'";
+  if (cfg.mode === 'cloud') {
+    try {
+      const u = new URL(cfg.fn);
+      const origins = [u.origin];
+      const ref = /^([a-z0-9]+)\.supabase\.co$/i.exec(u.hostname);
+      if (ref) origins.push(`https://${ref[1]}.storage.supabase.co`);
+      connect = origins.join(' ');
+    } catch { connect = "'none'"; }
+  }
+  const scriptSrc = typeof cfg.hash === 'function'
+    ? scripts.map((js) => `'sha256-${cfg.hash(js)}'`).join(' ')
+    : "'unsafe-inline'";
+  const policy = [
+    "default-src 'none'",
+    `script-src ${scriptSrc}`,
+    "style-src 'unsafe-inline'",
+    'img-src blob: data:',
+    'media-src blob: mediastream:',
+    `connect-src ${connect}`,
+    "base-uri 'none'",
+    "form-action 'none'",
+  ].join('; ');
+  return `<meta http-equiv="Content-Security-Policy" content="${policy}">`;
+}
 
 export function phoneUploadPage(cfg = {}) {
   const config = JSON.stringify({
@@ -65,13 +110,14 @@ export function phoneUploadPage(cfg = {}) {
     shortcut: cfg.shortcut || SHORTCUT_URL,
     glyphs: { icons: cfg.glyphs?.icons || {}, cats: cfg.glyphs?.cats || {} },
   }).replace(/</g, '\\u003c');
-  return String.raw`<!doctype html>
+  const top = String.raw`<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="robots" content="noindex">
 <meta name="referrer" content="no-referrer">
+<!--csp-->
 <meta name="theme-color" content="#F9F9FA" media="(prefers-color-scheme: light)">
 <meta name="theme-color" content="#16181A" media="(prefers-color-scheme: dark)">
 <title>Upload to DocVex</title>
@@ -336,11 +382,43 @@ export function phoneUploadPage(cfg = {}) {
     <span class="cam-count" id="camCount"></span>
   </div>
 </div>
-<script>
-(function () {
-  var CFG = ` + config + String.raw`;
+`;
+  // The page's own script. The phone's half of the encryption is inlined as
+  // source (lib/phoneUploadCrypto `phoneSealer`, handed in as `cfg.sealer`).
+  const sealerSrc = cfg.sealer ? String(cfg.sealer).replace(/<\/(script)/gi, '<\\/$1') : 'null';
+  const mainJs = '\n(function () {\n  var CFG = ' + config + ';\n  var phoneSealer = ' + sealerSrc + ';\n' + String.raw`  // The address: the token and the file key come in the URL FRAGMENT
+  // (#t=…&k=…), which never leaves the phone — the cloud page's token also in
+  // ?t= as before. Both are taken out of the address bar at once and kept for
+  // this tab only (sessionStorage), so a reload still works.
   var q = new URLSearchParams(location.search);
-  var token = q.get('t') || '';
+  var h = new URLSearchParams(String(location.hash || '').replace(/^#/, ''));
+  var kept = null;
+  try { kept = JSON.parse(sessionStorage.getItem('docvex-upload') || 'null'); } catch (e) { kept = null; }
+  var token = h.get('t') || q.get('t') || '';
+  var keyB64 = h.get('k') || '';
+  if (!keyB64 && kept && kept.k && (!token || kept.t === token)) { token = token || kept.t; keyB64 = kept.k; }
+  if (location.hash) {
+    try { history.replaceState(null, '', location.pathname + location.search); } catch (e) { /* the address keeps it */ }
+  }
+  if (token && keyB64) { try { sessionStorage.setItem('docvex-upload', JSON.stringify({ t: token, k: keyB64 })); } catch (e) { /* this tab only */ } }
+  // Every file is sealed on this phone before it is sent (AES-256-GCM,
+  // lib/phoneUploadCrypto): WebCrypto on the https cloud page, the bundled
+  // @noble/ciphers on the plain-http Wi-Fi page.
+  var sealer = phoneSealer ? phoneSealer(window) : null;
+  var sealKey = null;
+  function keyReady() {
+    if (sealKey) return Promise.resolve(sealKey);
+    if (!sealer || !sealer.available || !keyB64) return Promise.reject(new Error('no_key'));
+    return sealer.importKey(keyB64).then(function (k) { sealKey = k; return k; });
+  }
+  // The Wi-Fi route's requests: the token rides in a header, never the path.
+  var API = '/api';
+  function lfetch(sub, opts) {
+    opts = opts || {};
+    opts.headers = Object.assign({ 'x-docvex-token': token }, opts.headers || {});
+    opts.cache = 'no-store';
+    return fetch(API + sub, opts);
+  }
   var $ = function (id) { return document.getElementById(id); };
   var maxBytes = 0;
   var busy = 0;
@@ -418,21 +496,41 @@ export function phoneUploadPage(cfg = {}) {
 
   // ── The two routes ──
   function info() {
+    if (!token || !keyB64) return Promise.resolve({ ok: false, error: 'no_key' });
+    if (!sealer || !sealer.available) return Promise.resolve({ ok: false, error: 'no_crypto' });
     if (CFG.mode === 'local') {
-      return fetch(CFG.base + '/info').then(function (r) { return r.json(); });
+      return lfetch('/info').then(function (r) { return r.json(); });
     }
-    if (!token) return Promise.resolve({ ok: false, error: 'unknown' });
     return fnCall({ action: 'info' });
   }
+  // Wi-Fi: the sealed file goes up a piece at a time (one request per
+  // ~4 MB chunk), so a phone never holds a whole video twice. The computer
+  // opens each piece as it arrives and answers the last one.
+  // Cloud: sealed whole (≤50 MB) and PUT to a signed upload URL; the row says
+  // only "encrypted" — the name and type travel inside the sealed file.
   function upload(file, onProgress, partnerId) {
-    if (CFG.mode === 'local') {
-      return put('POST', CFG.base + '/file?name=' + encodeURIComponent(file.name || 'file') + (partnerId ? '&partner=' + encodeURIComponent(partnerId) : ''), file, { 'content-type': 'application/octet-stream' }, onProgress);
-    }
-    return fnCall({ action: 'sign', name: file.name, size: file.size, type: file.type }).then(function (s) {
-      if (!s || !s.ok) throw new Error(s && s.error === 'too_large' ? 'Too large (max ' + fmt(s.maxBytes || 0) + ')' : (s && s.error) || 'refused');
-      return put('PUT', s.signedUrl, file, { 'content-type': file.type || 'application/octet-stream', 'x-upsert': 'false', apikey: CFG.anon }, onProgress)
-        .then(function () { return fnCall({ action: 'done', path: s.path, name: file.name, size: file.size, type: file.type }); })
-        .then(function (d) { if (!d || !d.ok) throw new Error((d && d.error) || 'not recorded'); return d; });
+    return keyReady().then(function (key) {
+      var sealedTotal = sealer.sealedSize(file);
+      if (CFG.mode === 'local') {
+        var last = null;
+        return sealer.seal(key, token, file, function (part, at) {
+          var url = '/up?u=' + at.fileId + '&o=' + at.offset + '&end=' + (at.last ? 1 : 0) + (partnerId ? '&partner=' + encodeURIComponent(partnerId) : '');
+          return put('POST', API + url, part, { 'content-type': 'application/octet-stream', 'x-docvex-token': token }, function (p) {
+            onProgress(Math.min(1, (at.offset + p * part.length) / sealedTotal));
+          }).then(function (r) { last = r; });
+        }).then(function () { return last; });
+      }
+      var parts = [];
+      return sealer.seal(key, token, file, function (part) { parts.push(part); return Promise.resolve(); }).then(function () {
+        var blob = new Blob(parts, { type: 'application/octet-stream' });
+        parts = null;
+        return fnCall({ action: 'sign', name: 'encrypted', size: blob.size, type: 'application/x-docvex-sealed', sealed: true }).then(function (s) {
+          if (!s || !s.ok) throw new Error(s && s.error === 'too_large' ? 'Too large (max ' + fmt(s.maxBytes || 0) + ')' : (s && s.error) || 'refused');
+          return put('PUT', s.signedUrl, blob, { 'content-type': 'application/octet-stream', 'x-upsert': 'false', apikey: CFG.anon }, onProgress)
+            .then(function () { return fnCall({ action: 'done', path: s.path, name: 'encrypted', size: blob.size, type: 'application/x-docvex-sealed', sealed: true }); })
+            .then(function (d) { if (!d || !d.ok) throw new Error((d && d.error) || 'not recorded'); return d; });
+        });
+      });
     });
   }
 
@@ -467,7 +565,7 @@ export function phoneUploadPage(cfg = {}) {
     var ids = Object.keys(watching);
     if (!ids.length) { clearInterval(watchTimer); watchTimer = 0; return; }
     (CFG.mode === 'local'
-      ? fetch(CFG.base + '/status?ids=' + encodeURIComponent(ids.join(',')), { cache: 'no-store' }).then(function (r) { return r.json(); })
+      ? lfetch('/status?ids=' + encodeURIComponent(ids.join(','))).then(function (r) { return r.json(); })
       : fnCall({ action: 'status', ids: ids }))
       .then(function (d) {
         if (!d || !d.ok) return;
@@ -597,6 +695,8 @@ export function phoneUploadPage(cfg = {}) {
   $('route').textContent = routeLabel(CFG.computer);
   info().then(function (r) {
     if (!r || !r.ok) {
+      if (r && r.error === 'no_key') return ended('Scan the QR code again', 'This address is missing its encryption key. Open Import in DocVex and scan the QR code with this phone’s camera.');
+      if (r && r.error === 'no_crypto') return ended('This browser can’t encrypt the files', 'Open the QR code in Safari or Chrome.');
       if (r && r.error === 'expired') return ended('This code has expired', 'Open Import in DocVex again for a new QR code.');
       return ended('This code is no longer valid', 'Open Import in DocVex on your computer and scan the new QR code.');
     }
@@ -622,7 +722,7 @@ export function phoneUploadPage(cfg = {}) {
       // Given up on after 2.5s: a closed server can leave a request hanging.
       var ctl = window.AbortController ? new AbortController() : null;
       var t = setTimeout(function () { if (ctl) ctl.abort(); }, 2500);
-      return fetch(CFG.base + '/info', { cache: 'no-store', signal: ctl ? ctl.signal : undefined })
+      return lfetch('/info', { signal: ctl ? ctl.signal : undefined })
         .then(function (res) { clearTimeout(t); return res.ok ? res.json() : { ok: false }; })
         .catch(function () { clearTimeout(t); return { ok: false }; });
     }
@@ -658,7 +758,8 @@ export function phoneUploadPage(cfg = {}) {
     if (CFG.mode === 'local') {
       var how = document.createElement('details');
       how.className = 'howto';
-      var addr = location.origin + CFG.base;
+      // (A Shortcut cannot encrypt: it sends to the address's plain route.)
+      var addr = location.origin + '/u/' + token;
       how.innerHTML = '<summary>Send Live Photos with their movement (Shortcut)</summary>'
         + (CFG.shortcut ? '<a class="btn primary" id="scAdd">Add the “Send to DocVex” Shortcut</a><p>Then in Photos: select Live Photos → Share → <b>Send to DocVex</b>, and scan this computer’s QR code.</p>' : '')
         + '<p>' + (CFG.shortcut ? 'Or build it yourself' : 'Build it once in the Shortcuts app') + ' — it sends each photo and its movement:</p>'
@@ -830,16 +931,19 @@ export function phoneUploadPage(cfg = {}) {
   if (CFG.dev && CFG.mode === 'local') {
     var seen = null;
     setInterval(function () {
-      fetch(CFG.base + '/dev', { cache: 'no-store' }).then(function (r) { return r.json(); }).then(function (d) {
+      lfetch('/dev').then(function (r) { return r.json(); }).then(function (d) {
         if (seen === null) { seen = d.v; return; }
         if (d.v !== seen && !busy && !queue.length) location.reload();
       }).catch(function () {});
     }, 1000);
   }
-})();
-</script>
-</body>
-</html>`;
+` + '})();\n';
+  // The Wi-Fi page is plain http, where WebCrypto is switched off: it carries
+  // @noble/ciphers' AES-GCM (phoneUploadCrypto.generated.js, `cfg.noble`).
+  const scripts = [cfg.mode === 'cloud' || !cfg.noble ? '' : String(cfg.noble), mainJs].filter(Boolean);
+  return top.replace('<!--csp-->', cspMeta(cfg, scripts))
+    + scripts.map((js) => `<script>${js}</script>`).join('\n')
+    + '\n</body>\n</html>';
 }
 
 export { esc as escapeHtml };

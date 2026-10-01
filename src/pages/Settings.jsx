@@ -42,6 +42,7 @@ const ImageIcon  = (p) => <Ico s={p?.s || 16}><rect x="3" y="3" width="18" heigh
 const MotionIcon = (p) => <Ico s={p?.s || 16}><path d="M5 12h14" /><path d="m13 6 6 6-6 6" /><path d="M3 6v12" /></Ico>;
 const ResetIcon  = (p) => <Ico s={p?.s || 15} sw="2.2"><path d="M3 12a9 9 0 1 0 3-6.7L3 8" /><path d="M3 3v5h5" /></Ico>;
 const ChevronIcon = (p) => <Ico s={p?.s || 16}><polyline points="6 9 12 15 18 9" /></Ico>;
+const ShieldIcon = (p) => <Ico s={p?.s || 16}><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" /></Ico>;
 const FolderIcon = (p) => <Ico s={p?.s || 16}><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" /></Ico>;
 
 /* ────────────────── File-type glyphs ────────────────── */
@@ -359,6 +360,40 @@ function MiniLang({ prefs }) {
 // for each new project (so the Files page resolves straight to it). Migrated
 // from the old launch hub's Settings view. Electron only: web has no ambient
 // filesystem path, so the card is hidden there.
+// SECURITY (V10): how well this computer protects DocVex's local keys. The
+// index key and the pseudonymisation vault are wrapped by the OS key store;
+// on Linux without a Secret Service that store is 'basic_text' — no real
+// protection — and this card says so. Case folders themselves are ordinary
+// files: full-disk encryption is what protects them on a lost laptop.
+const KEYSTORE_LABEL = { dpapi: 'Windows (DPAPI)', keychain: 'macOS Keychain', gnome_libsecret: 'GNOME Keyring', kwallet: 'KWallet', kwallet5: 'KWallet 5', kwallet6: 'KWallet 6', basic_text: 'none (plain text)', unknown: 'unknown' };
+function SecurityCard() {
+  const [st, setSt] = useState(null);
+  useEffect(() => {
+    let alive = true;
+    window.electronAPI?.getKeystoreStatus?.().then((v) => { if (alive) setSt(v || null); }).catch(() => {});
+    return () => { alive = false; };
+  }, []);
+  const disk = st?.platform === 'darwin' ? 'FileVault' : st?.platform === 'win32' ? 'BitLocker (or Device Encryption)' : 'full-disk encryption (LUKS)';
+  let line;
+  if (!st) line = 'Checking…';
+  else if (!st.available) line = 'This computer offers no key store. DocVex keeps its index unsealed and will not create a pseudonymisation vault, so AI calls that need masking are not sent.';
+  else if (!st.strong) line = `The key store here is ${KEYSTORE_LABEL[st.backend] || st.backend}: DocVex's local keys are only obfuscated. Install and unlock GNOME Keyring or KWallet, then restart DocVex.`;
+  else line = `DocVex's local keys are protected by ${KEYSTORE_LABEL[st.backend] || st.backend}.`;
+  return (
+    <SettingCard
+      icon={<ShieldIcon />}
+      title="Local encryption"
+      desc={`How this computer protects DocVex's keys. Case files are ordinary files on your disk — turn on ${disk} so a lost or stolen computer doesn't expose them.`}
+      wide
+    >
+      <div className={'set-ws-path' + (st && !st.strong ? ' is-empty' : '')}>
+        <span className="set-ws-path-ico"><ShieldIcon s={16} /></span>
+        <span className="set-ws-path-text">{line}</span>
+      </div>
+    </SettingCard>
+  );
+}
+
 function WorkspaceCard() {
   const { session } = useAuth();
   const userId = session?.user?.id ?? null;
@@ -620,6 +655,12 @@ export default function Settings() {
           <div className="set-group">
             <h2 className="set-group-title">Workspace</h2>
             <WorkspaceCard />
+          </div>
+        )}
+        {isElectronBranch && (
+          <div className="set-group">
+            <h2 className="set-group-title">Security</h2>
+            <SecurityCard />
           </div>
         )}
         <p className="set-foot">Preferences are saved on this device. Other devices keep their own.</p>

@@ -9,6 +9,7 @@
 // index bounds the footprint; writes are fire-and-forget (quota errors
 // swallowed, the next scan just extracts again).
 
+import { secureStorage } from './secureStore';
 const PREFIX = 'docvex:timeline:extract:v1:';
 const INDEX_KEY = 'docvex:timeline:extract:index:v1';
 const MAX_ENTRIES = 60;
@@ -19,19 +20,19 @@ const keyFor = (file) => `${PREFIX}${file.name}|${file.size}|${file.lastModified
 
 function touchIndex(key) {
   try {
-    const idx = JSON.parse(localStorage.getItem(INDEX_KEY) || '[]').filter((k) => k !== key);
+    const idx = JSON.parse(secureStorage.getItem(INDEX_KEY) || '[]').filter((k) => k !== key);
     idx.push(key);
     while (idx.length > MAX_ENTRIES) {
-      localStorage.removeItem(idx.shift());
+      secureStorage.removeItem(idx.shift());
     }
-    localStorage.setItem(INDEX_KEY, JSON.stringify(idx));
+    secureStorage.setItem(INDEX_KEY, JSON.stringify(idx));
   } catch { /* fire-and-forget */ }
 }
 
 // → { text, media? } or null when nothing (valid) is cached.
 export function loadExtract(file) {
   try {
-    const raw = localStorage.getItem(keyFor(file));
+    const raw = secureStorage.getItem(keyFor(file));
     if (!raw) return null;
     const parsed = JSON.parse(raw);
     if (!parsed || typeof parsed.text !== 'string' || !parsed.text) return null;
@@ -46,7 +47,7 @@ export function saveExtract(file, res) {
   if (!res?.text) return;
   try {
     const key = keyFor(file);
-    localStorage.setItem(key, JSON.stringify({
+    secureStorage.setItem(key, JSON.stringify({
       text: res.text.slice(0, MAX_TEXT),
       // Media carry their full AI result (timed transcript / raw vision
       // text) so a cache hit can still seed the Doc Viewer's caches.

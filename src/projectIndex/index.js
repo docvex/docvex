@@ -13,8 +13,13 @@ import { Project } from './project.js';
 import { isInside, readJson, writeJsonAtomic } from './atomic.js';
 import { findProjectFiles, linkProjectFile, readProjectFile } from './projectFile.js';
 import {
-  LOCAL_KINDS, hashFile, isShaHex, listShards, normalizeFacet, readShard, writeShardFacet,
+  LOCAL_KINDS, hashFile, hasShardFile, isShaHex, listShards, normalizeFacet, readShard, writeShardFacet,
 } from './knowledge.js';
+import {
+  SEALED_EXT, folderKeyFromBase64, isFolderKey, isSealedFolderJson, openFromFolder, sealForFolder,
+  makeFolderKeyRing, sameFolderKeys, folderRingToJson,
+} from './folderSeal.js';
+import { openJson, sealJson } from './seal.js';
 
 // Watchers are cheap on Windows / macOS (one handle per tree) but not free.
 // Projects opened this session stay watched, up to this many, least recently
@@ -57,6 +62,27 @@ export function createProjectIndexService({ userDataDir, broadcast = () => {}, o
     return !!t && Date.now() - t < OWN_WRITE_MS;
   };
 
+  // The project's folder key (folderSeal.js): given by the renderer, kept in
+  // the project's database (sealed with the machine's index key) so it is
+  // there offline. undefined = not looked up yet, null = none.
+  const keyOf = (p) => {
+    if (!p) return null;
+    if (p.folderKey === undefined) {
+      p.folderKey = null;
+      try {
+        // The key RING (every version, migration 046) when there is one, else
+        // the single pre-046 key as version 1.
+        const ring = p.db.getMeta('folderKeys');
+        if (ring) p.folderKey = makeFolderKeyRing(openJson(ring)) || null;
+        if (!p.folderKey) {
+          const stored = p.db.getMeta('folderKey');
+          if (stored) p.folderKey = folderKeyFromBase64(openJson(stored)) || null;
+        }
+      } catch { p.folderKey = null; }
+    }
+    return p.folderKey;
+  };
+
   const service = {
     broadcast: (channel, payload) => { try { broadcast(channel, payload); } catch { /* a window closing */ } },
 
@@ -84,7 +110,7 @@ export function createProjectIndexService({ userDataDir, broadcast = () => {}, o
         project.ids.load().catch(() => {});
         return;
       }
-      if (parts[1] === 'settings' && parts.length === 3 && name.endsWith('.json')) {
+      if (parts[1] === 'settings' && parts.length === 3 && (name.endsWith('.json') || name.endsWith(SEALED_EXT))) {
         refreshSettingFromDisk(project, abs).catch(() => {});
         return;
       }
@@ -217,7 +243,7 @@ export function createProjectIndexService({ userDataDir, broadcast = () => {}, o
     try {
       const dir = path.join(p.dir, '.docvex', 'settings');
       for (const n of await fsp.readdir(dir)) {
-        if (n.endsWith('.json') && !n.startsWith('.')) await refreshSettingFromDisk(p, path.join(dir, n)).catch(() => {});
+        if ((n.endsWith('.json') || n.endsWith(SEALED_EXT)) && !n.startsWith('.')) await refreshSettingFromDisk(p, path.join(dir, n)).catch(() => {});
       }
     } catch { /* no settings yet */ }
     return res?.ok === false ? res : { ok: true, changed: res?.changed || 0 };
@@ -282,7 +308,7 @@ export function createProjectIndexService({ userDataDir, broadcast = () => {}, o
   // Fold a shard from the folder into the index — facets newer than the
   // index's win. With `announce`, every file with that content is told.
   async function importShard(p, sha, { announce = false } = {}) {
-    const shard = await readShard(p.dir, sha, markOwnWrite);
+    const shard = await readShard(p.dir, sha, markOwnWrite, keyOf(p));
     p.shardsChecked.add(sha);
     if (!shard) return [];
     const have = p.db.knowledgeFor(sha);
@@ -324,7 +350,7 @@ export function createProjectIndexService({ userDataDir, broadcast = () => {}, o
     const local = LOCAL_KINDS.has(kind) || f.local === true;
     ctx.db.putKnowledge(ctx.hash, kind, f, local);
     if (ctx.project && !local) {
-      await writeShardFacet(ctx.project.dir, ctx.hash, { name: path.basename(ctx.abs), kind, facet: f }, markOwnWrite);
+      await writeShardFacet(ctx.project.dir, ctx.hash, { name: path.basename(ctx.abs), kind, facet: f }, markOwnWrite, keyOf(ctx.project));
     }
     service.broadcast('knowledge:changed', { path: ctx.abs, kind, projectId: ctx.project?.projectId || null });
     return { ok: true };
@@ -336,7 +362,7 @@ export function createProjectIndexService({ userDataDir, broadcast = () => {}, o
     const ctx = await contextFor(file);
     ctx.db.clearKnowledge(ctx.hash, kind);
     if (ctx.project && !LOCAL_KINDS.has(kind)) {
-      await writeShardFacet(ctx.project.dir, ctx.hash, { kind, facet: null }, markOwnWrite);
+      await writeShardFacet(ctx.project.dir, ctx.hash, { kind, facet: null }, markOwnWrite, keyOf(ctx.project));
     }
     service.broadcast('knowledge:changed', { path: ctx.abs, kind, projectId: ctx.project?.projectId || null });
     return { ok: true };
@@ -361,7 +387,7 @@ export function createProjectIndexService({ userDataDir, broadcast = () => {}, o
     if (orphanShas.length) {
       const names = new Set();
       for (const sha of orphanShas) {
-        const shard = await readShard(p.dir, sha, markOwnWrite);
+        const shard = await readShard(p.dir, sha, markOwnWrite, keyOf(p));
         if (shard?.name) names.add(shard.name);
       }
       for (const r of rows) {
@@ -385,12 +411,49 @@ export function createProjectIndexService({ userDataDir, broadcast = () => {}, o
   }
 
   // ── settings ─────────────────────────────────────────────────────────
+  // In the folder a setting is `.docvex/settings/<store>.dvxe`, sealed with the
+  // project's folder key; a plain `<store>.json` from an older build is still
+  // read, and replaced by the sealed file on the next write (or sealFolder).
+  // Without the key the index keeps the value and nothing goes into the folder.
   const settingsFile = (p, store) => path.join(p.dir, '.docvex', 'settings', `${storeFileName(store)}.json`);
+  const sealedSettingsFile = (p, store) => path.join(p.dir, '.docvex', 'settings', `${storeFileName(store)}${SEALED_EXT}`);
+
+  // { value, at } from one settings file, or null (missing, unreadable, or
+  // sealed without the key).
+  async function readSettingFile(p, abs) {
+    const json = await readJson(abs);
+    if (!json || typeof json !== 'object') return null;
+    if (isSealedFolderJson(json)) {
+      try { const v = openFromFolder(keyOf(p), json); return v && typeof v === 'object' ? v : null; } catch { return null; }
+    }
+    return json;
+  }
+  // The newer of the sealed and the plain file.
+  async function readSettingDisk(p, store) {
+    const a = await readSettingFile(p, sealedSettingsFile(p, store));
+    const b = await readSettingFile(p, settingsFile(p, store));
+    if (!a) return b;
+    if (!b) return a;
+    return (Number(b.at) || 0) > (Number(a.at) || 0) ? b : a;
+  }
+  async function writeSettingDisk(p, store, value, at) {
+    const key = keyOf(p);
+    if (!isFolderKey(key)) return false;
+    const file = sealedSettingsFile(p, store);
+    markOwnWrite(file);
+    await writeJsonAtomic(file, sealForFolder(key, { v: 1, at, value: value ?? null }));
+    const plain = settingsFile(p, store);
+    markOwnWrite(plain);
+    await fsp.unlink(plain).catch(() => {});
+    return true;
+  }
 
   async function refreshSettingFromDisk(p, abs) {
-    const base = path.basename(abs, '.json');
-    const store = decodeURIComponent(base);
-    const disk = await readJson(abs);
+    const ext = abs.endsWith(SEALED_EXT) ? SEALED_EXT : '.json';
+    const base = path.basename(abs, ext);
+    let store;
+    try { store = decodeURIComponent(base); } catch { return; }
+    const disk = await readSettingFile(p, abs);
     if (!disk || typeof disk !== 'object') return;
     const idx = p.db.getSetting(store);
     if (idx && idx.at >= (Number(disk.at) || 0)) return;
@@ -406,7 +469,7 @@ export function createProjectIndexService({ userDataDir, broadcast = () => {}, o
       return { ok: true, value: r ? r.value : null };
     }
     const idx = p.db.getSetting(store);
-    const disk = await readJson(settingsFile(p, store));
+    const disk = await readSettingDisk(p, store);
     if (disk && typeof disk === 'object' && (!idx || (Number(disk.at) || 0) > idx.at)) {
       p.db.putSetting(store, disk.value ?? null, Number(disk.at) || 0);
       return { ok: true, value: disk.value ?? null, at: Number(disk.at) || 0 };
@@ -427,11 +490,87 @@ export function createProjectIndexService({ userDataDir, broadcast = () => {}, o
     const prev = p.db.getSetting(store);
     const at = Math.max(Date.now(), (prev?.at || 0) + 1);
     p.db.putSetting(store, value ?? null, at);
-    const file = settingsFile(p, store);
-    markOwnWrite(file);
-    await writeJsonAtomic(file, { v: 1, at, value: value ?? null });
+    await writeSettingDisk(p, store, value, at);
     service.broadcast('settings:changed', { projectId: p.projectId, store });
     return { ok: true };
+  }
+
+  // ── the folder key ───────────────────────────────────────────────────
+  // The renderer hands in the project's key (base64, 32 bytes). Kept in the
+  // project's database, then the folder is brought in line in the background:
+  // plain shards and settings are sealed, and what the index knows but the
+  // folder doesn't (written while there was no key) is written out.
+  // `keys` ([{ version, key }], lib/e2e/projectKeys) is the whole ring since
+  // migration 046; a caller that sends only `key` (+ optional `version`) is
+  // read as a ring of that one key. Versions already known are KEPT when a
+  // shorter ring arrives (reading needs every version ever written with).
+  async function projectFolderKey({ projectId, key, version, keys } = {}) {
+    const given = Array.isArray(keys) && keys.length
+      ? keys
+      : [{ version: Number(version) || 1, key }];
+    const incoming = makeFolderKeyRing(given);
+    if (!incoming) return { ok: false, error: 'bad_key' };
+    const p = loaded(projectId);
+    if (!p) return { ok: false, error: 'not_found' };
+    const had = keyOf(p);
+    const merged = makeFolderKeyRing([
+      ...(folderRingToJson(had) || []),
+      ...(folderRingToJson(incoming) || []),
+    ]);
+    if (had && sameFolderKeys(had, merged)) return { ok: true, changed: false };
+    p.folderKey = merged;
+    p.db.setMeta('folderKeys', sealJson(folderRingToJson(merged)));
+    // The newest key also under the old name, for a build that predates rings.
+    p.db.setMeta('folderKey', sealJson(merged.current.toString('base64')));
+    p.sealing = (p.sealing || Promise.resolve()).then(() => sealFolder(p)).catch(() => {});
+    return { ok: true, changed: true };
+  }
+
+  async function sealFolder(p) {
+    const key = keyOf(p);
+    if (!isFolderKey(key)) return;
+    // Knowledge: reading a shard with the key seals it (readShard).
+    const shards = await listShards(p.dir);
+    const inFolder = new Set();
+    for (const { sha } of shards) {
+      await readShard(p.dir, sha, markOwnWrite, key).catch(() => {});
+      inFolder.add(sha);
+    }
+    // What only the index knows.
+    const byHash = new Map();
+    for (const k of p.db.knowledgeAll()) {
+      if (k.local || LOCAL_KINDS.has(k.kind) || k.facet?.local === true) continue;
+      if (inFolder.has(k.hash) || !isShaHex(k.hash)) continue;
+      if (!byHash.has(k.hash)) byHash.set(k.hash, []);
+      byHash.get(k.hash).push(k);
+    }
+    for (const [hash, rows] of byHash) {
+      if (await hasShardFile(p.dir, hash)) continue;
+      const name = p.db.filesByHash(hash)[0]?.name || null;
+      for (const k of rows) {
+        await writeShardFacet(p.dir, hash, { name, kind: k.kind, facet: k.facet }, markOwnWrite, key).catch(() => {});
+      }
+    }
+    // Settings: every store the folder or the index holds, written sealed.
+    const dir = path.join(p.dir, '.docvex', 'settings');
+    const stores = new Set();
+    try {
+      for (const n of await fsp.readdir(dir)) {
+        if (n.startsWith('.')) continue;
+        const ext = n.endsWith(SEALED_EXT) ? SEALED_EXT : n.endsWith('.json') ? '.json' : null;
+        if (!ext) continue;
+        try { stores.add(decodeURIComponent(path.basename(n, ext))); } catch { /* not ours */ }
+      }
+    } catch { /* no settings folder yet */ }
+    for (const store of p.db.settingStores()) stores.add(store);
+    for (const store of stores) {
+      const disk = await readSettingDisk(p, store);
+      const idx = p.db.getSetting(store);
+      const best = idx && (!disk || idx.at >= (Number(disk.at) || 0))
+        ? { value: idx.value, at: idx.at }
+        : disk && { value: disk.value ?? null, at: Number(disk.at) || 0 };
+      if (best) await writeSettingDisk(p, store, best.value, best.at).catch(() => {});
+    }
   }
 
   // ── private (machine-local, per user) ─────────────────────────────────
@@ -488,6 +627,7 @@ export function createProjectIndexService({ userDataDir, broadcast = () => {}, o
     knowledgeList: safe(knowledgeList),
     settingsGet: safe(settingsGet),
     settingsPut: safe(settingsPut),
+    projectFolderKey: safe(projectFolderKey),
     privateGet: safe(privateGet),
     privatePut: safe(privatePut),
     privateList: safe(privateList),

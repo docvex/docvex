@@ -135,9 +135,13 @@ const APP_CSP = app.isPackaged ? [
   "default-src 'self'",
   "script-src 'self' 'wasm-unsafe-eval' blob:",
   "worker-src 'self' blob:",
-  "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
-  "font-src 'self' https://fonts.gstatic.com data:",
-  "img-src 'self' localfile: data: blob: https:",
+  // Fonts are bundled (@fontsource) — no Google Fonts request (V14).
+  "style-src 'self' 'unsafe-inline'",
+  "font-src 'self' data:",
+  // No `https:` wildcard for images (V3): an AI answer or a document could
+  // otherwise name any server in an <img> and leak what the URL carries the
+  // moment it renders. Only the hosts the app itself draws from.
+  "img-src 'self' localfile: data: blob: https://*.googleusercontent.com https://*.supabase.co https://legislatie.just.ro",
   "media-src 'self' localfile: blob: data:",
   "connect-src 'self' https://*.supabase.co wss://*.supabase.co https://api.github.com https://*.githubusercontent.com localfile: data: blob:",
   // The ANAF record's map drawer (components/MapDrawer): Google Maps' embed.
@@ -1838,6 +1842,33 @@ ipcMain.handle('tab-windows:list', () => [...tabWindows.values()]);
 // the OS's own key store (safeStorage: DPAPI on Windows, the Keychain on
 // macOS). Where encryption isn't available nothing is written: a vault in
 // plain text beside the app's data would defeat the point.
+// HOW STRONG THE OS KEY STORE IS (V10). On Linux safeStorage can fall back to
+// 'basic_text' — "encryption" with a fixed, public key, i.e. none at all — and
+// still report itself available. Everything sealed with it (the index key, the
+// pseudonymisation vault) is then only obfuscated. We keep working (refusing
+// would only leave the same data in the clear) but say so: Settings → Security
+// shows the warning, and the log records it once.
+function keystoreStatus() {
+  let available = false;
+  try { available = safeStorage.isEncryptionAvailable(); } catch { available = false; }
+  let backend = process.platform === 'win32' ? 'dpapi' : process.platform === 'darwin' ? 'keychain' : 'unknown';
+  if (process.platform === 'linux') {
+    try { backend = safeStorage.getSelectedStorageBackend(); } catch { backend = 'unknown'; }
+  }
+  const weak = process.platform === 'linux' && (backend === 'basic_text' || backend === 'unknown');
+  return { available, strong: available && !weak, backend, platform: process.platform };
+}
+let keystoreWarned = false;
+function warnWeakKeystore() {
+  if (keystoreWarned) return;
+  const st = keystoreStatus();
+  if (st.available && !st.strong) {
+    keystoreWarned = true;
+    console.warn(`[security] OS key store is weak (${st.backend}): local encryption keys are only obfuscated. Install and unlock a Secret Service (GNOME Keyring / KWallet).`);
+  }
+}
+ipcMain.handle('app:keystore-status', () => keystoreStatus());
+
 const VAULT_ID = /^[A-Za-z0-9_-]{1,80}$/;
 const vaultFile = (projectId) => path.join(app.getPath('userData'), 'vault', `${projectId}.bin`);
 ipcMain.handle('vault:get', async (_e, projectId) => {
@@ -1893,7 +1924,7 @@ ipcMain.handle('app:wipe-local-data', async () => {
       failed.push(`${path.basename(target)}: ${err?.code || err?.message || err}`);
     }
   };
-  for (const name of ['project-index', 'vault', 'thumbnails', 'external-opens.json', 'index-key.bin']) {
+  for (const name of ['project-index', 'vault', 'thumbnails', 'external-opens.json', 'index-key.bin', 'window-state.json']) {
     await rm(path.join(userData, name));
   }
   try {
@@ -1906,6 +1937,11 @@ ipcMain.handle('app:wipe-local-data', async () => {
   try {
     await session.defaultSession.clearStorageData({ storages: ['indexdb', 'cachestorage', 'serviceworkers', 'shadercache'] });
     await session.defaultSession.clearCache();
+    // The pre-migration copy of localStorage on the file:// origin
+    // (migrateOriginStorage COPIES it to the app origin and leaves it): it
+    // holds the same chats, extracted text and AI data the renderer's own
+    // wipe clears on the origin it runs on.
+    if (USE_APP_ORIGIN) await session.defaultSession.clearStorageData({ origin: 'file://', storages: ['localstorage'] });
   } catch (err) {
     failed.push(`browser caches: ${err?.message || err}`);
   }
@@ -2337,6 +2373,7 @@ function broadcastToAllWindows(channel, payload) {
 function loadIndexKey() {
   try {
     if (!safeStorage.isEncryptionAvailable()) return null;
+    warnWeakKeystore();
     const file = path.join(app.getPath('userData'), 'index-key.bin');
     let wrapped = null;
     try { wrapped = fs.readFileSync(file); } catch { /* first run */ }
@@ -2373,7 +2410,7 @@ function ensureIndexKey() {
 // it), the service runs in-process as before.
 const PROJECT_INDEX_METHODS = [
   'projectOpen', 'projectLocate', 'projectFiles', 'projectReconcile', 'projectFileId', 'projectPathForId',
-  'knowledgeGet', 'knowledgePut', 'knowledgeClear', 'knowledgeList', 'settingsGet', 'settingsPut',
+  'knowledgeGet', 'knowledgePut', 'knowledgeClear', 'knowledgeList', 'settingsGet', 'settingsPut', 'projectFolderKey',
   'privateGet', 'privatePut', 'privateList', 'registerProjectFile', 'projectIdOfFolder',
 ];
 let backgroundHelper = null; // { child, pending: Map, nextId, closing: Promise|null } | false once it failed
@@ -2488,6 +2525,7 @@ const PROJECT_INDEX_CALLS = {
   'knowledge:list': (s, a) => s.knowledgeList(a),
   'settings:get': (s, a) => s.settingsGet(a),
   'settings:put': (s, a) => s.settingsPut(a),
+  'project:folder-key': (s, a) => s.projectFolderKey(a),
   'private:get': (s, a) => s.privateGet(a),
   'private:put': (s, a) => s.privatePut(a),
   'private:list': (s, a) => s.privateList(a),

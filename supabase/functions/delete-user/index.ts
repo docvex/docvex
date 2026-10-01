@@ -7,7 +7,8 @@
 //      not from a request parameter — that way a leaked token can't be
 //      misused to delete an unrelated account, and we don't need a
 //      separate same-user check on top.
-//   3. Projects the user is the only member of are deleted (with their
+//   3. A connected mailbox is disconnected (the grant revoked at Google).
+//      Projects the user is the only member of are deleted (with their
 //      project-sync copy), their phone-upload leftovers and their private
 //      sync bundle (project-sync/user-<uid>/) are erased.
 //   4. Service-role admin.auth.deleteUser(uid). FK cascades (project_members,
@@ -76,6 +77,22 @@ Deno.serve(async (req: Request) => {
       if (rmErr) return;
     }
   };
+
+  // A connected mailbox: end the grant at the provider (Google revokes the
+  // refresh token) and drop the stored connection. mail-sync's own disconnect
+  // does exactly that and holds the token key, so it is asked with the
+  // caller's JWT. Without this the OAuth grant would outlive the account.
+  try {
+    const { data: conn } = await admin.from("user_mail_connections").select("user_id").eq("user_id", user.id).maybeSingle();
+    if (conn) {
+      await fetch(`${SUPABASE_URL}/functions/v1/mail-sync`, {
+        method: "POST",
+        headers: { Authorization: authHeader, apikey: SUPABASE_ANON_KEY, "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "disconnect" }),
+      }).catch(() => {});
+      await admin.from("user_mail_connections").delete().eq("user_id", user.id);
+    }
+  } catch (_) { /* best effort — the account is still deleted */ }
 
   // Phone uploads still waiting in the hand-off bucket. Swept FIRST: deleting a
   // project below cascades its session rows, and with them the list of folders.

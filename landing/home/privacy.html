@@ -17,9 +17,7 @@
 <meta name="twitter:title" content="Privacy Policy — DocVex">
 <meta name="twitter:description" content="How DocVex collects, uses, and protects personal data across the desktop app and website.">
 <meta name="twitter:image" content="https://docvex.ro/assets/logo-lockup.png">
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@500;600;700;800&display=swap" rel="stylesheet">
+<link href="fonts/fonts.css" rel="stylesheet">
 <link rel="stylesheet" href="chrome.css">
 <link rel="stylesheet" href="legal.css">
 <script>(function(){var d=document.documentElement,t='ink';try{t=localStorage.getItem('docvex.site.theme')||'ink';}catch(e){}d.setAttribute('data-theme',t);d.style.backgroundColor=t==='cream'?'#F5F2EA':'#0F172A';})();</script>
@@ -86,6 +84,8 @@
           <p>When you use project AI features we record usage metadata — the action, model, and token counts — for quota and usage displays. See <a href="#ai">Section 5</a> for what happens to the content itself.</p>
           <h3>Support &amp; enrollment</h3>
           <p>Messages you send us, problem reports (which include a screenshot only if you choose to attach one), and waitlist/demo submissions from the website (name, email, firm, message).</p>
+          <h3>Newsletter</h3>
+          <p>If you sign up on the website, we store your email address as a pending request and send one email asking you to confirm. Only after you press that link is the newsletter sent to you (legal basis: your consent, GDPR art. 6(1)(a); Legea 506/2004 art. 12). We keep the wording you agreed to, where you signed up and when, as the record of that consent. Every newsletter email has an unsubscribe link; unsubscribing deletes your address at once. Account holders can also switch the newsletter on or off on the Account page.</p>
           <h3>Technical data</h3>
           <p>App version and platform where needed for updates and troubleshooting. We do not run advertising trackers or sell behavioural profiles — see the <a href="cookies.html">Cookie Policy</a>.</p>
         </section>
@@ -94,12 +94,17 @@
           <h2>3. How we use information</h2>
           <p class="lg-sub">Purposes and legal bases.</p>
           <ul class="lg-list">
-            <li><strong>Providing the Service</strong> — operating accounts, projects, chat, notifications, mail sync, and AI features you invoke (performance of a contract, Art. 6(1)(b) GDPR).</li>
+            <li><strong>Providing the Service</strong> — operating accounts, projects, chat, notifications, and AI features you invoke (performance of a contract, Art. 6(1)(b) GDPR).</li>
+            <li><strong>Connected mailbox</strong> — syncing Gmail/Outlook for the Mail feature, only if you connect it (consent, Art. 6(1)(a); withdrawn by disconnecting).</li>
+            <li><strong>Website forms</strong> — answering a contact message, waitlist or demo request (legitimate interests in replying to you, Art. 6(1)(f)).</li>
+            <li><strong>Writing style (Playbook)</strong> — the excerpts you import to teach DocVex your style (contract, Art. 6(1)(b); for client content in them, DocVex acts as your processor under the <a href="dpa.html">DPA</a>).</li>
+            <li><strong>Technical data</strong> — IP address and request logs kept by our hosting providers for security (legitimate interests, Art. 6(1)(f)).</li>
             <li><strong>Security</strong> — authentication, access control, abuse prevention (contract and legitimate interests, Art. 6(1)(b) and (f)).</li>
             <li><strong>Communications</strong> — transactional emails such as invitations, welcome messages, and support replies (contract); the Legal Newsfeed email briefing only if you opt in (consent, Art. 6(1)(a)).</li>
             <li><strong>Improving reliability</strong> — diagnosing problems from reports you send us (legitimate interests, Art. 6(1)(f)).</li>
             <li><strong>Legal obligations</strong> — where we must retain or disclose information by law (Art. 6(1)(c)).</li>
           </ul>
+          <p>Giving us an email address and password (or signing in with Google) is necessary to create an account; without it the online features can't be used. Everything else is optional.</p>
           <p>We do not sell personal data and we do not use your content for advertising.</p>
         </section>
 
@@ -122,7 +127,7 @@
         <section class="lg-card" id="ai">
           <h2>5. AI features &amp; your content</h2>
           <p class="lg-sub">What is sent, when, and to whom.</p>
-          <p>AI features — document Q&amp;A, summaries, risk review, drafting, OCR text extraction, audio transcription, document generation, and the legal-feed briefing — are powered by third-party AI providers: <strong>Anthropic</strong> (Claude models) and, for audio transcription, <strong>OpenAI</strong> (Whisper). When you have DocVex build an Office file, the draft is created in Anthropic's file storage and code-execution environment and downloaded to your computer.</p>
+          <p>AI features — document Q&amp;A, summaries, risk review, drafting, OCR text extraction, audio transcription, document generation, and the legal-feed briefing — are powered by <strong>Anthropic models via Google Cloud Vertex AI (EU region)</strong>: Claude, run by Google Cloud in a European Union data centre. Audio transcription runs <strong>on your own computer</strong> — recordings are never uploaded — and Office files are built on your computer too.</p>
           <ul class="lg-list">
             <li>Content is transmitted to an AI provider <strong>only when you invoke an AI feature on it</strong>, or when you have switched on automatic understanding of new files for a project (Section 4) — never otherwise in the background.</li>
             <li>We send the minimum needed: the selected document content, image region, audio track, or prompt.</li>
@@ -140,14 +145,12 @@
               <thead><tr><th>Provider</th><th>Purpose</th><th>Location</th></tr></thead>
               <tbody>
                 <tr><td>Supabase</td><td>Database, authentication, realtime sync, serverless functions (hosted on AWS)</td><td>EU (Ireland, eu-west-1)</td></tr>
-                <tr><td>Anthropic</td><td>AI document features and legal-feed briefing (Claude)</td><td>United States</td></tr>
-                <tr><td>OpenAI</td><td>Audio transcription (Whisper), only when you use captions/transcription</td><td>United States</td></tr>
-                <tr><td>Resend</td><td>Transactional email delivery</td><td>United States / EU</td></tr>
+                <tr><td>Google Cloud (Vertex AI)</td><td>AI document features and legal-feed briefing — Anthropic models (Claude) via Google Cloud Vertex AI, EU region</td><td>European Union</td></tr>
+                <tr><td>Resend</td><td>Email delivery: invitations, account emails, newsletter confirmations, and support reports with any attachments you add</td><td>United States / EU</td></tr>
                 <tr><td>GitHub</td><td>Hosting the website, application downloads, and the update feed</td><td>United States</td></tr>
                 <tr><td>Google / Microsoft</td><td>Sign-in with Google; Gmail/Outlook sync — only if you connect them</td><td>United States / EU</td></tr>
-                <tr><td>Google</td><td>Maps of a company's public address (ANAF tab, when you open the map); typefaces on the website (Google Fonts)</td><td>United States</td></tr>
+                <tr><td>Google</td><td>Maps of a company's public address (ANAF tab), loaded only after you agree to show the map</td><td>United States</td></tr>
                 <tr><td>Electron (update.electronjs.org)</td><td>Update check for the Windows app: IP address, platform and version</td><td>United States</td></tr>
-                <tr><td>esm.sh</td><td>Delivers a code library to the website's sign-in and forms: IP address and browser</td><td>Global CDN</td></tr>
               </tbody>
             </table>
           </div>
@@ -169,11 +172,13 @@
           <p class="lg-sub">How long data is kept.</p>
           <ul class="lg-list">
             <li><strong>Account and collaboration data</strong> — kept while your account is active. Deleting your account removes your personal account data; messages you posted in shared projects may be retained for the team in anonymized or attributed form according to your organization's instructions.</li>
-            <li><strong>Connected-mailbox tokens</strong> — deleted when you disconnect the mailbox or delete your account.</li>
+            <li><strong>Connected-mailbox tokens</strong> — deleted when you disconnect the mailbox or delete your account; either one also revokes DocVex's access at Google.</li>
             <li><strong>Support reports</strong> — kept as long as needed to resolve the issue and for a reasonable period after. A problem report attaches a screenshot of your screen only if you leave it attached; please remove it if client documents are visible.</li>
             <li><strong>Synced project copies</strong> — kept while sync is on for that project; deleted when it is switched off or the project is deleted. Your private synced data (your own AI conversations) is deleted with your account.</li>
             <li><strong>Phone uploads through the DocVex cloud</strong> — deleted as soon as your computer has received them; anything left over is swept after the upload session ends.</li>
-            <li><strong>Website sign-ups (waitlist, demo requests, newsletter)</strong> — deleted automatically 24 months after they were sent.</li>
+            <li><strong>Website sign-ups (waitlist, demo requests, contact messages)</strong> — deleted automatically 24 months after they were sent.</li>
+            <li><strong>Newsletter</strong> — an unconfirmed sign-up is deleted after 7 days; a confirmed one is kept until you unsubscribe.</li>
+            <li><strong>Files sent from a phone through the DocVex cloud</strong> — deleted as soon as your computer has received them, and in any case within a day of the upload session ending.</li>
             <li><strong>In-app notifications</strong> — deleted automatically after 12 months.</li>
             <li><strong>Project invitations</strong> — deleted automatically 90 days after they were accepted or expired.</li>
             <li><strong>Messages you delete in chat</strong> — hidden at once and purged automatically after 30 days (a deleted message that still has replies is kept until they go).</li>

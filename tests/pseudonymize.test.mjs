@@ -396,3 +396,36 @@ test('the sent log keeps the masked text only, 30 at most', () => {
   assert.equal(getSentLog()[0].usageAction, 'a39');
   assert.ok(bodyText({ messages: [{ content: 'y'.repeat(9000) }] }).length <= 4001);
 });
+
+// ── V8: identifiers that lead back to a person through a public register ──
+test('court files, land register, cadastral, plates, cards and birth dates are masked', () => {
+  const text = [
+    'Dosarul nr. 1234/3/2026 al Tribunalului București și dosar 12/3/2025.',
+    'Imobilul înscris în cartea funciară nr. 123456 a localității Cluj-Napoca, număr cadastral 98765, nr. topo 567/2/1.',
+    'Autoturismul CJ 12 ABC și autoturismul B 123 XYZ.',
+    'Plata cu cardul 4111 1111 1111 1111.',
+    'Născută la 12.03.1985, domiciliată în Str. Lalelelor nr. 3.',
+    'Suma de 1.200 lei achitată la 15.04.2024, conform art. 1270 din Codul civil.',
+  ].join('\n');
+  const spans = detectLayer1(text);
+  const types = spans.map((s) => s.type);
+  for (const t of ['DOSAR', 'CF', 'CAD', 'AUTO', 'CARD', 'NASTERE']) assert.ok(types.includes(t), `${t} missing: ${types}`);
+  assert.equal(types.filter((t) => t === 'DOSAR').length, 2);
+  assert.equal(types.filter((t) => t === 'AUTO').length, 2);
+  const values = spans.map((s) => s.value);
+  // Kept: the amount, the payment date and the citation.
+  assert.ok(!values.some((v) => /1\.200|15\.04\.2024|1270/.test(v)), values.join(' | '));
+});
+
+test('no plate or card where none is', () => {
+  const spans = detectLayer1('Articolul CJ 123 ABC, suma de 100 LEI, factura 4111 1111 1111 1112.');
+  assert.deepEqual(spans.filter((s) => s.type === 'AUTO' || s.type === 'CARD'), []);
+});
+
+test('a court file number round-trips through the vault', async () => {
+  const v = new Vault({ projectId: 'v8' });
+  const masked = v.mask('Dosarul nr. 1234/3/2026 se judecă la termenul din 12.05.2026.');
+  assert.ok(!masked.includes('1234/3/2026'), masked);
+  assert.ok(masked.includes('12.05.2026'), masked);
+  assert.equal(v.reidentify(masked), 'Dosarul nr. 1234/3/2026 se judecă la termenul din 12.05.2026.');
+});

@@ -106,6 +106,8 @@ landing/dist/
 /public/ocr/
 # Face-recognition models, copied from node_modules by scripts/copy-face-assets.mjs (postinstall)
 /public/faces/
+# Whisper speech model + its ONNX runtime, fetched by scripts/copy-whisper-assets.mjs (postinstall)
+/public/models/
 
 # Build output
 /dist/

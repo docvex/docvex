@@ -32,6 +32,7 @@
 
 import { startTransition } from 'react';
 import { requestWorkspace, workspacesSnapshot } from './workspaceItems';
+import { secureStorage, subscribeSecureKeys, flushSecureStore } from './secureStore';
 // The query reader (legalOmni → lawRefs + legislation, ~70 KB) is loaded on
 // first use, not with the app: the Sidebar imports this module, which put it
 // in the startup bundle only for `urlOf`. `applyPage` awaits it (below).
@@ -63,7 +64,7 @@ const mkTab = (page = newPage(), o = {}) => ({ id: uid('t'), stack: [page], idx:
 // ── The store ──
 const load = () => {
   try {
-    const raw = JSON.parse(localStorage.getItem(KEY) || 'null');
+    const raw = JSON.parse(secureStorage.getItem(KEY) || 'null');
     if (raw && Array.isArray(raw.tabs) && raw.tabs.length) {
       // Item ids are the pages' own, and the pages start empty after a
       // restart: every item page is reached again by its url.
@@ -91,12 +92,22 @@ const load = () => {
 let state = load();
 const listeners = new Set();
 let saveTimer = 0;
+// The tabs live in the ENCRYPTED store (lib/secureStore), which lands only
+// once the user is known — after this module has loaded. Until the user
+// changes something, what was read then is replaced by what the store holds.
+let pristine = true;
+subscribeSecureKeys(KEY, (k) => {
+  if (k == null && !pristine) { persist(); return; }   // the user's changes stand
+  clearTimeout(saveTimer);
+  state = load();
+  listeners.forEach((fn) => fn());
+});
 const persist = () => {
   clearTimeout(saveTimer);
   saveTimer = setTimeout(() => {
     try {
       const strip = (t) => ({ ...t, draft: null, loading: false });
-      localStorage.setItem(KEY, JSON.stringify({
+      secureStorage.setItem(KEY, JSON.stringify({
         tabs: state.tabs.map(strip), active: state.active,
         closed: state.closed.map((c) => ({ ...c, tab: strip(c.tab) })), hist: state.hist, layout: state.layout,
       }));
@@ -108,6 +119,7 @@ const persist = () => {
 // it on every keystroke only re-serialised every tab for nothing.
 const set = (next, { save = true } = {}) => {
   state = typeof next === 'function' ? next(state) : { ...state, ...next };
+  if (save) pristine = false;
   if (save) persist();
   listeners.forEach((fn) => fn());
 };
@@ -117,11 +129,13 @@ export function flushBrowser() {
   clearTimeout(saveTimer);
   try {
     const strip = (t) => ({ ...t, draft: null, loading: false });
-    localStorage.setItem(KEY, JSON.stringify({
+    secureStorage.setItem(KEY, JSON.stringify({
       tabs: state.tabs.map(strip), active: state.active,
       closed: state.closed.map((c) => ({ ...c, tab: strip(c.tab) })), hist: state.hist, layout: state.layout,
     }));
   } catch { /* full or refused */ }
+  // A window about to open reads them from the encrypted store: get them there.
+  void flushSecureStore();
 }
 export const browserState = () => state;
 

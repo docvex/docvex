@@ -18,6 +18,7 @@
 // way back to the document as written is a list you cannot undo.
 import { setIfChanged, removeAndTouch } from './syncClock';
 import { peekFacet, putFacet, clearFacet, indexAvailable, pathOfLocalUrl } from './projectIndexClient';
+import { secureStorage } from './secureStore';
 
 export const DOC_THEMES = [
   {
@@ -208,7 +209,7 @@ export function loadDocTheme(url) {
   const facet = path ? peekFacet(path, 'theme') : undefined;
   if (facet && known(facet.data?.id)) return facet.data.id;
   try {
-    const id = window.localStorage.getItem(keyFor(url));
+    const id = secureStorage.getItem(keyFor(url));
     return known(id) ? id : DEFAULT_DOC_THEME;
   } catch {
     return DEFAULT_DOC_THEME;
@@ -224,7 +225,7 @@ export function saveDocTheme(url, id) {
         onFail: () => { try { setIfChanged(keyFor(url), id); } catch { /* not remembered */ } },
       });
     }
-    try { window.localStorage.removeItem(keyFor(url)); } catch { /* the index copy wins on read */ }
+    try { secureStorage.removeItem(keyFor(url)); } catch { /* the index copy wins on read */ }
     return;
   }
   try {

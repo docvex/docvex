@@ -9,6 +9,7 @@
 // for a file the index hasn't answered for, still written without main, and
 // moved across on first hydration.
 import { peekFacet, putFacet, clearFacet, cachedEntries, indexAvailable, normPath } from './projectIndexClient';
+import { secureStorage, secureKeys } from './secureStore';
 
 const KEY_PREFIX = 'docvex:doc-viewer:ocr-history:';
 const MAX_ENTRIES = 30;
@@ -26,13 +27,13 @@ function fileNameFromPath(p) {
 }
 
 function safeRead(key) {
-  try { return localStorage.getItem(key); } catch { return null; }
+  try { return secureStorage.getItem(key); } catch { return null; }
 }
 function safeWrite(key, value) {
-  try { localStorage.setItem(key, value); return true; } catch { return false; }
+  try { secureStorage.setItem(key, value); return true; } catch { return false; }
 }
 function safeRemove(key) {
-  try { localStorage.removeItem(key); return true; } catch { return false; }
+  try { secureStorage.removeItem(key); return true; } catch { return false; }
 }
 
 function loadLegacy(filePath) {
@@ -83,9 +84,7 @@ export function saveOcrHistory(filePath, entries) {
 export function listOcrHistories() {
   const byPath = new Map();
   try {
-    for (let i = 0; i < localStorage.length; i++) {
-      const key = localStorage.key(i);
-      if (!key || !key.startsWith(KEY_PREFIX)) continue;
+    for (const key of secureKeys(KEY_PREFIX)) {
       const filePath = key.slice(KEY_PREFIX.length);
       const entries = loadLegacy(filePath);
       if (entries.length) byPath.set(normPath(filePath), { filePath, entries });

@@ -18,10 +18,18 @@
 //   info    (token)     → { ok, projectName, expiresAt, files, maxBytes }
 //   sign    (token)     { name, size, type } → { signedUrl, path }
 //                       A signed upload URL for ONE file: <session>/<uuid>.
-//   done    (token)     { path, name, size, type } → { ok }
+//   done    (token)     { path, name, size, type, sealed? } → { ok }
 //                       The phone says the upload finished; the file is
 //                       checked to be in the bucket and a row is written,
 //                       which the desktop hears over Realtime.
+//
+// END-TO-END ENCRYPTED (the current page): the phone seals every file with a
+// key that exists only in the QR code's URL fragment (lib/phoneUploadCrypto
+// in the app) — this function, the bucket and the row never see the content,
+// the name or the type. Such a file is marked `sealed: true` (or type
+// SEALED_MIME) and its row is written as name "encrypted", mime SEALED_MIME
+// whatever the phone sent; the desktop opens it. An older page's plain file
+// is recorded as before (an older desktop reads those rows unchanged).
 //   close   (user JWT)  { sessionId } → { ok }   PAUSES a session (the Import
 //                       window closed); `create` with its token reopens it.
 //
@@ -57,6 +65,7 @@ function newToken() {
   const b = crypto.getRandomValues(new Uint8Array(24));
   return btoa(String.fromCharCode(...b)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 }
+const SEALED_MIME = "application/x-docvex-sealed";
 const cleanName = (n: unknown) => String(n || "file").replace(/[\\/:*?"<>|\u0000-\u001f]/g, "_").slice(0, 200) || "file";
 
 Deno.serve(async (req: Request) => {
@@ -66,6 +75,43 @@ Deno.serve(async (req: Request) => {
   try { body = await req.json(); } catch { return json({ ok: false, error: "bad_json" }, 400); }
   const db = createClient(SUPABASE_URL, SERVICE_KEY, { auth: { persistSession: false } });
   const action = String(body.action || "");
+
+  // ── Sweep (run hourly by pg_cron, migration 044) ─────────────────────────
+  // Files nobody collected must not wait in the bucket for the owner's next
+  // `create`: every session that ended a day ago loses its objects and its
+  // row, and a folder whose session row is already gone is emptied too. It
+  // only ever deletes data that has already lapsed, so it needs no caller
+  // identity; calling it more often changes nothing.
+  if (action === "sweep") {
+    const dayAgo = new Date(Date.now() - 24 * 3600 * 1000).toISOString();
+    const emptyFolder = async (folder: string) => {
+      for (let guard = 0; guard < 50; guard++) {
+        const { data: objs } = await db.storage.from(BUCKET).list(folder, { limit: 1000 });
+        if (!objs?.length) return;
+        const { error } = await db.storage.from(BUCKET).remove(objs.map((x) => `${folder}/${x.name}`));
+        if (error) return;
+      }
+    };
+    let sessions = 0, orphans = 0;
+    const { data: old } = await db.from("phone_upload_sessions").select("id").lt("expires_at", dayAgo).limit(200);
+    for (const o of old || []) {
+      await emptyFolder(o.id);
+      await db.from("phone_upload_sessions").delete().eq("id", o.id);
+      sessions++;
+    }
+    const { data: folders } = await db.storage.from(BUCKET).list("", { limit: 1000 });
+    const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    const ids = (folders || []).filter((f) => !f.id && UUID.test(f.name)).map((f) => f.name);
+    if (ids.length) {
+      const { data: live, error: liveErr } = await db.from("phone_upload_sessions").select("id").in("id", ids);
+      // Never guess: without a clean answer about which sessions exist, no
+      // folder is treated as an orphan.
+      if (liveErr || !live) return json({ ok: true, sessions, orphans });
+      const keep = new Set((live || []).map((r) => r.id));
+      for (const id of ids) if (!keep.has(id)) { await emptyFolder(id); orphans++; }
+    }
+    return json({ ok: true, sessions, orphans });
+  }
 
   // ── Signed-in actions ─────────────────────────────────────────────────────
   if (action === "create" || action === "close") {
@@ -91,6 +137,8 @@ Deno.serve(async (req: Request) => {
       if (!p) return json({ ok: false, error: "no_project" }, 403);
       projectName = p.name || projectName;
     }
+    // End-to-end encrypted names (lib/e2e) are never shown — or sent — to the phone.
+    if (projectName.startsWith("e2e:")) projectName = "";
 
     // Housekeeping: the user's sessions that ended a day ago — their leftover
     // objects (a desktop closed before taking them) and the rows.
@@ -135,6 +183,7 @@ Deno.serve(async (req: Request) => {
     if (s.project_id) {
       const { data: p } = await db.from("projects").select("name").eq("id", s.project_id).maybeSingle();
       projectName = p?.name || "";
+      if (projectName.startsWith("e2e:")) projectName = "";
     }
     return json({ ok: true, projectName, expiresAt: s.expires_at, files: s.file_count, maxBytes: MAX_BYTES });
   }
@@ -158,8 +207,11 @@ Deno.serve(async (req: Request) => {
     const obj = (objs || []).find((o) => o.name === leaf);
     if (!obj) return json({ ok: false, error: "not_uploaded" }, 409);
     const size = Number((obj.metadata as Record<string, unknown> | null)?.size) || Number(body.size) || 0;
+    const sealed = body.sealed === true || String(body.type || "") === SEALED_MIME;
     const { data: row, error } = await db.from("phone_upload_files").insert({
-      session_id: s.id, path, name: cleanName(body.name), size, mime: String(body.type || "").slice(0, 120) || null,
+      session_id: s.id, path, size,
+      name: sealed ? "encrypted" : cleanName(body.name),
+      mime: sealed ? SEALED_MIME : String(body.type || "").slice(0, 120) || null,
     }).select("id").single();
     if (error || !row) return json({ ok: false, error: "record_failed" }, 500);
     await db.from("phone_upload_sessions").update({ file_count: s.file_count + 1, byte_count: s.byte_count + size }).eq("id", s.id);

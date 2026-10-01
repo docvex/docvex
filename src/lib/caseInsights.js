@@ -38,6 +38,7 @@ import { loadSetting, putSetting, rememberProjectDir, settingsAvailable } from '
 import { sha256Of, dhashOf, hamming, shingles, likeness } from './fileSimilarity';
 import { decodeCnp, findCnps, parseMrz, isMrzLine, sameAddress, mergeAddresses } from './roIdDocuments';
 import { documentAuthority, AUTHORITY_RULE } from './docAuthority';
+import { secureStorage } from './secureStore';
 
 const MODEL = 'claude-sonnet-4-6';
 const localUrl = (path) => `localfile://local/${encodeURIComponent(path)}`;
@@ -834,7 +835,7 @@ export async function findDuplicates(data, texts = {}, { onProgress, isCancelled
 // second look at unchanged files costs nothing.
 const SIG_KEY = 'docvex:insights:signatures:v1:';
 export function loadSignatureReport(dir) {
-  try { return JSON.parse(localStorage.getItem(SIG_KEY + dir) || 'null'); } catch { return null; }
+  try { return JSON.parse(secureStorage.getItem(SIG_KEY + dir) || 'null'); } catch { return null; }
 }
 async function imagePayload(f, page = null) {
   let blob;
@@ -949,7 +950,7 @@ Be careful: natural variation between genuine signatures is normal; flag only cl
     });
   }
   const report = { at: Date.now(), pages: list.length, marks, groups: groups.sort((a, b) => (a.consistent === false ? -1 : 0) - (b.consistent === false ? -1 : 0)) };
-  try { localStorage.setItem(SIG_KEY + data.dir, JSON.stringify(report)); } catch { /* too big — shown this time only */ }
+  try { secureStorage.setItem(SIG_KEY + data.dir, JSON.stringify(report)); } catch { /* too big — shown this time only */ }
   say('Done', 1);
   return report;
 }
@@ -1121,10 +1122,10 @@ export async function loadResolutions(dir, projectId) {
     const v = await loadSetting(projectId, RES_STORE);
     if (v && typeof v === 'object') return v;
   }
-  try { return JSON.parse(localStorage.getItem(RES_LS + dir) || '{}') || {}; } catch { return {}; }
+  try { return JSON.parse(secureStorage.getItem(RES_LS + dir) || '{}') || {}; } catch { return {}; }
 }
 async function saveResolutions(dir, projectId, map) {
-  try { localStorage.setItem(RES_LS + dir, JSON.stringify(map)); } catch { /* full — the store copy stands */ }
+  try { secureStorage.setItem(RES_LS + dir, JSON.stringify(map)); } catch { /* full — the store copy stands */ }
   if (projectId && settingsAvailable()) await putSetting(projectId, RES_STORE, map);
 }
 // The resolution that still applies to a contradiction, or null.

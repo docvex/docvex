@@ -14,20 +14,11 @@
 export const AI_PROVIDERS = [
   {
     id: 'anthropic',
-    name: 'Anthropic Claude',
-    role: 'The main AI',
-    key: 'ANTHROPIC_API_KEY',
+    name: 'Anthropic Claude via Google Cloud Vertex AI (EU)',
+    role: 'The only AI service',
+    key: 'VERTEX_PROJECT_ID + VERTEX_SA_KEY (VERTEX_REGION, default europe-west1); ANTHROPIC_API_KEY only as the fallback until Vertex is set',
     tone: 'var(--accent)',
-    privacy: 'Commercial API: not used for training; kept about 30 days for abuse monitoring.',
-  },
-  {
-    id: 'openai',
-    name: 'OpenAI',
-    role: 'Transcription',
-    key: 'OPENAI_API_KEY',
-    tone: 'var(--success)',
-    privacy: 'API: not used for training by default; kept about 30 days.',
-    warning: 'CLAUDE.md says OPENAI_API_KEY is not configured yet, so transcription will not work until it is added.',
+    privacy: 'Anthropic models served by Google Cloud Vertex AI in an EU region, under Google Cloud\'s terms: not used for training. Every Edge Function reaches it through supabase/functions/_shared/claude.ts; CLAUDE_REQUIRE_EU=1 refuses any non-EU route.',
   },
 ];
 
@@ -65,7 +56,7 @@ export const AI_FUNCTIONS = [
     id: 'project-ai',
     provider: 'anthropic',
     title: 'The general AI backend',
-    note: 'Carries most of the app\'s AI. Default model claude-opus-4-7; generating Office files uses claude-sonnet-4-6. The model picker allows claude-opus-5-5, claude-sonnet-5, claude-opus-4-8, claude-opus-4-7, claude-sonnet-4-6 and claude-haiku-4-5. Usage is logged to project_ai_usage.',
+    note: 'Carries most of the app\'s AI. Default model claude-opus-4-7; generating Office files uses claude-sonnet-4-6 on the Anthropic API only (Skills + Files API are not on Vertex — there the app builds the file locally). The model picker allows claude-opus-5-5, claude-sonnet-5, claude-opus-4-8, claude-opus-4-7, claude-sonnet-4-6 and claude-haiku-4-5. Usage is logged to project_ai_usage.',
     models: ['claude-opus-4-7', 'claude-sonnet-4-6', 'claude-opus-5-5', 'claude-sonnet-5', 'claude-opus-4-8', 'claude-haiku-4-5'],
     uses: [
       { id: 'viewer', surface: 'doc-viewer', task: 'chat', isNew: true, what: 'The file viewer\'s advisor, on the UNIFIED AI (lib/aiEngine, surface viewer): Auto, the portal records a question names, the project\'s files (switch), the open file, legislation marked in the answer — plus creating files (write_document / ask_user, the Playbook rules and writing style on a draft) and editing them (paragraphs in place, edit blocks with Undo). Every version it writes is checked against the portals (the card only; no automatic correction turn).' },
@@ -96,7 +87,7 @@ export const AI_FUNCTIONS = [
     id: 'doc-ai',
     provider: 'anthropic',
     title: 'Doc Viewer tools',
-    note: 'Ask, summary, risks, Romanian, draft and review on claude-opus-4-7; paid OCR on claude-haiku-4-5. Also carries the OpenAI Whisper call below.',
+    note: 'Ask, summary, risks, Romanian, draft and review on claude-opus-4-7; paid OCR on claude-haiku-4-5. Its former transcribe action (OpenAI Whisper) was removed: captions are made on the computer.',
     models: ['claude-opus-4-7', 'claude-haiku-4-5'],
     uses: [
       { id: 'ask / summary / risks / romanian / draft / review', surface: 'doc-viewer', task: 'chat', model: 'claude-opus-4-7', what: 'The Doc Viewer\'s quick AI tools on the open document.' },
@@ -133,28 +124,20 @@ export const AI_FUNCTIONS = [
       { id: 'summary / risks / romanian / ask', surface: 'word-addin', task: 'chat', model: 'claude-opus-4-7', what: 'The Word add-in\'s tasks.' },
     ],
   },
-  {
-    id: 'doc-ai · transcribe',
-    provider: 'openai',
-    title: 'Whisper',
-    models: ['whisper-1'],
-    uses: [
-      { id: 'transcribe', surface: 'doc-viewer', task: 'transcribe', model: 'whisper-1', what: 'Transcribes audio and video for captions.' },
-    ],
-  },
 ];
 
 // Features that use NO AI service — they run on the computer.
 export const AI_LOCAL = [
   { name: 'PaddleOCR (Tesseract as fallback)', what: 'Finds text positions in pictures.' },
+  { name: 'Whisper small (transformers.js, in a Web Worker)', what: 'Transcribes audio and video for captions and the AI scan (lib/transcribe). Multilingual, Romanian included; the model ships with the app, no audio leaves the computer.' },
   { name: 'face-api', what: 'Face matching. Face data never leaves the machine.' },
   { name: 'ZXing', what: 'Reads barcodes and QR codes.' },
   { name: 'The app\'s own code', what: 'Legal citations, CNP and CUI checks, and old land-measure conversions.' },
 ];
 
-export const AI_PRIVACY = 'Both services are called through their paid APIs, never through consumer apps like claude.ai or chatgpt.com. Anthropic and OpenAI don\'t train on API data but keep it about 30 days. (Deepgram, whose standard terms allow training, was removed.)';
+export const AI_PRIVACY = 'Claude is reached only through Google Cloud Vertex AI in an EU region (the Anthropic API is a fallback until Vertex is configured), never through consumer apps like claude.ai. Inputs are not used for training. OpenAI and Deepgram were removed; transcription runs on the computer.';
 
-export const AI_INTRO = 'DocVex uses two AI companies: Anthropic\'s Claude and OpenAI. The app never calls any of them directly. Every call goes through one of the Supabase Edge Functions, which hold the API keys (ANTHROPIC_API_KEY, OPENAI_API_KEY).';
+export const AI_INTRO = 'DocVex uses one AI service: Anthropic\'s Claude, served from Google Cloud Vertex AI in an EU region. The app never calls it directly. Every call goes through one of the Supabase Edge Functions and their shared transport (supabase/functions/_shared/claude.ts), which holds the Google service-account key.';
 
 /** Every use, flattened, each carrying its function and provider. */
 export function allAiUses() {

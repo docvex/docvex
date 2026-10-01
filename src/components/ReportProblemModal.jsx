@@ -80,6 +80,10 @@ export default function ReportProblemModal() {
   const [extraFiles, setExtraFiles] = useState([]); // File[]
   const [sending, setSending] = useState(false);
   const [error, setError] = useState(null);
+  // The screenshot is of whatever was behind the modal — often a client
+  // document. It is captured so it can be previewed, but only SENT when the
+  // user ticks the box (privacy by default, GDPR art. 25(2)).
+  const [attachShot, setAttachShot] = useState(false);
 
   const fileInputRef = useRef(null);
   const descriptionRef = useRef(null);
@@ -94,6 +98,7 @@ export default function ReportProblemModal() {
       setExtraFiles([]);
       setSending(false);
       setError(null);
+      setAttachShot(false);
       // Focus the description on open — the most important field.
       requestAnimationFrame(() => descriptionRef.current?.focus());
     }
@@ -116,11 +121,12 @@ export default function ReportProblemModal() {
   // Total payload size = screenshot blob + every extra file. Hard cap at
   // 25 MB; the submit button disables and an inline error explains why
   // when crossed. Server-side guard re-checks (defence in depth).
+  const shotSent = !!screenshot && attachShot;
   const totalBytes =
-    (screenshot?.blob?.size ?? 0) +
+    (shotSent ? (screenshot?.blob?.size ?? 0) : 0) +
     extraFiles.reduce((sum, f) => sum + f.size, 0);
   const tooLarge = totalBytes > MAX_TOTAL_BYTES;
-  const tooMany = (screenshot ? 1 : 0) + extraFiles.length > 10;
+  const tooMany = (shotSent ? 1 : 0) + extraFiles.length > 10;
 
   if (!open) return null;
 
@@ -160,7 +166,7 @@ export default function ReportProblemModal() {
     }
 
     const attachments = [];
-    if (screenshot?.blob) {
+    if (shotSent && screenshot?.blob) {
       attachments.push({ filename: 'screenshot.png', blob: screenshot.blob });
     }
     for (const f of extraFiles) {
@@ -253,16 +259,24 @@ export default function ReportProblemModal() {
             {/* The screenshot is of whatever was behind the modal — often a
                 client document. Say so before it is emailed to support. */}
             {screenshot && (
-              <p className="report-modal-privacy">
-                The screenshot shows what was on your screen. If client documents or personal data are visible, remove it before sending.
-              </p>
+              <label className="report-modal-privacy report-modal-shot-opt">
+                <input
+                  type="checkbox"
+                  checked={attachShot}
+                  onChange={(e) => setAttachShot(e.target.checked)}
+                  disabled={sending}
+                />
+                <span>
+                  Attach a screenshot of the page behind this window. Only tick this if no client documents or personal data are visible.
+                </span>
+              </label>
             )}
             <div className="report-modal-attachments">
               {/* Auto-captured screenshot — shown first so the user
                   notices it's there and can remove it before sending. */}
               {screenshot && (
                 <Tooltip content="Screenshot of the page behind the modal">
-                  <div className="report-modal-attachment is-screenshot">
+                  <div className={`report-modal-attachment is-screenshot${attachShot ? '' : ' is-off'}`}>
                     <img
                       src={screenshot.dataUrl}
                       alt="Captured screenshot"

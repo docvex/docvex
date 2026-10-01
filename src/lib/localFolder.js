@@ -15,6 +15,7 @@
 // listing the folder the old way.
 
 import { ipc, rememberProjectDir } from './projectIndexClient';
+import { ensureFolderKey } from './projectFolderKey';
 
 const electronApi = typeof window !== 'undefined' ? window.electronAPI?.localFolder : null;
 const hasElectron = Boolean(electronApi);
@@ -66,7 +67,11 @@ export const projectIndexApi = {
   // { projectId, name?, dir? } → { ok, dir, projectFile, rev } | { ok: false, error }
   open: async (args) => {
     const res = await answer(ipc.projectOpen(args), { ok: false, error: 'unavailable' });
-    if (res?.ok && res.dir && args?.projectId) rememberProjectDir(args.projectId, res.dir);
+    if (res?.ok && res.dir && args?.projectId) {
+      rememberProjectDir(args.projectId, res.dir);
+      // What DocVex writes into the folder is sealed with the project's key.
+      ensureFolderKey(args.projectId);
+    }
     return res;
   },
   // projectId → { dir, projectFile } | { dir: null }
@@ -127,6 +132,7 @@ export async function resolveProjectFolder({ projectId, name, baseDir }) {
   if (loc?.dir) {
     linkedDirs.set(projectId, loc.dir);
     rememberProjectDir(projectId, loc.dir);
+    ensureFolderKey(projectId);
     return { path: loc.dir, error: null };
   }
   const legacy = await legacyProjectDir({ projectId, name, baseDir });

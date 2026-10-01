@@ -10,23 +10,44 @@
 // saved address reaches this instance again after a restart, not another
 // DocVex on the same machine.
 //
-// Stored: localStorage `docvex:phone-upload:local:v2:<userId>:<projectId>` →
+// Stored: the encrypted secure store (lib/secureStore) `docvex:phone-upload:local:v2:<userId>:<projectId>` →
 //   { token, dir, folder, project, port }. (v1 keys, per project only, are
 //   dropped — their owner is unknown.)
+// The address's FILE KEY (the QR code's fragment, lib/phoneUploadCrypto) is
+// NOT kept there: it is in the encrypted store (lib/secureStore,
+// `docvex:phone-upload-key:<route>:<userId>:<projectId>`). "New address" makes
+// a new token AND a new key.
 
 import { phoneUploadStart, phoneUploadStop } from './platform';
+import { secureGet, secureSet, secureRemove, whenSecureStoreReady, secureStorage, secureKeys } from './secureStore';
+
+// ── The addresses' file keys, in the encrypted store ─────────────────────
+const sealKeyKey = (route, userId, projectId) => `docvex:phone-upload-key:${route}:${userId || '_'}:${projectId || '_'}`;
+// The store answers from memory once hydrated; wait for that (briefly) so a
+// kept key isn't taken for a missing one right after launch.
+async function storeReady() {
+  try { await Promise.race([whenSecureStoreReady(), new Promise((r) => setTimeout(r, 3000))]); } catch { /* answer from what is there */ }
+}
+export async function loadSealKey(route, userId, projectId) {
+  await storeReady();
+  try { return secureGet(sealKeyKey(route, userId, projectId)) || ''; } catch { return ''; }
+}
+export function saveSealKey(route, userId, projectId, key) {
+  try { if (key) secureSet(sealKeyKey(route, userId, projectId), key); else secureRemove(sealKeyKey(route, userId, projectId)); } catch { /* memory only */ }
+}
 
 const PREFIX = 'docvex:phone-upload:local:v2:';
 const key = (userId, projectId) => `${PREFIX}${userId || '_'}:${projectId || '_'}`;
 
 export function loadLocalLink(userId, projectId) {
-  try { return JSON.parse(localStorage.getItem(key(userId, projectId)) || 'null'); } catch { return null; }
+  try { return JSON.parse(secureStorage.getItem(key(userId, projectId)) || 'null'); } catch { return null; }
 }
 function saveLocalLink(userId, projectId, link) {
-  try { localStorage.setItem(key(userId, projectId), JSON.stringify(link)); } catch { /* storage refused */ }
+  try { secureStorage.setItem(key(userId, projectId), JSON.stringify(link)); } catch { /* storage refused */ }
 }
 export function clearLocalLink(userId, projectId) {
-  try { localStorage.removeItem(key(userId, projectId)); } catch { /* storage refused */ }
+  try { secureStorage.removeItem(key(userId, projectId)); } catch { /* storage refused */ }
+  saveSealKey('local', userId, projectId, '');
 }
 
 /**
@@ -36,12 +57,16 @@ export function clearLocalLink(userId, projectId) {
  */
 export async function ensureLocalLink({ userId, projectId, dir, project, folder, fresh = false, hold = false }) {
   const kept = loadLocalLink(userId, projectId);
-  if (fresh && kept?.token) { await phoneUploadStop(kept.token); clearLocalLink(userId, projectId); }
+  if (fresh && kept?.token) { await phoneUploadStop(kept.token); clearLocalLink(userId, projectId); saveSealKey('local', userId, projectId, ''); }
+  const keptKey = fresh ? '' : await loadSealKey('local', userId, projectId);
   const res = await phoneUploadStart({
     dir, project: project || kept?.project || '', folder, hold, owner: userId || '',
-    token: fresh ? undefined : kept?.token, port: kept?.port,
+    token: fresh ? undefined : kept?.token, key: keptKey || undefined, port: kept?.port,
   });
-  if (res?.ok) saveLocalLink(userId, projectId, { token: res.token, dir, folder, project: project || kept?.project || '', port: res.port });
+  if (res?.ok) {
+    saveLocalLink(userId, projectId, { token: res.token, dir, folder, project: project || kept?.project || '', port: res.port });
+    if (res.key) saveSealKey('local', userId, projectId, res.key);
+  }
   return res;
 }
 
@@ -51,12 +76,7 @@ export async function resumeLocalLinks(userId) {
   const mine = `${PREFIX}${userId || '_'}:`;
   const ids = [];
   try {
-    for (let i = localStorage.length - 1; i >= 0; i -= 1) {
-      const k = localStorage.key(i);
-      if (!k) continue;
-      if (k.startsWith('docvex:phone-upload:local:v1:')) { localStorage.removeItem(k); continue; }
-      if (k.startsWith(mine)) ids.push(k.slice(mine.length));
-    }
+    for (const k of secureKeys(mine)) ids.push(k.slice(mine.length));
   } catch { return; }
   for (const projectId of ids) {
     const kept = loadLocalLink(userId, projectId);

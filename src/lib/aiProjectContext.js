@@ -230,8 +230,7 @@ export function collectionToText(doc, name = '') {
   if (ents.length) out.push(`Names held: ${ents.join(', ')}`);
   const rel = Array.isArray(doc.related) ? doc.related : [];
   if (rel.length) out.push(`Linked collections: ${rel.map((r) => `${r.title || r.file}${Array.isArray(r.names) && r.names.length ? ` (shared: ${r.names.slice(0, 4).join(', ')})` : ''}`).join('; ')}`);
-  const fm = Array.isArray(doc.faceMatches) ? doc.faceMatches : [];
-  if (fm.length) out.push(`Face matches: ${fm.map((m) => `${m.rel} ~ ${m.holder || m.idRel} (${Math.round((Number(m.confidence) || 0) * 100)}%)`).join('; ')}`);
+  // Face matches (biometric, V12) are never sent to the AI.
   return out.join('\n');
 }
 
@@ -323,4 +322,68 @@ export async function buildProjectDigest({ project, files = [] }) {
 
   const body = sections.join('\n\n');
   return body.length > CAP.total ? `${body.slice(0, CAP.total)}\n…[context truncated]` : body;
+}
+
+// ── Only what the question needs (V9, 2026-09-29) ─────────────────────────
+// The full digest (up to 110k characters — every collection, every file's
+// understanding, the team chat) used to ride on every question. GDPR Art.
+// 5(1)(c): send what the question needs. `focusDigest` keeps the project card
+// and a short file list, then the ITEMS (a `## ` block, or a chat line) that
+// share words, names or numbers with the question, best first, within
+// `budget`. A question naming nothing in particular ("rezumă dosarul") gets
+// the collections' and understandings' opening lines instead of everything.
+const STOP = new Set('care este sunt pentru despre dintre acest aceasta aceste acesta unde cand cine cum ceva toate toti dosar dosarul fisier fisierul fisiere document documentul documente proiect proiectul what which where when with from that this have about into their there file files document documents project please spune zice poti vreau'.split(' '));
+const foldWord = (s) => String(s || '').normalize('NFD').replace(/\p{M}/gu, '').toLowerCase();
+function termsOf(text) {
+  const out = new Set();
+  for (const w of foldWord(text).match(/[\p{L}\p{N}]{3,}/gu) || []) if (!STOP.has(w)) out.add(w);
+  return out;
+}
+function scoreItem(item, terms) {
+  if (!terms.size) return 0;
+  const words = termsOf(item);
+  let s = 0;
+  for (const t of terms) {
+    if (words.has(t)) s += /\d/.test(t) ? 3 : 1;
+    else if (t.length >= 5) for (const w of words) if (w.startsWith(t.slice(0, 5))) { s += 0.5; break; }
+  }
+  return s;
+}
+export function focusDigest(digest, question, { budget = 28000 } = {}) {
+  const text = String(digest || '');
+  if (!text || text.length <= budget) return text;
+  const terms = termsOf(question);
+  const sections = text.split(/\n(?=# )/);
+  const keep = [];
+  const items = [];
+  for (const sec of sections) {
+    const nl = sec.indexOf('\n');
+    const head = nl < 0 ? sec : sec.slice(0, nl);
+    const body = nl < 0 ? '' : sec.slice(nl + 1);
+    if (head === '# Project') { keep.push(sec); continue; }
+    if (head === '# Files') { keep.push(`${head}\n${body.slice(0, 2500)}${body.length > 2500 ? '\n…[list shortened]' : ''}`); continue; }
+    const parts = head === '# Team chat' ? body.split('\n') : body.split(/\n(?=## )/);
+    parts.forEach((p, i) => { if (p.trim()) items.push({ head, p, i, s: scoreItem(p, terms) }); });
+  }
+  let used = keep.join('\n\n').length;
+  const chosen = [];
+  const matched = items.filter((x) => x.s > 0).sort((a, b) => b.s - a.s);
+  const pool = matched.length ? matched
+    // Nothing named: the openings of what the AI worked out, not the raw text.
+    : items.filter((x) => x.head === '# Data collections' || x.head === '# File understandings (AI scan)')
+      .map((x) => ({ ...x, p: x.p.slice(0, 600) }));
+  for (const x of pool) {
+    if (used + x.p.length + 2 > budget) continue;
+    chosen.push(x);
+    used += x.p.length + 2;
+  }
+  const byHead = new Map();
+  for (const x of chosen.sort((a, b) => a.i - b.i)) {
+    if (!byHead.has(x.head)) byHead.set(x.head, []);
+    byHead.get(x.head).push(x.p);
+  }
+  const out = [...keep];
+  for (const [head, ps] of byHead) out.push(`${head}\n${ps.join(head === '# Team chat' ? '\n' : '\n\n')}`);
+  out.push('[Only the parts of the project relevant to this question are included.]');
+  return out.join('\n\n');
 }

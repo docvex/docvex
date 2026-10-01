@@ -30,8 +30,10 @@
 // they always were); a file nobody has hydrated yet answers from its old
 // localStorage record, if one is left, while it is hydrated in the background,
 // and a change event follows. Without main's side (an older preload) this is
-// exactly the localStorage store it was: one key per file.
+// the per-file record store it was: one key per file — now in the ENCRYPTED
+// secure store (lib/secureStore), never localStorage (V5).
 import { localFolderApi } from './localFolder';
+import { secureStorage, secureKeys, subscribeSecureStore } from './secureStore';
 import {
   KNOWLEDGE_KINDS, peekFacets, putFacet, clearFacet, cachedEntries, subscribeIndex,
   sameSize, normPath, indexAvailable,
@@ -75,7 +77,7 @@ const keyFor = (path) => `${PREFIX}${path}`;
 function readLegacyRecord(path) {
   if (!path) return null;
   try {
-    const rec = JSON.parse(localStorage.getItem(keyFor(path)) || 'null');
+    const rec = JSON.parse(secureStorage.getItem(keyFor(path)) || 'null');
     return rec && typeof rec === 'object' && rec.facets && typeof rec.facets === 'object' ? rec : null;
   } catch { return null; }
 }
@@ -110,13 +112,12 @@ const PRECIOUS = ['text', 'ocr'];
 function evictOldest(except) {
   const all = [];
   try {
-    for (let i = 0; i < localStorage.length; i += 1) {
-      const k = localStorage.key(i);
-      if (!k || !k.startsWith(PREFIX) || k === except) continue;
+    for (const k of secureKeys(PREFIX)) {
+      if (k === except) continue;
       let at = 0;
       let precious = false;
       try {
-        const rec = JSON.parse(localStorage.getItem(k) || 'null');
+        const rec = JSON.parse(secureStorage.getItem(k) || 'null');
         at = Math.max(0, ...Object.values(rec?.facets || {}).map((f) => Number(f?.at) || 0));
         precious = PRECIOUS.some((kind) => rec?.facets?.[kind]?.data != null);
       } catch { /* unreadable — oldest of all */ }
@@ -128,7 +129,7 @@ function evictOldest(except) {
   const from = pool.length ? pool : all;
   from.sort((a, b) => a[1] - b[1]);
   for (const [k] of from.slice(0, pool.length ? Math.max(1, Math.ceil(pool.length / 4)) : 1)) {
-    try { localStorage.removeItem(k); } catch { /* keep going */ }
+    try { secureStorage.removeItem(k); } catch { /* keep going */ }
   }
   return true;
 }
@@ -137,7 +138,7 @@ function writeRecord(path, rec) {
   const key = keyFor(path);
   const value = JSON.stringify(rec);
   for (let attempt = 0; attempt < 3; attempt += 1) {
-    try { localStorage.setItem(key, value); return true; } catch {
+    try { secureStorage.setItem(key, value); return true; } catch {
       if (!evictOldest(key)) return false;
     }
   }
@@ -229,8 +230,8 @@ export function saveAiFacet(file, kind, { data, engine = '', stamp = null } = {}
     if (legacy?.facets?.[kind]) {
       delete legacy.facets[kind];
       try {
-        if (Object.keys(legacy.facets).length) localStorage.setItem(keyFor(path), JSON.stringify(legacy));
-        else localStorage.removeItem(keyFor(path));
+        if (Object.keys(legacy.facets).length) secureStorage.setItem(keyFor(path), JSON.stringify(legacy));
+        else secureStorage.removeItem(keyFor(path));
       } catch { /* the index copy wins on read anyway */ }
     }
     announce(path);
@@ -248,8 +249,8 @@ export function clearAiFacet(path, kind) {
   if (rec?.facets?.[kind]) {
     delete rec.facets[kind];
     try {
-      if (Object.keys(rec.facets).length) localStorage.setItem(keyFor(path), JSON.stringify(rec));
-      else localStorage.removeItem(keyFor(path));
+      if (Object.keys(rec.facets).length) secureStorage.setItem(keyFor(path), JSON.stringify(rec));
+      else secureStorage.removeItem(keyFor(path));
       had = true;
     } catch { /* keep what we could */ }
   }
@@ -271,9 +272,7 @@ export function listAiData({ paths = null, projectId = null } = {}) {
     byPath.set(normPath(rec.path), rec);
   };
   try {
-    for (let i = 0; i < localStorage.length; i += 1) {
-      const k = localStorage.key(i);
-      if (!k || !k.startsWith(PREFIX)) continue;
+    for (const k of secureKeys(PREFIX)) {
       take(readLegacyRecord(k.slice(PREFIX.length)));
     }
   } catch { /* storage unavailable */ }
@@ -329,16 +328,21 @@ export function hasExtractedText(path) {
 // unsubscribe.
 export function subscribeAiData(fn) {
   const onLocal = (e) => fn(e.detail?.path || '');
-  const onStorage = (e) => { if (e.key && e.key.startsWith(PREFIX)) fn(e.key.slice(PREFIX.length)); };
+  // Another window's write (or this window's store landing at sign-in):
+  // `key: null` means everything may have changed.
+  const offSecure = subscribeSecureStore(({ key, source }) => {
+    if (source === 'local') return;                  // this window announces its own
+    if (key == null) fn('');
+    else if (key.startsWith(PREFIX)) fn(key.slice(PREFIX.length));
+  });
   window.addEventListener(CHANGE_EVENT, onLocal);
-  window.addEventListener('storage', onStorage);
   const offIndex = subscribeIndex((ev) => {
     if (ev.type !== 'knowledge' || !ev.path) return;
     if (ev.kind === '*' || AI_KINDS.has(ev.kind)) fn(ev.path);
   });
   return () => {
     window.removeEventListener(CHANGE_EVENT, onLocal);
-    window.removeEventListener('storage', onStorage);
+    offSecure();
     offIndex();
   };
 }

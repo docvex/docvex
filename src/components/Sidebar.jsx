@@ -1390,7 +1390,7 @@ function useChatFold(store, { openKey, setEvent, listedEvent, flag }) {
   const toggle = () => {
     setOpen((v) => {
       const next = !v;
-      try { localStorage.setItem(openKey, next ? '1' : '0'); } catch { /* ignore */ }
+      try { localStorage.setItem(openKey, next ? '1' : '0'); } catch { /* ignore */ } // secure-store-ok: a fold's open state (openKey is a UI key)
       return next;
     });
   };
@@ -1445,7 +1445,7 @@ function useChatFold(store, { openKey, setEvent, listedEvent, flag }) {
     const onSet = (e) => {
       const next = !!e.detail?.open;
       setOpen(next);
-      try { localStorage.setItem(openKey, next ? '1' : '0'); } catch { /* ignore */ }
+      try { localStorage.setItem(openKey, next ? '1' : '0'); } catch { /* ignore */ } // secure-store-ok: a fold's open state (openKey is a UI key)
     };
     window.addEventListener(setEvent, onSet);
     return () => window.removeEventListener(setEvent, onSet);

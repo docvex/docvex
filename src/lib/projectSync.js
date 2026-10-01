@@ -23,10 +23,34 @@
 //
 // WHICH COPY WINS: the newer one, by modified time. A proper three-way merge
 // needs a common base, and the one thing a device can honestly record is what IT
-// last had synced — kept per device in localStorage (`ledgerKey`), which is what
+// last had synced — kept per device in the encrypted store (`ledgerKey`), which is what
 // tells a file deleted here apart from a file added there.
+//
+// END-TO-END (migration 046, lib/e2e/syncCrypto): nothing in the bucket is
+// readable by the server. Every file is encrypted before upload under a
+// random per-file key (wrapped by the project key), in parts sealed one by
+// one, and stored under a RANDOM object id. The manifest — the only place the
+// paths, sizes and times and the file keys live — is sealed with the project
+// key and SIGNED with the writer's Ed25519 identity key; a device verifies the
+// signature against the signer's published key before reading it, and
+// refuses one older (by `seq`) than the last it saw. The path-hash `key`
+// below is now only the manifest's internal map key (and the ledger's) — it
+// never reaches the server outside the encrypted manifest.
+//
+// Upgrading: a plaintext manifest from before is read ONCE on a device that
+// has never seen an encrypted one, and rewritten encrypted by that sync;
+// afterwards that device refuses a plaintext manifest. Plaintext objects of
+// the old shape (`<project>/<hash>` / `.p<i>`) are re-uploaded encrypted by
+// the next sync on a device that holds the file, then deleted.
 import { supabase } from './supabaseClient';
 import { localFolderApi, readLocalBlob } from './localFolder';
+import { projectKeyRing } from './projectFolderKey';
+import { secureStorage, whenSecureStoreReady } from './secureStore';
+import { getIdentity, publicKeysOf } from './e2e/identity';
+import {
+  newFileEntry, fileKeyOf, objectNamesOf, encryptFilePart, decryptFilePart,
+  sealManifest, openManifest, isEncryptedManifest,
+} from './e2e/syncCrypto';
 import { syncProjectData, removeProjectData } from './projectSyncData';
 import { currentAppVersion, compareVersions, isKnownVersion } from './appVersion';
 import { ipc, hydrateProject } from './projectIndexClient';
@@ -70,7 +94,32 @@ async function keyFor(relPath) {
   return hex.slice(0, 40);
 }
 
-export async function readManifest(projectId) {
+// ── What this device has seen of the manifest ─────────────────────────────
+// `e2e`: it has read or written an ENCRYPTED manifest for this project — from
+// then on a plaintext one is refused (the server writing one would otherwise
+// be a way to feed this device files). `seq`: the highest sequence number
+// seen — an older manifest is refused (the server serving back a past state).
+const seenKey = (projectId) => `docvex:sync:e2e-seen:${projectId}`;
+function readSeen(projectId) {
+  try { const j = JSON.parse(localStorage.getItem(seenKey(projectId)) || 'null'); return j && typeof j === 'object' ? j : { e2e: false, seq: 0 }; } catch { return { e2e: false, seq: 0 }; }
+}
+function writeSeen(projectId, seen) {
+  try { localStorage.setItem(seenKey(projectId), JSON.stringify(seen)); } catch { /* full or blocked */ }
+}
+
+async function signerKeyOf(userId) {
+  const m = await publicKeysOf([userId]);
+  return m.get(userId)?.ed25519 || null;
+}
+async function isMemberOf(projectId, userId) {
+  const { data, error } = await supabase.from('project_members').select('user_id')
+    .eq('project_id', projectId).eq('user_id', userId).maybeSingle();
+  return !error && !!data;
+}
+
+// → { manifest, error, missingBucket?, legacy?, ring? }. `legacy: true` = a
+// plaintext manifest from before end-to-end encryption, to be rewritten.
+export async function readManifest(projectId, { ring = null } = {}) {
   if (!projectId) return { manifest: null, error: new Error('No project') };
   const { data, error } = await bucket().download(`${projectId}/${MANIFEST_NAME}`);
   if (error) {
@@ -79,24 +128,59 @@ export async function readManifest(projectId) {
     if (notFound(error)) return { manifest: null, error: null };
     return { manifest: null, error };
   }
+  let parsed;
   try {
-    const parsed = JSON.parse(await data.text());
+    parsed = JSON.parse(await data.text());
     if (!parsed || typeof parsed !== 'object') throw new Error('bad manifest');
-    return { manifest: { ...emptyManifest(projectId), ...parsed, files: parsed.files || {}, folders: parsed.folders || {} }, error: null };
+  } catch (err) {
+    return { manifest: null, error: err };
+  }
+  const seen = readSeen(projectId);
+  if (!isEncryptedManifest(parsed)) {
+    if (seen.e2e) {
+      return { manifest: null, error: Object.assign(new Error('The synced copy in the account is not signed — it was not written by DocVex. Sync stopped.'), { code: 'manifest_unsigned' }) };
+    }
+    return {
+      manifest: { ...emptyManifest(projectId), ...parsed, files: parsed.files || {}, folders: parsed.folders || {}, seq: 0 },
+      error: null,
+      legacy: true,
+    };
+  }
+  const r = ring || await projectKeyRing(projectId);
+  if (!r) return { manifest: null, error: Object.assign(new Error('The project key isn’t on this device yet — a project admin needs to open the project to grant it.'), { code: 'no_key' }) };
+  try {
+    const opened = await openManifest(r, projectId, parsed, {
+      signerKeyOf,
+      isMember: (uid) => isMemberOf(projectId, uid),
+    });
+    if (opened.seq < (Number(seen.seq) || 0)) {
+      return { manifest: null, error: Object.assign(new Error('The account handed back an OLDER copy of this project than this device has already seen. Sync stopped.'), { code: 'manifest_rollback' }) };
+    }
+    writeSeen(projectId, { e2e: true, seq: Math.max(opened.seq, Number(seen.seq) || 0) });
+    const m = opened.manifest;
+    return {
+      manifest: { ...emptyManifest(projectId), ...m, files: m.files || {}, folders: m.folders || {}, seq: opened.seq },
+      error: null,
+      signerLeft: opened.signerLeft,
+      ring: r,
+    };
   } catch (err) {
     return { manifest: null, error: err };
   }
 }
 
-async function writeManifest(projectId, manifest) {
-  const body = new Blob([JSON.stringify({ ...manifest, projectId, at: new Date().toISOString() }, null, 2)], {
-    type: 'application/json',
-  });
+async function writeManifest(projectId, manifest, { ring, identity }) {
+  const seen = readSeen(projectId);
+  const seq = Math.max(Number(manifest.seq) || 0, Number(seen.seq) || 0) + 1;
+  const { seq: _drop, ...rest } = manifest;
+  const doc = await sealManifest(ring, identity, projectId, { ...rest, projectId, at: new Date().toISOString() }, seq);
+  const body = new Blob([JSON.stringify(doc)], { type: 'application/json' });
   const { error } = await bucket().upload(`${projectId}/${MANIFEST_NAME}`, body, {
     upsert: true,
     contentType: 'application/json',
   });
-  return { error };
+  if (!error) writeSeen(projectId, { e2e: true, seq });
+  return { error, seq };
 }
 
 // Which of the account's projects have a copy in it. ONE call: the bucket's top
@@ -124,9 +208,10 @@ export async function listSyncedProjectIds() {
 // NEW copy, and a ledger from the old one must not be read as "this device had
 // these files" — it would make every file here look deleted elsewhere.
 const ledgerKey = (projectId) => `docvex:sync:ledger:${projectId}`;
+// Kept in the ENCRYPTED store (lib/secureStore) — it lists the synced paths.
 function readLedger(projectId) {
   try {
-    const raw = localStorage.getItem(ledgerKey(projectId));
+    const raw = secureStorage.getItem(ledgerKey(projectId));
     const parsed = raw ? JSON.parse(raw) : null;
     if (!parsed || typeof parsed !== 'object') return { gen: null, files: {}, folders: {} };
     // Before generations: a plain { [key]: 1 } map. It still says what was
@@ -137,10 +222,10 @@ function readLedger(projectId) {
   } catch { return { gen: null, files: {}, folders: {} }; }
 }
 function writeLedger(projectId, ledger) {
-  try { localStorage.setItem(ledgerKey(projectId), JSON.stringify(ledger)); } catch { /* full or blocked */ }
+  try { secureStorage.setItem(ledgerKey(projectId), JSON.stringify(ledger)); } catch { /* full or blocked */ }
 }
 export function forgetLedger(projectId) {
-  try { localStorage.removeItem(ledgerKey(projectId)); } catch { /* ignore */ }
+  try { secureStorage.removeItem(ledgerKey(projectId)); } catch { /* ignore */ }
 }
 // The ledger that applies to `manifest` — empty when it belongs to another copy.
 function ledgerFor(projectId, manifest) {
@@ -274,43 +359,60 @@ export function planSync({ manifest, entries, dirs = [], ledger }) {
   return { push, pull, dropRemote, dropLocal, skipped, folders };
 }
 
-// ── Big files travel in parts ───────────────────────────────────────────────
-// The bucket takes at most 50 MB per object, so a bigger file is stored as
-// numbered parts (`<key>.p0`, `<key>.p1` …) and the manifest records how many.
-const PART_BYTES = 45 * 1024 * 1024;
-const objectsOf = (projectId, entry) => (entry?.parts
-  ? Array.from({ length: entry.parts }, (_, i) => `${projectId}/${entry.key}.p${i}`)
-  : [`${projectId}/${entry.key}`]);
+// ── Files travel encrypted, in parts ───────────────────────────────────────
+// An ENCRYPTED entry (`enc: 1`, lib/e2e/syncCrypto) is `parts` objects named
+// `<project>/<random obj id>.<i>`. A LEGACY entry (before 046) is the plain
+// file at `<project>/<key>`, or `<key>.p0…` for a big one.
+const isEncEntry = (entry) => entry?.enc === 1 && typeof entry.obj === 'string';
+const objectsOf = (projectId, entry) => {
+  if (isEncEntry(entry)) return objectNamesOf(projectId, entry);
+  return entry?.parts
+    ? Array.from({ length: entry.parts }, (_, i) => `${projectId}/${entry.key}.p${i}`)
+    : [`${projectId}/${entry.key}`];
+};
 
-async function uploadFile(projectId, key, blob) {
-  const type = blob.type || 'application/octet-stream';
-  if (blob.size <= PART_BYTES) {
-    const { error } = await bucket().upload(`${projectId}/${key}`, blob, { upsert: true, contentType: type });
-    if (error) throw error;
-    return { parts: 0 };
-  }
-  const parts = Math.ceil(blob.size / PART_BYTES);
-  for (let i = 0; i < parts; i += 1) {
-    const { error } = await bucket().upload(`${projectId}/${key}.p${i}`, blob.slice(i * PART_BYTES, (i + 1) * PART_BYTES), {
-      upsert: true,
+// Encrypt and upload a file. → the manifest's crypto fields for it.
+async function uploadFile(projectId, ring, blob) {
+  const { entry, fileKey } = await newFileEntry(ring, projectId, blob.size);
+  const read = async (a, b) => new Uint8Array(await blob.slice(a, b).arrayBuffer());
+  for (let i = 0; i < entry.parts; i += 1) {
+    const ct = await encryptFilePart(fileKey, projectId, entry, i, read, blob.size);
+    const { error } = await bucket().upload(`${objectNamesOf(projectId, entry)[i]}`, new Blob([ct], { type: 'application/octet-stream' }), {
+      upsert: false,
       contentType: 'application/octet-stream',
     });
-    if (error) throw error;
+    if (error) {
+      // Nothing points at what went up so far — take it back.
+      await bucket().remove(objectNamesOf(projectId, entry).slice(0, i)).catch(() => {});
+      throw error;
+    }
   }
-  return { parts };
+  return entry;
 }
 
-async function downloadFile(projectId, entry) {
-  if (!entry.parts) {
-    const { data, error } = await bucket().download(`${projectId}/${entry.key}`);
-    if (error) throw error;
-    return data;
+async function downloadFile(projectId, ring, entry) {
+  if (!isEncEntry(entry)) {
+    // A legacy plaintext object (re-uploaded encrypted by a later sync).
+    if (!entry.parts) {
+      const { data, error } = await bucket().download(`${projectId}/${entry.key}`);
+      if (error) throw error;
+      return data;
+    }
+    const chunks = [];
+    for (const name of objectsOf(projectId, entry)) {
+      const { data, error } = await bucket().download(name);
+      if (error) throw error;
+      chunks.push(data);
+    }
+    return new Blob(chunks);
   }
+  const fileKey = await fileKeyOf(ring, projectId, entry);
   const chunks = [];
-  for (const name of objectsOf(projectId, entry)) {
-    const { data, error } = await bucket().download(name);
+  const names = objectNamesOf(projectId, entry);
+  for (let i = 0; i < names.length; i += 1) {
+    const { data, error } = await bucket().download(names[i]);
     if (error) throw error;
-    chunks.push(data);
+    chunks.push(await decryptFilePart(fileKey, projectId, entry, i, new Uint8Array(await data.arrayBuffer())));
   }
   return new Blob(chunks);
 }
@@ -323,9 +425,21 @@ export async function syncProject({ projectId, dir, onProgress = () => {}, enabl
   if (!dir) return { ok: false, error: 'This project has no folder on this device yet.' };
 
   onProgress({ phase: 'reading', done: 0, total: 0 });
-  const { manifest: existing, error: mErr, missingBucket } = await readManifest(projectId);
+  // The ledger lives in the encrypted store, which hydrates after sign-in; an
+  // empty ledger read too early would make deletions here look like files to
+  // pull back.
+  const storeReady = await Promise.race([whenSecureStoreReady(), new Promise((r) => setTimeout(() => r(false), 10000))]);
+  if (!storeReady) return { ok: false, error: 'This device’s encrypted store isn’t ready yet — try again in a moment.' };
+  // Encryption first: without the project key and this user's identity (to
+  // sign the manifest) nothing is read or written.
+  const identity = await getIdentity();
+  if (!identity) return { ok: false, error: 'This device has no encryption keys yet — set them up (or restore them) in Account → Encryption keys.', code: 'no_identity' };
+  const ring = await projectKeyRing(projectId);
+  if (!ring) return { ok: false, error: 'The project key isn’t on this device yet — a project admin needs to open the project to grant it.', code: 'no_key' };
+  if (ring.behind) return { ok: false, error: 'The project key was renewed and this device hasn’t been given the new one yet — a project admin needs to open the project.', code: 'no_key' };
+  const { manifest: existing, error: mErr, missingBucket, legacy: legacyManifest } = await readManifest(projectId, { ring });
   if (missingBucket) return { ok: false, error: 'Account sync isn’t set up on this Supabase project yet — apply migration 035.' };
-  if (mErr) return { ok: false, error: mErr.message || String(mErr) };
+  if (mErr) return { ok: false, error: mErr.message || String(mErr), code: mErr.code || null };
   if (!existing && !enable) return { ok: false, error: 'This project isn’t synced with your account.' };
 
   // An older app than the one that last synced the project keeps its hands off.
@@ -346,9 +460,20 @@ export async function syncProject({ projectId, dir, onProgress = () => {}, enabl
   const { entries, dirs, error: lErr } = await readLocalTree(dir);
   if (lErr) return { ok: false, error: lErr.message };
 
-  const { push, pull, dropRemote, dropLocal, skipped, folders: fplan } = planSync({ manifest, entries, dirs, ledger });
+  const plan = planSync({ manifest, entries, dirs, ledger });
+  const { pull, dropRemote, dropLocal, skipped, folders: fplan } = plan;
+  // Files still stored in the account IN CLEAR (before 046) that this device
+  // holds unchanged are re-uploaded encrypted now; their old objects go once
+  // the new manifest is written.
+  const pushKeys = new Set(plan.push.map((e) => e.key));
+  const reencrypt = entries.filter((e) => !pushKeys.has(e.key) && manifest.files[e.key]
+    && !isEncEntry(manifest.files[e.key]) && e.size <= MAX_SYNC_FILE_BYTES
+    && !pull.some((r) => r.key === e.key) && !dropLocal.some((d) => d.key === e.key));
+  const push = [...plan.push, ...reencrypt];
   const files = { ...manifest.files };
   const failed = [];
+  // Objects to delete once the manifest no longer points at them.
+  const garbage = [];
 
   // ── up ──
   let done = 0;
@@ -358,14 +483,9 @@ export async function syncProject({ projectId, dir, onProgress = () => {}, enabl
     try {
       const blob = await readLocalBlob(e.path);
       const prev = files[e.key];
-      const { parts } = await uploadFile(projectId, e.key, blob);
-      // A file that shrank below (or grew past) the part size leaves objects
-      // of its old shape behind — clear them.
-      if (prev && (prev.parts || 0) !== parts) {
-        const stale = objectsOf(projectId, { ...prev, key: e.key }).filter((n) => !objectsOf(projectId, { key: e.key, parts }).includes(n));
-        if (stale.length) await bucket().remove(stale);
-      }
-      files[e.key] = { path: e.relPath, size: e.size, mtime: e.mtime, ...(parts ? { parts } : {}) };
+      const enc = await uploadFile(projectId, ring, blob);
+      if (prev) garbage.push(...objectsOf(projectId, { ...prev, key: e.key }));
+      files[e.key] = { path: e.relPath, size: e.size, mtime: e.mtime, ...enc };
       pushed += 1;
     } catch (err) {
       failed.push({ path: e.relPath, error: err?.message || String(err) });
@@ -379,7 +499,7 @@ export async function syncProject({ projectId, dir, onProgress = () => {}, enabl
   for (const r of pull) {
     onProgress({ phase: 'down', done, total: pull.length, name: r.path });
     try {
-      const blob = await downloadFile(projectId, r);
+      const blob = await downloadFile(projectId, ring, r);
       const { results, error } = await localFolderApi.writeTree({ dir, files: [{ relPath: r.path, blob, mtime: r.mtime || null }] });
       const res = results?.[0];
       if (error || !res?.ok) throw new Error(error || res?.error || 'write failed');
@@ -394,9 +514,12 @@ export async function syncProject({ projectId, dir, onProgress = () => {}, enabl
   const removedPaths = [];
   if (dropRemote.length) {
     onProgress({ phase: 'cleaning', done: 0, total: dropRemote.length });
-    const { error } = await bucket().remove(dropRemote.flatMap((r) => objectsOf(projectId, r)));
-    if (error) failed.push({ path: '(removing deleted files)', error: error.message });
-    else for (const r of dropRemote) { delete files[r.key]; removedPaths.push(r.path); }
+    // Out of the manifest now; the objects go once the new manifest is written.
+    for (const r of dropRemote) {
+      garbage.push(...objectsOf(projectId, r));
+      delete files[r.key];
+      removedPaths.push(r.path);
+    }
   }
   // Deleted on another device: into this device's Trash, never straight off
   // the disk — the Files tab's bin can still bring it back for 30 days.
@@ -446,8 +569,21 @@ export async function syncProject({ projectId, dir, onProgress = () => {}, enabl
     folders: remoteFolders,
     by: (await supabase.auth.getSession()).data.session?.user?.id || manifest.by,
   };
-  const { error: wErr } = await writeManifest(projectId, next);
-  if (wErr) return { ok: false, error: wErr.message || String(wErr) };
+  let wErr;
+  try { ({ error: wErr } = await writeManifest(projectId, next, { ring, identity })); } catch (err) { wErr = err; }
+  if (wErr) {
+    // The manifest still points at the old objects; the new ones are orphans.
+    const fresh = Object.entries(files).filter(([k, f]) => f !== manifest.files[k] && isEncEntry(f))
+      .flatMap(([k, f]) => objectsOf(projectId, { ...f, key: k }));
+    if (fresh.length) await bucket().remove(fresh).catch(() => {});
+    return { ok: false, error: wErr.message || String(wErr) };
+  }
+  // What the old manifest pointed at and the new one doesn't: replaced
+  // versions, and the plaintext objects of files now stored encrypted.
+  if (garbage.length) {
+    const { error: gErr } = await bucket().remove([...new Set(garbage)]);
+    if (gErr) failed.push({ path: '(removing replaced copies)', error: gErr.message });
+  }
   rememberVersion(projectId, next.appVersion);
 
   // This device now holds exactly what the manifest lists — recorded with each
@@ -492,6 +628,8 @@ export async function syncProject({ projectId, dir, onProgress = () => {}, enabl
     failed,
     data,
     manifest: next,
+    reencrypted: reencrypt.length,
+    upgradedManifest: !!legacyManifest,
   };
 }
 
@@ -547,15 +685,24 @@ export const enableSync = (args) => syncProject({ ...args, enable: true });
 // Switching it OFF removes the account's copy — the files on this machine are
 // untouched, which is the whole point of saying so in the confirm.
 export async function disableSync(projectId) {
-  const { manifest, error, missingBucket } = await readManifest(projectId);
-  if (missingBucket) return { ok: true, error: null };            // nothing was ever there
-  if (error) return { ok: false, error: error.message || String(error) };
-  const keys = Object.entries(manifest?.files || {}).flatMap(([key, f]) => objectsOf(projectId, { ...f, key }));
+  // Everything in the project's folder goes, whatever it is: the objects are
+  // named at random and the list of them lives in the ENCRYPTED manifest, so a
+  // device without the key (or a manifest that can't be read) still clears
+  // the account's copy fully.
+  const { error: lErr0 } = await bucket().list(projectId, { limit: 1 });
+  if (lErr0) {
+    if (bucketMissing(lErr0)) return { ok: true, error: null };   // nothing was ever there
+    return { ok: false, error: lErr0.message || String(lErr0) };
+  }
   // The manifest goes last: while it is there, the project still reads as
-  // synced, so a failure part way through leaves a state the next sync can fix
-  // rather than orphaned objects nothing knows about.
-  if (keys.length) {
-    const { error: rErr } = await bucket().remove(keys);
+  // synced, so a failure part way through leaves a state the next sync can fix.
+  const keep = new Set([MANIFEST_NAME]);
+  for (let round = 0; round < 1000; round += 1) {
+    const { data, error: lErr } = await bucket().list(projectId, { limit: 1000 });
+    if (lErr) return { ok: false, error: lErr.message };
+    const names = (data || []).filter((o) => o?.name && o.id && !keep.has(o.name)).map((o) => `${projectId}/${o.name}`);
+    if (!names.length) break;
+    const { error: rErr } = await bucket().remove(names);
     if (rErr) return { ok: false, error: rErr.message };
   }
   const { error: dErr } = await removeProjectData(projectId);
@@ -564,6 +711,7 @@ export async function disableSync(projectId) {
   if (mErr) return { ok: false, error: mErr.message };
   forgetLedger(projectId);
   rememberVersion(projectId, null);
+  try { localStorage.removeItem(seenKey(projectId)); } catch { /* ignore */ }
   return { ok: true, error: null };
 }
 
@@ -573,7 +721,9 @@ export async function disableSync(projectId) {
 export async function syncStatus({ projectId, dir }) {
   const { manifest, error, missingBucket } = await readManifest(projectId);
   if (missingBucket) return { enabled: false, missingBucket: true, error: null };
-  if (error) return { enabled: false, error: error.message || String(error) };
+  // A copy exists but can't be read here (no key yet / unverified): it IS
+  // synced — say why nothing more can be shown.
+  if (error) return { enabled: error.code ? true : false, error: error.message || String(error), code: error.code || null };
   if (!manifest) return { enabled: false, error: null };
   const remoteFiles = Object.values(manifest.files || {});
   const base = {

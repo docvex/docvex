@@ -76,6 +76,18 @@
 }
 .pum-route-title { margin: 4px 0 0; font-size: 15.2px; font-weight: 650; }
 .pum-route-sub { margin: 0; font-size: 12.4px; color: var(--text-muted); }
+/* The Local network route's warning — the Design system's CALLOUT: a hairline
+   box on the page ground, no fill, a warning dot before the text. */
+.pum-route-warn {
+  position: relative;
+  margin: 0; padding: 7px 10px 7px 24px;
+  border: 1px solid var(--ds-hairline, var(--border)); border-radius: var(--ds-row-radius, 8px);
+  font-size: 12px; line-height: 1.45; color: var(--text-secondary);
+}
+.pum-route-warn::before {
+  content: ''; position: absolute; left: 10px; top: 13px;
+  width: 6px; height: 6px; border-radius: 50%; background: var(--warning);
+}
 
 .pum-qr {
   width: 196px; height: 196px;

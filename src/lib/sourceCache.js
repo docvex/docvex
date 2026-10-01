@@ -10,12 +10,13 @@
 // `{ [key]: { at, data } }`, the oldest entries evicted past ~2.5 MB of text.
 // Keys are the tab's own ("q:<search>", "f:<court>:<number>", "c:<cui>").
 
+import { secureStorage } from './secureStore';
 const CAP = 2_500_000;
 const EVENT = 'docvex:source-cache';
 const storeKey = (tab) => `docvex:source-cache:${tab}:v1`;
 
 function load(tab) {
-  try { return JSON.parse(localStorage.getItem(storeKey(tab)) || '{}') || {}; } catch { return {}; }
+  try { return JSON.parse(secureStorage.getItem(storeKey(tab)) || '{}') || {}; } catch { return {}; }
 }
 
 function save(tab, map) {
@@ -31,7 +32,7 @@ function save(tab, map) {
     }
   }
   for (let tries = 0; tries < 4; tries++) {
-    try { localStorage.setItem(storeKey(tab), text); break; } catch {
+    try { secureStorage.setItem(storeKey(tab), text); break; } catch {
       // Storage full: give back a quarter and try again.
       entries.sort((a, b) => (b[1].at || 0) - (a[1].at || 0));
       entries = entries.slice(0, Math.max(0, Math.floor(entries.length * 0.75)));
@@ -69,14 +70,14 @@ export function cacheList(tab, prefix = '') {
 /** What the copy holds: `{ count, bytes }` — `count` of the entries under `prefix`. */
 export function cacheStats(tab, prefix = '') {
   let raw = '';
-  try { raw = localStorage.getItem(storeKey(tab)) || ''; } catch { /* storage refused */ }
+  try { raw = secureStorage.getItem(storeKey(tab)) || ''; } catch { /* storage refused */ }
   let map = {};
   try { map = JSON.parse(raw || '{}') || {}; } catch { /* unreadable */ }
   return { count: Object.keys(map).filter((k) => k.startsWith(prefix)).length, bytes: raw.length * 2 };
 }
 
 export function cacheClear(tab) {
-  try { localStorage.removeItem(storeKey(tab)); } catch { /* storage refused */ }
+  try { secureStorage.removeItem(storeKey(tab)); } catch { /* storage refused */ }
   try { window.dispatchEvent(new CustomEvent(EVENT, { detail: { tab } })); } catch { /* no window */ }
 }
 

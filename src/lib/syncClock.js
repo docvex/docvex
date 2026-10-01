@@ -11,17 +11,22 @@
 // (an AI chat deleted): without them the other device's copy would bring the
 // deleted item straight back on the next sync.
 
+import { storageFor } from './secureStore';
+
+// The clock and the tombstones are keyed by store keys that carry file paths,
+// so they live in the ENCRYPTED store (lib/secureStore) with the data they
+// date; `setIfChanged` / `removeAndTouch` write each key where it belongs.
 const CLOCK_KEY = 'docvex:sync:clock:v1';
 const GONE_PREFIX = 'docvex:sync:gone:v1:';
 
 function readJson(key) {
   try {
-    const parsed = JSON.parse(localStorage.getItem(key) || 'null');
+    const parsed = JSON.parse(storageFor(key).getItem(key) || 'null');
     return parsed && typeof parsed === 'object' ? parsed : {};
   } catch { return {}; }
 }
 function writeJson(key, value) {
-  try { localStorage.setItem(key, JSON.stringify(value)); } catch { /* full or blocked */ }
+  try { storageFor(key).setItem(key, JSON.stringify(value)); } catch { /* full or blocked */ }
 }
 
 export function touch(key, at = Date.now()) {
@@ -44,12 +49,13 @@ export function touchedUnder(prefix) {
   return out;
 }
 
-// Write `value` (a string) to localStorage and touch its clock — only when it
+// Write `value` (a string) to its store and touch its clock — only when it
 // differs from what is stored. Returns whether it was written.
 export function setIfChanged(key, value) {
   try {
-    if (localStorage.getItem(key) === value) return false;
-    localStorage.setItem(key, value);
+    const store = storageFor(key);
+    if (store.getItem(key) === value) return false;
+    store.setItem(key, value);
   } catch { return false; }
   touch(key);
   return true;
@@ -58,8 +64,9 @@ export function setIfChanged(key, value) {
 // Remove `key` and touch its clock, so the removal itself travels.
 export function removeAndTouch(key) {
   try {
-    if (localStorage.getItem(key) == null) return false;
-    localStorage.removeItem(key);
+    const store = storageFor(key);
+    if (store.getItem(key) == null) return false;
+    store.removeItem(key);
   } catch { return false; }
   touch(key);
   return true;

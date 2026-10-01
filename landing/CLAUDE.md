@@ -93,7 +93,10 @@ router):
 - `chrome.css` — styles for that chrome. `legal.css` / `legal.js` — shared
   frame for the legal document pages.
 - `supabase.js` — **standalone Supabase client** (`@supabase/supabase-js` from
-  `esm.sh`, no bundler). **Same project as the app** (`pntxlvhkqfryyyxlqytr`),
+  the self-hosted `vendor/supabase-js.js` — an esbuild bundle, so no request
+  goes to a CDN; `fonts/fonts.css` self-hosts the typefaces likewise — never
+  add a Google Fonts or CDN link back: it sends every visitor's IP to a third
+  party before consent). **Same project as the app** (`pntxlvhkqfryyyxlqytr`),
   PKCE, `detectSessionInUrl: true`, default `sb-<ref>-auth-token` storage key —
   so an account created on the site is the **same account** used in the app,
   and the session is shared when both are served from the same origin. The anon

@@ -149,7 +149,7 @@ function useCountdown(expiresAt) {
   return Math.max(0, Math.ceil((new Date(expiresAt).getTime() - now) / 60000));
 }
 
-function RouteCard({ tag, title, sub, points, state, onRenew, kept, onNewAddress }) {
+function RouteCard({ tag, title, sub, points, state, onRenew, kept, onNewAddress, warning }) {
   const mins = useCountdown(kept ? null : state.expiresAt);
   const expired = mins === 0;
   return (
@@ -170,6 +170,7 @@ function RouteCard({ tag, title, sub, points, state, onRenew, kept, onNewAddress
           <h3 className="pum-route-title">{title}</h3>
           <p className="pum-route-sub">{sub}</p>
         </header>
+      {warning && <p className="pum-route-warn" role="note">{warning}</p>}
       {!state.loading && !state.error && state.url && !expired && (
         <div className="pum-route-meta">
           {mins != null && <span className="pum-expiry">Valid for {mins} min</span>}
@@ -198,9 +199,13 @@ function RouteCard({ tag, title, sub, points, state, onRenew, kept, onNewAddress
 export default function PhoneUploadModal({ open, onClose, dir, folderLabel, projectId, projectName, onPickFromComputer, onReject }) {
   const { session } = useAuth();
   const userId = session?.user?.id || '';
-  const [local, setLocal] = useState({ loading: true });
+  const [local, setLocal] = useState({ idle: true });
   const [cloud, setCloud] = useState({ idle: true });
-  const [useCloud, setUseCloud] = useState(false);   // which QR code is shown
+  // Which QR code is shown — DocVex cloud by default: it is encrypted end to
+  // end over https, where the Wi-Fi page is plain http (its files are
+  // encrypted too, but someone who can tamper with the network could serve
+  // the phone a different page).
+  const [useCloud, setUseCloud] = useState(true);
   const [arrivals, setArrivals] = useState([]);   // { key, route, name, size, received, state, error }
   const localTokenRef = useRef(null);
   const cloudRef = useRef({ sessionId: null, stop: null });
@@ -250,8 +255,9 @@ export default function PhoneUploadModal({ open, onClose, dir, folderLabel, proj
       if (ev.type === 'start') upsert(key, { route: 'cloud', name: ev.name, size: ev.size, received: 0, state: 'taking' });
       else if (ev.type === 'held') upsertHeld(key, { route: 'cloud', name: ev.name, size: ev.size, received: ev.size, state: 'held', heldId: ev.heldId, path: ev.path, live: !!ev.live });
       else if (ev.type === 'live') setArrivals((list) => list.map((x) => (x.heldId === ev.heldId ? { ...x, live: true } : x)));
+      else if (ev.error === 'not_decrypted' || ev.error === 'not_encrypted') upsert(key, { state: 'error', error: ev.error === 'not_decrypted' ? 'Couldn’t be decrypted — deleted' : 'Not encrypted — deleted' });
       else upsert(key, { state: 'error', error: 'Couldn’t save it — retrying' });
-    }, userId);
+    }, userId, { key: res.key, token: res.token, keyAt: res.keyAt });
     cloudRef.current = { sessionId: res.sessionId, stop };
     setCloud({ url: res.url, expiresAt: res.expiresAt });
   }, [dir, projectId, projectName, upsert, upsertHeld, userId]);
@@ -266,9 +272,10 @@ export default function PhoneUploadModal({ open, onClose, dir, folderLabel, proj
       name: p.name, size: p.size, received: p.size, state: 'held', heldId: p.id, path: p.path, live: !!p.live,
     })));
     setIncomingQuiet(true);
-    setUseCloud(false);
-    startLocal();
-    setCloud({ idle: true });
+    // Only the route on show is started; the other when it is picked.
+    setUseCloud(true);
+    setLocal({ idle: true });
+    startCloud();
     // The portal lives ONLY while this window is open: closing it ends the
     // Wi-Fi session (the server stops once nothing uses it), and the phone's
     // page says the upload was closed. The address itself is kept
@@ -417,7 +424,12 @@ export default function PhoneUploadModal({ open, onClose, dir, folderLabel, proj
           <RuleOptions
             field={ROUTE_FIELD}
             value={useCloud ? 'cloud' : 'local'}
-            onPick={(id) => { const on = id === 'cloud'; setUseCloud(on); if (on && cloud.idle) startCloud(); }}
+            onPick={(id) => {
+              const on = id === 'cloud';
+              setUseCloud(on);
+              if (on && cloud.idle) startCloud();
+              if (!on && local.idle) startLocal();
+            }}
           />
         </div>
         <div className="pum-routes">
@@ -426,7 +438,7 @@ export default function PhoneUploadModal({ open, onClose, dir, folderLabel, proj
               tag="Any connection"
               title="DocVex cloud"
               sub="Works on mobile data or another network."
-              points={['Files pass through DocVex’s cloud and are deleted there as soon as they’re on this computer.', 'Up to 50 MB a file.', 'Works only while this window is open — closing it closes the page on the phone.']}
+              points={['Files are encrypted on the phone — DocVex’s cloud only ever holds them encrypted, and deletes them as soon as they’re on this computer.', 'Up to 50 MB a file.', 'Works only while this window is open — closing it closes the page on the phone.']}
               state={cloud}
               onRenew={() => startCloud()}
               kept
@@ -437,6 +449,7 @@ export default function PhoneUploadModal({ open, onClose, dir, folderLabel, proj
               tag="Same Wi-Fi"
               title="Local network"
               sub="Straight from the phone to this computer."
+              warning="Same Wi-Fi: files are encrypted, but anyone who can tamper with this network could interfere. Prefer DocVex cloud on shared or guest networks."
               points={['The phone must be on the same Wi-Fi as this computer.', 'Files never leave your network.', 'Works only while this window is open — closing it closes the page on the phone.']}
               state={local}
               onRenew={() => startLocal()}

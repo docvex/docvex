@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en" data-theme="ink">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Newsletter — DocVex</title>
+<link rel="icon" href="favicon.ico">
+<link href="fonts/fonts.css" rel="stylesheet">
+<link rel="stylesheet" href="chrome.css">
+<link rel="stylesheet" href="legal.css">
+<script>(function(){var d=document.documentElement,t='ink';try{t=localStorage.getItem('docvex.site.theme')||'ink';}catch(e){}d.setAttribute('data-theme',t);d.style.backgroundColor=t==='cream'?'#F5F2EA':'#0F172A';})();</script>
+</head>
+<body>
+  <div class="lg-shell">
+    <a class="lg-back" href="index.html">&larr; DocVex</a>
+    <header class="lg-head">
+      <p class="lg-eyebrow">DocVex — Newsletter</p>
+      <h1 class="lg-title" id="nlTitle">One moment…</h1>
+      <p class="lg-lead" id="nlText"></p>
+    </header>
+  </div>
+<script type="module">
+import { supabase } from './supabase.js';
+const q = new URLSearchParams(location.search);
+const title = document.getElementById('nlTitle');
+const text = document.getElementById('nlText');
+const say = (t, l) => { title.textContent = t; text.textContent = l; };
+const confirm = q.get('confirm');
+const unsub = q.get('unsubscribe');
+// Drop the token from the address bar (and so from history) once read.
+if (confirm || unsub) history.replaceState(null, '', location.pathname);
+if (!confirm && !unsub) {
+  say('Newsletter', 'Use the link in the email we sent you to confirm or cancel your subscription.');
+} else {
+  const { data, error } = await supabase.functions.invoke('newsletter', {
+    body: confirm ? { action: 'confirm', token: confirm } : { action: 'unsubscribe', token: unsub },
+  });
+  const err = error ? (await error.context?.json?.().catch(() => null))?.error : null;
+  if (unsub) {
+    say(!error ? 'You are unsubscribed.' : 'Something went wrong.',
+      !error ? 'Your address has been deleted from the newsletter list. Nothing more will be sent to it.'
+             : 'Try the link again later, or write to docvexteam@docvex.ro and we will remove you by hand.');
+  } else if (!error && data?.ok) {
+    say('Subscription confirmed.', 'Thank you — the weekly legal briefing will reach you. Every email has a link to unsubscribe.');
+  } else if (err === 'expired') {
+    say('This link has expired.', 'Confirmation links are valid for 7 days. Sign up again from the form at the foot of docvex.ro.');
+  } else {
+    say('This link is not valid.', 'It may already have been used, or the request was deleted. Sign up again from the form at the foot of docvex.ro.');
+  }
+}
+</script>
+<script type="module" src="chrome.js"></script>
+</body>
+</html>

@@ -9,7 +9,7 @@ import React, {
 } from 'react';
 import { useParams } from 'react-router-dom';
 import { supabase } from '../lib/supabaseClient';
-import { getProject, listMembers } from '../lib/projects';
+import { decryptProjectRow, getProject, listMembers } from '../lib/projects';
 import { listCustomRoles, subscribeForProjectRoles } from '../lib/customRoles';
 import { markProjectAccessed } from '../lib/recentProjects';
 import { useAuth } from './AuthContext';
@@ -224,7 +224,10 @@ export function ProjectProvider({ children }) {
             setProject(null);
             setError(new Error('Project was deleted'));
           } else if (payload.new) {
-            setProject((prev) => (prev ? { ...prev, ...payload.new } : payload.new));
+            // Names, descriptions and AI context arrive encrypted (lib/e2e).
+            decryptProjectRow(payload.new).then((row) => {
+              setProject((prev) => (prev ? { ...prev, ...row } : row));
+            }).catch(() => {});
           }
         },
       )
