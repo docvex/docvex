@@ -19,7 +19,8 @@ import { setLanguage, DEFAULT_LANGUAGE } from '../lib/i18n';
 //   - reduceMotion→ `data-reduce-motion` on <html> + a global CSS kill switch
 //   - thumbnails  → FileThumbnail renders the type glyph instead of a poster
 //   - fileView    → the Files workspace's initial grid/list view
-//   - language    → the interface language (lib/i18n; 'ro' default). The
+//   - language    → the interface language (lib/i18n): 'ro' (default), 'en'
+//                   or 'system' (the OS language, Romanian or else English). The
 //                   interface only — documents are written in the language
 //                   of the request.
 //

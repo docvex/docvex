@@ -355,6 +355,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   // Updates
   getAppVersion: () => ipcRenderer.invoke('app:get-version'),
+  // The interface language (lib/i18n), so main's dialogs and menus follow it.
+  setUiLanguage: (lang) => ipcRenderer.send('app:set-language', lang),
   isPackaged: () => ipcRenderer.invoke('app:is-packaged'),
   // { platform, arch } of the running build — lets the renderer pick the
   // correct release asset for the manual-download update fallback on

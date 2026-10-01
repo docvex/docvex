@@ -28,6 +28,9 @@ import RO from './i18n/ro.json';
 export const LANGUAGES = [
   { id: 'ro', label: 'Română' },
   { id: 'en', label: 'English' },
+  // Follows the operating system's language: Romanian when it is Romanian,
+  // English for anything else.
+  { id: 'system', label: 'System' },
 ];
 export const DEFAULT_LANGUAGE = 'ro';
 
@@ -48,6 +51,7 @@ const SKIP = [
 const ATTRS = ['placeholder', 'title', 'aria-label', 'alt', 'data-hint'];
 
 let lang = 'en';
+let pref = null;      // what was asked for: 'ro' | 'en' | 'system'
 let exact = null;     // Map: English → translation
 let patterns = [];    // [{ re, out }] from strings holding {0}, {1}…
 let observer = null;
@@ -190,16 +194,32 @@ function onMutations(list) {
   }
 }
 
-/** Switch the interface language (idempotent). */
+/** The OS language as one the app has: 'ro' or 'en'. Chromium's locale is
+ *  the operating system's display language in Electron. */
+export function systemLanguage() {
+  const list = (typeof navigator !== 'undefined' && (navigator.languages?.length ? navigator.languages : [navigator.language])) || [];
+  return /^ro\b/i.test(String(list[0] || '')) ? 'ro' : 'en';
+}
+
+function resolve(p) {
+  if (p === 'system') return systemLanguage();
+  return DICTS[p] || p === 'en' ? p : DEFAULT_LANGUAGE;
+}
+
+/** Switch the interface language (idempotent). `next` is the preference:
+ *  'ro', 'en' or 'system'. */
 export function setLanguage(next) {
-  const want = DICTS[next] || next === 'en' ? next : DEFAULT_LANGUAGE;
+  pref = next === 'system' || next === 'en' || DICTS[next] ? next : DEFAULT_LANGUAGE;
+  try { localStorage.setItem('docvex.uiLanguage', pref); } catch { /* private mode */ }
+  const want = resolve(pref);
   if (typeof document === 'undefined') { lang = want; return; }
   document.documentElement.setAttribute('lang', want);
+  // Main draws a few native dialogs and menus of its own — tell it.
+  try { window.electronAPI?.setUiLanguage?.(want); } catch { /* web / old preload */ }
   if (want === lang && (want === 'en' || observer)) return;
   if (observer) { observer.disconnect(); observer = null; }
   if (lang !== 'en') restore(document.documentElement);
   lang = want;
-  try { localStorage.setItem('docvex.uiLanguage', want); } catch { /* private mode */ }
   if (want === 'en') return;
   compile(DICTS[want]);
   walk(document.body);
@@ -217,7 +237,9 @@ export function bootLanguage() {
 }
 
 // Another window (a Doc Viewer, a tab window) switched language: follow it.
+// On "System", follow the OS when its language changes.
 if (typeof window !== 'undefined') {
+  window.addEventListener('languagechange', () => { if (pref === 'system') setLanguage('system'); });
   window.addEventListener('storage', (e) => {
     if (e.key === 'docvex.uiLanguage' && e.newValue) setLanguage(e.newValue);
   });

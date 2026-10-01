@@ -708,7 +708,7 @@ function wireDevtoolsShortcuts(win) {
   wc.on('context-menu', (_event, params) => {
     const menu = Menu.buildFromTemplate([
       {
-        label: 'Inspect element',
+        label: tm('Inspect element'),
         click: () => {
           wc.inspectElement(params.x, params.y);
           if (!wc.isDevToolsOpened()) wc.openDevTools();
@@ -3136,6 +3136,120 @@ ipcMain.on('app:open-docx', (_, payload) => {
 });
 
 // Update IPC ---------------------------------------------------------------
+// ── Interface language for the few words main draws itself ──────────────
+// The windows translate themselves (lib/i18n); what main puts into native
+// dialogs and menus is translated here, following the same setting. The
+// renderer reports it (`app:set-language`) and it is kept in
+// userData/ui-language.json so a dialog shown before any window has loaded
+// is already in the right language. The OS-drawn parts of a dialog (the file
+// picker's own buttons) follow the system language, as everywhere.
+const MAIN_RO = {
+  'Choose download folder': 'Alegeți folderul de descărcare',
+  'Cancel': 'Anulați',
+  'Open anyway': 'Deschideți oricum',
+  'Open a program?': 'Deschideți un program?',
+  '"{0}" can run a program on this computer.': '„{0}” poate rula un program pe acest computer.',
+  'Only open it if you trust where it came from. Files from a phone, a teammate or an e-mail can be harmful.':
+    'Deschideți-l doar dacă aveți încredere în proveniența lui. Fișierele de pe un telefon, de la un coleg sau dintr-un e-mail pot fi dăunătoare.',
+  'Open DocVex': 'Deschideți DocVex',
+  'Extract text': 'Extrageți text',
+  'Quit DocVex': 'Închideți DocVex',
+  'Inspect element': 'Inspectați elementul',
+  'About DocVex': 'Despre DocVex',
+  'Services': 'Servicii',
+  'Hide DocVex': 'Ascundeți DocVex',
+  'Hide Others': 'Ascundeți celelalte',
+  'Show All': 'Afișați tot',
+  'Edit': 'Editare',
+  'Undo': 'Anulați acțiunea',
+  'Redo': 'Refaceți',
+  'Cut': 'Decupați',
+  'Copy': 'Copiați',
+  'Paste': 'Lipiți',
+  'Paste and Match Style': 'Lipiți și potriviți stilul',
+  'Delete': 'Ștergeți',
+  'Select All': 'Selectați tot',
+  'View': 'Vizualizare',
+  'Toggle Full Screen': 'Ecran complet',
+  'Toggle Developer Tools': 'Instrumente pentru dezvoltatori',
+  'Window': 'Fereastră',
+  'Minimize': 'Minimizați',
+  'Zoom': 'Zoom',
+  'Bring All to Front': 'Aduceți toate în față',
+};
+let uiLang = null;
+function uiLangFile() { return path.join(app.getPath('userData'), 'ui-language.json'); }
+function currentUiLang() {
+  if (uiLang) return uiLang;
+  try { uiLang = JSON.parse(fs.readFileSync(uiLangFile(), 'utf8')).lang === 'en' ? 'en' : 'ro'; } catch { uiLang = 'ro'; }
+  return uiLang;
+}
+function tm(text, ...args) {
+  const out = currentUiLang() === 'ro' ? (MAIN_RO[text] || text) : text;
+  return out.replace(/\{(\d+)\}/g, (_, n) => String(args[Number(n)] ?? ''));
+}
+ipcMain.on('app:set-language', (_e, lang) => {
+  const next = lang === 'en' ? 'en' : 'ro';
+  if (next === currentUiLang()) return;
+  uiLang = next;
+  try { fs.writeFileSync(uiLangFile(), JSON.stringify({ lang: next })); } catch { /* read-only profile — kept in memory */ }
+  if (process.platform === 'darwin' && app.isReady()) installMacMenu();
+});
+
+// The macOS menu bar, in the interface language. Each role item is given its
+// label, since Electron fills role menus in English; the roles keep the
+// standard shortcuts working. Rebuilt when the language is switched.
+function installMacMenu() {
+  const sep = { type: 'separator' };
+  Menu.setApplicationMenu(Menu.buildFromTemplate([
+    {
+      label: app.name,
+      submenu: [
+        { role: 'about', label: tm('About DocVex') },
+        sep,
+        { role: 'services', label: tm('Services') },
+        sep,
+        { role: 'hide', label: tm('Hide DocVex') },
+        { role: 'hideOthers', label: tm('Hide Others') },
+        { role: 'unhide', label: tm('Show All') },
+        sep,
+        { role: 'quit', label: tm('Quit DocVex') },
+      ],
+    },
+    {
+      label: tm('Edit'),
+      submenu: [
+        { role: 'undo', label: tm('Undo') },
+        { role: 'redo', label: tm('Redo') },
+        sep,
+        { role: 'cut', label: tm('Cut') },
+        { role: 'copy', label: tm('Copy') },
+        { role: 'paste', label: tm('Paste') },
+        { role: 'pasteAndMatchStyle', label: tm('Paste and Match Style') },
+        { role: 'delete', label: tm('Delete') },
+        { role: 'selectAll', label: tm('Select All') },
+      ],
+    },
+    {
+      label: tm('View'),
+      submenu: [
+        { role: 'togglefullscreen', label: tm('Toggle Full Screen') },
+        ...(DEVTOOLS_ALLOWED ? [sep, { role: 'toggleDevTools', label: tm('Toggle Developer Tools') }] : []),
+      ],
+    },
+    {
+      role: 'windowMenu',
+      label: tm('Window'),
+      submenu: [
+        { role: 'minimize', label: tm('Minimize') },
+        { role: 'zoom', label: tm('Zoom') },
+        sep,
+        { role: 'front', label: tm('Bring All to Front') },
+      ],
+    },
+  ]));
+}
+
 ipcMain.handle('app:get-version', () => app.getVersion());
 ipcMain.handle('app:is-packaged', () => app.isPackaged);
 // OS + CPU arch for the running build. The renderer uses this to pick the
@@ -3447,7 +3561,7 @@ ipcMain.handle('local-folder:pick', async () => {
   if (!mainWindow || mainWindow.isDestroyed()) return null;
   const result = await dialog.showOpenDialog(mainWindow, {
     properties: ['openDirectory', 'createDirectory'],
-    title: 'Choose download folder',
+    title: tm('Choose download folder'),
   });
   if (result.canceled) return null;
   const picked = result.filePaths?.[0] || null;
@@ -4342,12 +4456,12 @@ ipcMain.handle('local-folder:open-path', async (e, targetPath) => {
     const owner = BrowserWindow.fromWebContents(e.sender) || mainWindow;
     const { response } = await dialog.showMessageBox(owner, {
       type: 'warning',
-      buttons: ['Cancel', 'Open anyway'],
+      buttons: [tm('Cancel'), tm('Open anyway')],
       defaultId: 0,
       cancelId: 0,
-      title: 'Open a program?',
-      message: `"${path.basename(targetPath)}" can run a program on this computer.`,
-      detail: 'Only open it if you trust where it came from. Files from a phone, a teammate or an e-mail can be harmful.',
+      title: tm('Open a program?'),
+      message: tm('"{0}" can run a program on this computer.', path.basename(targetPath)),
+      detail: tm('Only open it if you trust where it came from. Files from a phone, a teammate or an e-mail can be harmful.'),
     });
     if (response !== 1) return 'Cancelled';
   }
@@ -5425,24 +5539,7 @@ app.whenReady().then(() => {
   //    a null menu they silently break, so we install the standard roles. There
   //    is no File menu — the app is windowless-document by design.
   if (process.platform === 'darwin') {
-    Menu.setApplicationMenu(Menu.buildFromTemplate([
-      {
-        role: 'appMenu', // DocVex › About / Hide / Quit
-      },
-      {
-        role: 'editMenu', // Undo / Redo / Cut / Copy / Paste / Select All
-      },
-      {
-        label: 'View',
-        submenu: [
-          { role: 'togglefullscreen' },
-          ...(DEVTOOLS_ALLOWED ? [{ type: 'separator' }, { role: 'toggleDevTools' }] : []),
-        ],
-      },
-      {
-        role: 'windowMenu', // Minimize / Zoom / Close
-      },
-    ]));
+    installMacMenu();
   } else {
     Menu.setApplicationMenu(null);
   }
@@ -5497,10 +5594,10 @@ app.whenReady().then(() => {
         // Custom window unavailable — fall back to a native menu with the
         // essentials so the tray still works.
         appTray.popUpContextMenu(Menu.buildFromTemplate([
-          { label: 'Open DocVex', click: () => showMainWindow() },
-          { label: 'Extract text', click: () => { try { openSnipPanel(); } catch { /* non-fatal */ } } },
+          { label: tm('Open DocVex'), click: () => showMainWindow() },
+          { label: tm('Extract text'), click: () => { try { openSnipPanel(); } catch { /* non-fatal */ } } },
           { type: 'separator' },
-          { label: 'Quit DocVex', click: () => app.quit() },
+          { label: tm('Quit DocVex'), click: () => app.quit() },
         ]));
       }
     };
