@@ -15,6 +15,7 @@ import './styles/designSystem.css';
 import './styles/perf.css';
 import { initDesignSystem } from './lib/designSystem';
 import { initPerf } from './lib/perf';
+import { setLanguage, bootLanguage } from './lib/i18n';
 
 // The design system's overrides (Settings → System → Design system) go on
 // <html> before anything renders, so the first frame already follows them.
@@ -22,6 +23,9 @@ initDesignSystem();
 // The graphics preset (Settings → Optimization) likewise: data-perf on <html>
 // before the first frame, so a Low machine never paints the heavy look first.
 initPerf();
+// Interface language (lib/i18n) — started before the first render so no
+// English frame flashes; AppPrefsProvider then applies the user's own choice.
+setLanguage(bootLanguage());
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import { MemoryRouter } from 'react-router-dom';

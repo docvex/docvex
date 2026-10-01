@@ -1400,9 +1400,13 @@ export function templatePrompt(template) {
 export function customPrompt(text) {
   const wanted = String(text || '').trim();
   if (!wanted) return '';
+  // The rule below is written in Romanian; without the line before it a
+  // request typed in English could come back in Romanian. The document's
+  // language is the REQUEST's — never the interface's (lib/i18n).
   return [
     wanted,
     '',
+    'Write the document in the language this request is written in.',
     PLACEHOLDER_RULE_RO,
   ].join('\n');
 }

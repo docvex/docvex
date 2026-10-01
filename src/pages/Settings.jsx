@@ -10,6 +10,7 @@ import TokenUsagePill from '../components/TokenUsagePill';
 import FpsMeter from '../components/FpsMeter';
 import { PERF_PRESETS, PERF_FEATURES, PERF_LEVELS, setPerfPreset, detectPerf, perfAllows } from '../lib/perf';
 import { usePerfPreset, usePerfLevel } from '../lib/usePerf';
+import { LANGUAGES } from '../lib/i18n';
 import './Settings.css';
 
 // App Settings tab (Claude Design handoff "app settings tab", Direction A —
@@ -91,11 +92,8 @@ const DEMO_FILES = [
 ];
 
 const I18N = {
-  en: { name: 'English',  title: 'Files',    sub: '6 files · 2 folders',     neu: 'New',     col: ['Name', 'Modified', 'Size'] },
   ro: { name: 'Română',   title: 'Fișiere',  sub: '6 fișiere · 2 foldere',   neu: 'Nou',     col: ['Nume', 'Modificat', 'Mărime'] },
-  es: { name: 'Español',  title: 'Archivos', sub: '6 archivos · 2 carpetas', neu: 'Nuevo',   col: ['Nombre', 'Modificado', 'Tamaño'] },
-  de: { name: 'Deutsch',  title: 'Dateien',  sub: '6 Dateien · 2 Ordner',    neu: 'Neu',     col: ['Name', 'Geändert', 'Größe'] },
-  fr: { name: 'Français', title: 'Fichiers', sub: '6 fichiers · 2 dossiers', neu: 'Nouveau', col: ['Nom', 'Modifié', 'Taille'] },
+  en: { name: 'English',  title: 'Files',    sub: '6 files · 2 folders',     neu: 'New',     col: ['Name', 'Modified', 'Size'] },
 };
 
 // Resolve 'system' → concrete theme via OS preference.
@@ -494,9 +492,15 @@ function buildSettings(prefs, set) {
     },
     {
       key: 'language', group: 'Language & region', icon: <GlobeIcon />,
-      title: 'Language', desc: 'Your preferred language for menus and labels. Saved now; full app translation is still rolling out — the preview shows the effect.',
-      Control: () => <Select value={prefs.language} onChange={(v) => set('language', v)}
-        options={Object.entries(I18N).map(([v, o]) => ({ value: v, label: o.name }))} />,
+      title: 'Language', desc: 'The language of menus, buttons and labels. Documents are not affected: the AI writes each document in the language you ask in.',
+      // Each language is named in itself, so the switch is kept out of the
+      // translation (data-no-i18n) — "English" must stay findable in Romanian.
+      Control: () => (
+        <span data-no-i18n="" style={{ display: 'contents' }}>
+          <Segmented value={prefs.language} onChange={(v) => set('language', v)}
+            options={LANGUAGES.map((l) => ({ value: l.id, label: l.label }))} />
+        </span>
+      ),
       Mini: () => <MiniLang prefs={prefs} />,
     },
   ];
