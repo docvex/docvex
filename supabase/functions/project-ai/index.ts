@@ -57,14 +57,9 @@
 //   ANTHROPIC_API_KEY — Claude API key. When unset, both actions return a
 //   200 with { ok:false, error:"ai_not_configured" } so the client can
 //   show a friendly message instead of treating it as a hard failure.
-//   With CLAUDE_PROVIDER=bedrock, Claude is reached through Amazon Bedrock in
-//   an EU region instead (AWS credentials, see ../_shared/claudeTransport.ts);
-//   the `office` action then answers office_unavailable (no code execution
-//   there) and the app builds the file locally.
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { firmDescriptor, jurisdictionPrompt } from "../_shared/jurisdictions.ts";
 import { handleCrossref, handlePassport } from "./fileGraph.ts";
-import { claudeConfigured, claudeHasServerTools, claudeMessages } from "../_shared/claudeTransport.ts";
 
 const corsHeaders: Record<string, string> = {
   "Access-Control-Allow-Origin": "*",
@@ -234,13 +229,21 @@ async function callClaude(opts: {
   maxTokens: number;
   model?: string;
 }): Promise<string> {
-  const resp = await claudeMessages({
-    model: opts.model ?? MODEL,
-    max_tokens: opts.maxTokens,
-    system: [
-      { type: "text", text: opts.system, cache_control: { type: "ephemeral" } },
-    ],
-    messages: opts.messages,
+  const resp = await fetch("https://api.anthropic.com/v1/messages", {
+    method: "POST",
+    headers: {
+      "x-api-key": ANTHROPIC_API_KEY,
+      "anthropic-version": "2023-06-01",
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({
+      model: opts.model ?? MODEL,
+      max_tokens: opts.maxTokens,
+      system: [
+        { type: "text", text: opts.system, cache_control: { type: "ephemeral" } },
+      ],
+      messages: opts.messages,
+    }),
   });
 
   if (!resp.ok) {
@@ -350,7 +353,15 @@ function claudePayload(opts: ClaudeOpts): Record<string, unknown> {
   return payload;
 }
 function anthropicFetch(payload: Record<string, unknown>): Promise<Response> {
-  return claudeMessages(payload);
+  return fetch("https://api.anthropic.com/v1/messages", {
+    method: "POST",
+    headers: {
+      "x-api-key": ANTHROPIC_API_KEY,
+      "anthropic-version": "2023-06-01",
+      "content-type": "application/json",
+    },
+    body: JSON.stringify(payload),
+  });
 }
 async function callClaudeRaw(opts: ClaudeOpts): Promise<Record<string, unknown>> {
   const resp = await anthropicFetch(claudePayload(opts));
@@ -456,7 +467,7 @@ async function handleAsk(body: {
   stream?: boolean;
   warm?: boolean;
 }): Promise<Response> {
-  if (!claudeConfigured()) return jsonResponse({ ok: false, error: "ai_not_configured" });
+  if (!ANTHROPIC_API_KEY) return jsonResponse({ ok: false, error: "ai_not_configured" });
 
   const messages = normalizeMessages(body.messages);
   if (messages.length === 0) return jsonResponse({ ok: false, error: "no_messages" }, 400);
@@ -629,7 +640,7 @@ async function handleSuggest(body: {
   mimeType?: string;
   jurisdiction?: string;
 }): Promise<Response> {
-  if (!claudeConfigured()) return jsonResponse({ ok: false, error: "ai_not_configured" });
+  if (!ANTHROPIC_API_KEY) return jsonResponse({ ok: false, error: "ai_not_configured" });
 
   const fileName = (body.fileName && String(body.fileName).trim()) || "the file";
   const excerpt = body.excerpt ? String(body.excerpt).slice(0, 6000) : "";
@@ -672,7 +683,7 @@ async function handleGenerate(body: {
   fileNames?: unknown;
   jurisdiction?: string;
 }): Promise<Response> {
-  if (!claudeConfigured()) return jsonResponse({ ok: false, error: "ai_not_configured" });
+  if (!ANTHROPIC_API_KEY) return jsonResponse({ ok: false, error: "ai_not_configured" });
 
   const template = (body.template && String(body.template).trim()) || "legal document";
   const instructions = (body.instructions && String(body.instructions).trim()) || "";
@@ -747,10 +758,7 @@ async function handleOffice(body: {
   instructions?: string;
   model?: string;
 }): Promise<Response> {
-  if (!claudeConfigured()) return jsonResponse({ ok: false, error: "ai_not_configured" });
-  // Code execution + Skills + the Files API exist only on Anthropic's own API;
-  // elsewhere (Bedrock) the app builds the file locally, as on any failure here.
-  if (!claudeHasServerTools()) return jsonResponse({ ok: false, error: "office_unavailable", detail: "not available on this Claude provider" });
+  if (!ANTHROPIC_API_KEY) return jsonResponse({ ok: false, error: "ai_not_configured" });
   const kind = String(body.kind ?? "").toLowerCase();
   const skill = OFFICE_SKILLS[kind];
   if (!skill) return jsonResponse({ ok: false, error: "unsupported_kind" }, 400);
@@ -871,9 +879,9 @@ Deno.serve(async (req: Request) => {
     case "office":
       return handleOffice(body);
     case "passport":
-      return handlePassport(body, { pickModel, json: jsonResponse });
+      return handlePassport(body, { apiKey: ANTHROPIC_API_KEY, pickModel, json: jsonResponse });
     case "crossref":
-      return handleCrossref(body, { pickModel, json: jsonResponse });
+      return handleCrossref(body, { apiKey: ANTHROPIC_API_KEY, pickModel, json: jsonResponse });
     default:
       return jsonResponse({ error: "unknown_action" }, 400);
   }
