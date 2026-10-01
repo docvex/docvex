@@ -19,13 +19,19 @@
 //   "ocr"      { image: base64, mediaType }            -> { ok, text }     (exact transcription)
 //        backs the DocViewer's "Extract text" selection tool on photos /
 //        paused video frames; runs on a cheap fast model (DOC_AI_OCR_MODEL).
-// Claude is reached through ../_shared/claudeTransport.ts — Anthropic's API
-// (ANTHROPIC_API_KEY) or, with CLAUDE_PROVIDER=bedrock, Amazon Bedrock in an
-// EU region. Model defaults to claude-opus-4-7 (override via DOC_AI_MODEL /
-// LEGAL_AI_MODEL). There is no audio transcription: it was OpenAI's (Whisper)
-// and OpenAI was removed from the stack.
+//   "transcribe" { audio: base64, mediaType, filename? } -> { ok, text, segments, language }
+//        backs the DocViewer audio player's "Generate captions" button.
+//        Claude has no audio input, so this calls OpenAI's Whisper API
+//        instead (DOC_AI_TRANSCRIBE_MODEL, default "whisper-1"). Requires
+//        the OPENAI_API_KEY secret — independent of ANTHROPIC_API_KEY.
+//        Segments carry no speaker labels; the client separates speakers
+//        with a silence-gap heuristic. (Deepgram diarization was removed:
+//        its standard terms allow training on the audio it receives.)
+//
+// Claude is called over raw REST (x-api-key), same shape as legal-ai —
+// no SDK to bundle. Model defaults to claude-opus-4-7 (override via
+// DOC_AI_MODEL / LEGAL_AI_MODEL). Required secret: ANTHROPIC_API_KEY.
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
-import { claudeConfigured, claudeMessages } from "../_shared/claudeTransport.ts";
 
 const corsHeaders: Record<string, string> = {
   "Access-Control-Allow-Origin": "*",
@@ -43,12 +49,17 @@ function jsonResponse(body: unknown, status = 200): Response {
   });
 }
 
+const ANTHROPIC_API_KEY = Deno.env.get("ANTHROPIC_API_KEY") ?? "";
 const MODEL =
   Deno.env.get("DOC_AI_MODEL") ??
   Deno.env.get("LEGAL_AI_MODEL") ??
   "claude-opus-4-7";
 // OCR is plain transcription — a fast cheap model does it as well as Opus.
 const OCR_MODEL = Deno.env.get("DOC_AI_OCR_MODEL") ?? "claude-haiku-4-5-20251001";
+
+// Audio transcription has no Claude equivalent — backed by OpenAI Whisper.
+const OPENAI_API_KEY = Deno.env.get("OPENAI_API_KEY") ?? "";
+const TRANSCRIBE_MODEL = Deno.env.get("DOC_AI_TRANSCRIBE_MODEL") ?? "whisper-1";
 
 const MAX_DOC_CHARS = 40000;
 const MAX_QUESTION_CHARS = 2000;
@@ -77,7 +88,15 @@ async function callClaude(opts: {
     body.output_config = { format: { type: "json_schema", schema: opts.jsonSchema } };
   }
 
-  const resp = await claudeMessages(body);
+  const resp = await fetch("https://api.anthropic.com/v1/messages", {
+    method: "POST",
+    headers: {
+      "x-api-key": ANTHROPIC_API_KEY,
+      "anthropic-version": "2023-06-01",
+      "content-type": "application/json",
+    },
+    body: JSON.stringify(body),
+  });
 
   if (!resp.ok) {
     const detail = (await resp.text()).slice(0, 400);
@@ -233,6 +252,76 @@ async function handleOcr(body: { image?: string; mediaType?: string }): Promise<
   }
 }
 
+// ── transcribe (audio → text + timed segments via OpenAI Whisper) ────
+// Whisper's raw-file cap is 25 MB; base64 inflates that by ~4/3.
+const MAX_AUDIO_B64 = 35_000_000;
+const AUDIO_EXT_BY_MEDIA_TYPE: Record<string, string> = {
+  "audio/mpeg": "mp3",
+  "audio/mp3": "mp3",
+  "audio/wav": "wav",
+  "audio/x-wav": "wav",
+  "audio/ogg": "ogg",
+  "audio/mp4": "m4a",
+  "audio/aac": "aac",
+  "audio/flac": "flac",
+  "audio/webm": "webm",
+};
+
+function base64ToBytes(b64: string): Uint8Array {
+  const binary = atob(b64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i);
+  return bytes;
+}
+
+async function handleTranscribe(body: { audio?: string; mediaType?: string; filename?: string }): Promise<Response> {
+  if (!OPENAI_API_KEY) return jsonResponse({ ok: false, error: "ai_not_configured" }, 500);
+
+  const audio = String(body.audio ?? "").trim();
+  if (!audio) return jsonResponse({ ok: false, error: "missing_audio" }, 400);
+  if (audio.length > MAX_AUDIO_B64) return jsonResponse({ ok: false, error: "audio_too_large" }, 400);
+
+  const mediaType = String(body.mediaType ?? "audio/mpeg");
+  const ext = AUDIO_EXT_BY_MEDIA_TYPE[mediaType] ?? "mp3";
+  const filename = String(body.filename ?? `audio.${ext}`);
+
+  let bytes: Uint8Array;
+  try {
+    bytes = base64ToBytes(audio);
+  } catch {
+    return jsonResponse({ ok: false, error: "invalid_audio" }, 400);
+  }
+
+  const form = new FormData();
+  form.append("file", new Blob([bytes], { type: mediaType }), filename);
+  form.append("model", TRANSCRIBE_MODEL);
+  form.append("response_format", "verbose_json");
+  form.append("timestamp_granularities[]", "segment");
+
+  try {
+    const resp = await fetch("https://api.openai.com/v1/audio/transcriptions", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${OPENAI_API_KEY}` },
+      body: form,
+    });
+    if (!resp.ok) {
+      const detail = (await resp.text()).slice(0, 400);
+      throw new Error(`openai_${resp.status}: ${detail}`);
+    }
+    const data = await resp.json();
+    const segments = Array.isArray(data?.segments)
+      ? data.segments.map((s: { start?: number; end?: number; text?: string }) => ({
+          start: s.start ?? 0,
+          end: s.end ?? 0,
+          text: (s.text ?? "").trim(),
+        }))
+      : [];
+    return jsonResponse({ ok: true, text: (data?.text ?? "").trim(), segments, language: data?.language ?? null });
+  } catch (err) {
+    return jsonResponse({ ok: false, error: "ai_failed", detail: String((err as Error)?.message ?? err).slice(0, 400) }, 502);
+  }
+}
+
 Deno.serve(async (req: Request) => {
   const pre = preflight(req);
   if (pre) return pre;
@@ -247,7 +336,11 @@ Deno.serve(async (req: Request) => {
 
   const task = String(body.task ?? "");
 
-  if (!claudeConfigured()) return jsonResponse({ ok: false, error: "ai_not_configured" }, 500);
+  // Audio transcription is backed by OpenAI, not Claude — check independently.
+  if (task === "transcribe") {
+    return handleTranscribe(body as { audio?: string; mediaType?: string; filename?: string });
+  }
+  if (!ANTHROPIC_API_KEY) return jsonResponse({ ok: false, error: "ai_not_configured" }, 500);
 
   switch (task) {
     case "ask":
