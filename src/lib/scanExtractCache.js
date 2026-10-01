@@ -1,7 +1,7 @@
 // Per-file cache of what the AI gathered during a timeline scan — extracted
-// document text, OCR/vision readings, saved captions. Re-analyzing the
+// document text, OCR/vision readings, Whisper captions. Re-analyzing the
 // same files (regenerate, steering tweaks, a second session) recalls the
-// stored result instead of re-paying for vision.
+// stored result instead of re-paying for vision/transcription.
 //
 // Keyed by name|size|lastModified — a content-identity proxy that survives
 // re-picking the same file from disk. Only successful extractions are

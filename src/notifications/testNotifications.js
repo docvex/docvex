@@ -23,7 +23,7 @@ const C = NOTIFICATION_CATEGORIES;
 
 // ── Real-file test set ────────────────────────────────────────────────
 // Builds one notification per FILE action (create / import / edit / rename /
-// move / delete / restore / purge / extract / generate / export),
+// move / delete / restore / purge / extract / captions / generate / export),
 // each referencing a real file from the selected project's folder — so the
 // Activity tab's per-file grouping and the toast copy can be previewed with
 // the user's own documents instead of fake names. Every payload carries the
@@ -57,6 +57,7 @@ export function buildFileTestNotifications(files, { projectId = null, projectNam
     (f) => ({ variant: 'success', icon: 'check', title: 'Restored', body: `“${f.name}” is back in your folder.`, payload: act('restore', f) }),
     (f) => ({ variant: 'success', icon: 'trash', title: 'Permanently deleted', body: `“${f.name}” is gone for good.`, payload: act('purge', f) }),
     (f) => ({ variant: 'success', icon: 'sparkles', title: 'Text extracted', body: `New extract from “${f.name}”.`, payload: act('extract-text', f) }),
+    (f) => ({ variant: 'success', icon: 'sparkles', title: 'Captions generated', body: `AI transcript created for “${f.name}”.`, payload: act('captions', f) }),
     (f) => ({ variant: 'success', icon: 'sparkles', title: 'Document generated', body: `“${f.name}” was written by the AI advisor.`, payload: act('generate-doc', f) }),
     (f) => ({ variant: 'success', icon: 'file', title: 'PDF exported', body: `“${f.name}” exported next to the original.`, payload: act('export-pdf', f) }),
   ];

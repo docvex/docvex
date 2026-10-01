@@ -21,10 +21,11 @@ import { docxContentKey, getDocxRender, putDocxRender } from '../lib/docxRenderC
 import { toLayoutPx, createWheelZoom, zoomFactorOf, ZOOM_SETTLE_MS } from '../lib/appZoom';
 import { recognizeCanvas, OCR_MAX_EDGE } from '../lib/ocr';
 import { loadOcrHistory, saveOcrHistory } from '../lib/extractionHistory';
-import { loadCaptions, saveCaptions } from '../lib/captionsHistory';
+import { loadCaptions, saveCaptions, clearCaptions } from '../lib/captionsHistory';
 import { useNotify } from '../context/NotificationsContext';
 import { loadEnvelope, saveEnvelope } from '../lib/audioEnvelopeCache';
 import { loadCaptionSettings, saveCaptionSettings } from '../lib/captionPosition';
+import { transcribeAudio } from '../lib/transcribe';
 import DataCollectionView from '../components/DataCollectionView';
 import { askProjectAi, makeAskAnswers } from '../lib/projectAi';
 import { useAppPrefs } from '../context/AppPrefsContext';
@@ -7055,9 +7056,9 @@ function MediaOcrPane({ file, url, kind, sidePanelSlot = null, sideTabsSlot = nu
   useEffect(() => () => clearTimeout(controlsTimerRef.current), []);
 
   // ── Live AI captions (video) ─────────────────────────────────────
-  // Mirror the saved transcript (pushed up from the side CaptionsPanel when it
-  // is edited, and seeded from the per-file cache) so the line at the current
-  // time can show as a subtitle over the decibel line. null until captions exist.
+  // Mirror the generated transcript (pushed up from the side CaptionsPanel and
+  // seeded from the per-file cache) so the line at the current time can show as
+  // a subtitle over the decibel line. null until captions exist.
   const [captions, setCaptions] = useState(() => captionsFromCache(file.storage_path));
   // The initial state already read it: re-read only for ANOTHER file (a whole
   // transcript was parsed twice on every open, with an extra render).
@@ -8419,14 +8420,14 @@ function CaptionEditor({ value, onChange, ariaLabel, onCommit, onCancel }) {
   );
 }
 
-// Shared captions transcript panel — used by the audio player aside AND the
-// video pane's "AI captions" tab. Shows (and lets the user edit) the captions
-// already saved for the file — nothing is transcribed any more; `currentTime` /
-// `onSeek` come from whichever media element is playing.
+// Shared AI-captions transcript panel — used by the audio player aside AND the
+// video pane's "AI captions" tab. Owns its own transcription state + per-file
+// cache; `currentTime`/`onSeek` come from whichever media element is playing.
 // Renders the `.dv-ocr-history-*` chrome (same as the OCR "Extracted text"
 // panel). `onCaptionsChange` (optional) lets a parent mirror the transcript —
 // the audio pane uses it to drive its now-playing karaoke lyrics.
 function CaptionsPanel({ file, url, currentTime, onSeek, onCaptionsChange }) {
+  const { notify } = useNotify();
   const [captions, setCaptions] = useState(() => captionsFromCache(file.storage_path));
   const [copied, setCopied] = useState(false);
   // Index of the caption currently being edited inline (null = none) — each
@@ -8448,6 +8449,39 @@ function CaptionsPanel({ file, url, currentTime, onSeek, onCaptionsChange }) {
   // Mirror the transcript out to any parent that wants it (audio-pane lyrics).
   useEffect(() => { onCaptionsChange?.(captions); }, [captions, onCaptionsChange]);
 
+  const generate = useCallback(async () => {
+    setCaptions({ state: 'working' });
+    try {
+      const result = await transcribeAudio(url, file.mime_type, file.name);
+      const createdAt = Date.now();
+      // Keep the untouched AI transcript alongside — "Revert to original"
+      // restores it after manual edits.
+      const original = { text: result.text, segments: result.segments };
+      // Cache the transcript per file so reopening it never re-spends tokens.
+      saveCaptions(file.storage_path, {
+        text: result.text, segments: result.segments, language: result.language, createdAt, original,
+      });
+      setCaptions({ state: 'done', text: result.text, segments: result.segments, language: result.language, createdAt, original });
+      notify({
+        category: 'file',
+        variant: 'success',
+        icon: 'sparkles',
+        title: 'Captions generated',
+        body: `AI transcript created for “${file.name}”.`,
+        silent: true,
+        payload: { activity: { action: 'captions', fileName: file.name, filePath: file.storage_path } },
+      });
+    } catch (e) {
+      setCaptions({ state: 'error', message: String(e?.message || e) });
+    }
+  }, [url, file.mime_type, file.name, file.storage_path, notify]);
+
+  const regenerate = useCallback(() => {
+    clearCaptions(file.storage_path);
+    setCopied(false);
+    generate();
+  }, [file.storage_path, generate]);
+
   const copyTranscript = async () => {
     if (captions?.state !== 'done') return;
     try {
@@ -8457,9 +8491,10 @@ function CaptionsPanel({ file, url, currentTime, onSeek, onCaptionsChange }) {
     } catch { /* clipboard unavailable */ }
   };
 
-  // ── Manual edits (correct the saved transcription) ──────────────────
-  // Persist on every change so an edit survives reopening the file. The
-  // onCaptionsChange effect mirrors edits to the now-playing lyrics.
+  // ── Manual edits (correct the AI's transcription) ───────────────────
+  // Persist on every change so an edit survives reopening the file, just like a
+  // freshly generated transcript. The onCaptionsChange effect mirrors edits to
+  // the now-playing lyrics.
   // Saving is DEBOUNCED: typing in a caption used to write the whole
   // transcript (twice over, with its original) on every keystroke, and each
   // write woke every listener of the file's data. The pending save is flushed
@@ -8534,7 +8569,7 @@ function CaptionsPanel({ file, url, currentTime, onSeek, onCaptionsChange }) {
               ? (captions.segments.length > 0
                   ? <><strong>{captions.segments.length}</strong> {captions.segments.length === 1 ? 'line' : 'lines'}{captions.language ? ` · ${captions.language}` : ''}</>
                   : 'Transcript ready')
-              : 'No captions'}
+              : 'Not generated yet'}
           </span>
           {isEdited && (
             <button type="button" className="dv-ocr-history-clear" onClick={revertToOriginal}>
@@ -8544,7 +8579,21 @@ function CaptionsPanel({ file, url, currentTime, onSeek, onCaptionsChange }) {
         </div>
 
       {!captions ? (
-        <p className="dv-ocr-history-empty">No captions for this file.</p>
+        <div className="dv-audio-captions-empty">
+          <p className="dv-ocr-history-empty">
+            Transcribe the audio in this file with AI — use <strong>Generate captions</strong> in the footer below. The result is saved to this file, so reopening it won’t spend tokens again.
+          </p>
+        </div>
+      ) : captions.state === 'working' ? (
+        <div className="dv-audio-captions-status">
+          <span className="dv-audio-captions-spinner" />
+          Transcribing…
+        </div>
+      ) : captions.state === 'error' ? (
+        <div className="dv-audio-captions-status is-error">
+          <span>{captions.message}</span>
+          <button type="button" className="dv-chip" onClick={generate}>Try again</button>
+        </div>
       ) : captions.segments.length > 0 ? (
         <div className="dv-ocr-history-list" ref={listRef}>
           {captions.segments.map((seg, i) => (
@@ -8633,6 +8682,20 @@ function CaptionsPanel({ file, url, currentTime, onSeek, onCaptionsChange }) {
         <p className="dv-ocr-history-empty">{captions.text || 'No speech detected in this file.'}</p>
       )}
     </div>
+    {/* "Generate captions" lives in the shared Multitool footer. */}
+    <MultitoolFooter>
+      <div className="dv-doc-extract-bar">
+        <button
+          type="button"
+          className="dv-doc-extract-btn"
+          onClick={captions?.state === 'done' ? regenerate : generate}
+          disabled={captions?.state === 'working'}
+        >
+          {CaptionsGlyph}
+          <span>{captions?.state === 'working' ? 'Transcribing…' : captions?.state === 'done' ? 'Regenerate captions' : 'Generate captions'}</span>
+        </button>
+      </div>
+    </MultitoolFooter>
     </>
   );
 }
@@ -17937,7 +18000,7 @@ export default function DocViewer() {
   // tab strip (Text extraction / AI captions / AI advisor).
   const [sideTabsSlot, setSideTabsSlot] = useState(null);
   // Single Multitool footer slot — the active tab portals its primary action
-  // (Extract text / advisor composer) here.
+  // (Extract text / Generate captions / advisor composer) here.
   const [footSlot, setFootSlot] = useState(null);
   // The Quick actions card — its own card ABOVE the side panel. A pane portals
   // its actions in (Word, a PDF, a picture); a pane with none gets the whole
@@ -18728,7 +18791,7 @@ export default function DocViewer() {
             >
               <div className="dv-advisor-slot" ref={setSidePanelSlot} />
               {/* Single footer shared across all Multitool tabs — each active
-                  tab portals its action (Extract text /
+                  tab portals its action (Extract text / Generate captions /
                   advisor composer) into this slot. */}
               <div className="dv-advisor-footerslot" ref={setFootSlot} />
             </aside>

@@ -751,10 +751,10 @@ body.dv-ocr-resizing .dv-advisor-resize::after { background: var(--accent); }
 .dv-files-footer:not(.is-selected) .fx-bottombar { display: none; }
 
 /* The single Multitool footer slot — each active tab portals its primary action
-   (Extract text / advisor composer) in here. */
+   (Extract text / Generate captions / advisor composer) in here. */
 .dv-advisor-footerslot { flex: none; min-width: 0; }
 .dv-advisor-footerslot:empty { display: none; }
-/* The Extract-text button bar reads as a footer here (top
+/* The Extract-text / Generate-captions button bar reads as a footer here (top
    border + sidebar fill), matching the advisor composer footer. */
 .dv-advisor-footerslot .dv-doc-extract-bar {
   /* No padding — the button IS the whole footer (fills it edge-to-edge). */
@@ -764,7 +764,7 @@ body.dv-ocr-resizing .dv-advisor-resize::after { background: var(--accent); }
 }
 /* In the footer the action button has no chrome of its own: no background,
    border or radius — it's a flat full-bleed bar that fills the entire footer.
-   (Applies to "Extract text".) */
+   (Applies to both "Extract text" and "Generate captions".) */
 .dv-advisor-footerslot .dv-doc-extract-btn {
   width: 100%;
   padding: 11.2px;
@@ -5452,7 +5452,9 @@ body.dv-advisor-sb-dragging .dv-advisor-sb-thumb {
 
 /* Captions side panel — reuses the OCR "Extracted text" panel chrome
    (.dv-ocr-history*); these are the audio-specific additions. */
+.dv-audio-captions-empty { display: flex; flex-direction: column; align-items: flex-start; gap: 9.6px; padding: 4.8px 11.2px 12.8px; }
 .dv-audio-captions-acts { display: flex; align-items: center; gap: 11.2px; }
+.dv-audio-captions-aside .dv-audio-captions-status { padding: 11.2px; }
 /* AI captions transcript row — a muted timestamp on the left, caption text to
    its right, the active (now-playing) line highlighted with a soft rounded
    fill. No vertical rail / node (the timeline line lives in the content pane's
@@ -5558,6 +5560,17 @@ body.dv-advisor-sb-dragging .dv-advisor-sb-thumb {
 .dv-caption-edit::placeholder { color: var(--text-muted); }
 
 .dv-audio-captions-btn svg { width: 12.8px; height: 12.8px; }
+.dv-audio-captions-status {
+  display: flex; align-items: center; gap: 6.4px; width: 100%;
+  font-size: 10px; color: var(--text-muted);
+}
+.dv-audio-captions-status.is-error { color: var(--danger-text); justify-content: space-between; }
+.dv-audio-captions-spinner {
+  flex: none; width: 11.2px; height: 11.2px; border-radius: 50%;
+  border: 1.6px solid var(--accent-soft); border-top-color: var(--accent);
+  animation: dv-audio-captions-spin 0.8s linear infinite;
+}
+@keyframes dv-audio-captions-spin { to { transform: rotate(360deg); } }
 
 .dv-audio-captions-panel { width: 100%; display: flex; flex-direction: column; gap: 6.4px; }
 .dv-audio-captions-head {

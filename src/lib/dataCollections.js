@@ -10,9 +10,9 @@
 // HOW EACH KIND IS READ (nothing is read twice — every step reuses what is
 // already saved about the file):
 //   picture  → Extract text (lib/textRegions, the `text` facet)
-//   audio    → the captions already saved for it (lib/captionsHistory);
-//   video      nothing is transcribed, and the pictures of a video are never
-//              looked at — a recording with no saved captions is skipped
+//   audio    → Generate captions (lib/transcribe, cached in lib/captionsHistory)
+//   video    → Generate captions ONLY: the audio track is transcribed, the
+//              pictures of the video are never looked at
 //   anything else → its text (lib/identityExtract readSourceText: the text
 //              layer, Office extraction, or OCR for a scan)
 //
@@ -33,7 +33,8 @@ import { askProjectAi, crossrefPassports, passportFiles } from './projectAi';
 import { clearAiFacet, getAiFacet, saveAiFacet, stampFor } from './aiData';
 import { extractImageText } from './textRegions';
 import { readSourceText } from './identityExtract';
-import { loadCaptions } from './captionsHistory';
+import { loadCaptions, saveCaptions } from './captionsHistory';
+import { transcribeAudio } from './transcribe';
 import { notifyFilesChanged } from './platform';
 import { isScanTagged } from './scanTags';
 import { DEFAULT_SCAN_FEATURES } from './scanFeatures';
@@ -50,6 +51,8 @@ import { analyzeLegalHistory, compactLegalHistory, legalHistoryNote } from './le
 export const COLLECTION_EXT = 'dvc';
 export const COLLECTION_TYPE = 'docvex/data-collection';
 const MODEL = 'claude-sonnet-4-6';
+const MAX_VIDEO_BYTES = 300 * 1024 * 1024;
+const MAX_AUDIO_BYTES = 25 * 1024 * 1024;
 
 export function isCollectionFile(name) {
   return /\.dvc$/i.test(String(name || '').trim());
@@ -58,6 +61,7 @@ export function isCollectionFile(name) {
 const IMAGE_EXT = ['png', 'jpg', 'jpeg', 'gif', 'webp', 'bmp', 'tif', 'tiff', 'heic', 'avif'];
 const VIDEO_EXT = ['mp4', 'mov', 'avi', 'mkv', 'webm', 'm4v', '3gp'];
 const AUDIO_EXT = ['mp3', 'wav', 'ogg', 'oga', 'opus', 'm4a', 'aac', 'flac', 'wma', 'weba', 'aif', 'aiff'];
+const AUDIO_MIME = { mp3: 'audio/mpeg', wav: 'audio/wav', ogg: 'audio/ogg', oga: 'audio/ogg', opus: 'audio/ogg', m4a: 'audio/mp4', aac: 'audio/aac', flac: 'audio/flac', wma: 'audio/x-ms-wma', weba: 'audio/webm', aif: 'audio/aiff', aiff: 'audio/aiff' };
 
 const extOf = (name) => {
   const m = /\.([a-z0-9]{1,8})$/i.exec(String(name || ''));
@@ -82,6 +86,8 @@ export const METHOD_LABELS = {
   record: 'Identity record',
 };
 
+const localUrl = (path) => `localfile://local/${encodeURIComponent(path)}`;
+
 // The path of a file inside the project, with forward slashes.
 export function relInProject(projectDir, path) {
   const root = String(projectDir || '').replace(/[\\/]+$/, '');
@@ -101,6 +107,7 @@ export function resolveInProject(dir, rel) {
 // → { text, method } or { error }
 async function readFileForScan(file, { projectId, force }) {
   const kind = scanKindOf(file.name, file.mimeType);
+  const e = extOf(file.name);
   if (kind === 'image') {
     // A picture is its EXTRACTED TEXT and nothing more: the text Extract text
     // saved for it (any reading of this version of the file), else the local
@@ -114,12 +121,23 @@ async function readFileForScan(file, { projectId, force }) {
     return { error: res?.error || 'no_text' };
   }
   if (kind === 'video' || kind === 'audio') {
-    // A recording is read ONLY from the captions already saved for it (the
-    // user's own data — nothing is transcribed); for a video the pictures are
-    // never looked at. None saved → skipped as `no_captions`.
-    const cap = loadCaptions(file.path);
-    if (!cap) return { error: 'no_captions' };
-    const text = String(cap.text || '').trim();
+    // Captions only — for a video the pictures are never looked at.
+    let cap = force ? null : loadCaptions(file.path);
+    // Transcribing loads the WHOLE file and decodes its sound in the app, and
+    // Whisper takes ~13 minutes of speech at most: a recording bigger than
+    // this is refused before it is loaded (a 1 GB video would stall the window).
+    const limit = kind === 'video' ? MAX_VIDEO_BYTES : MAX_AUDIO_BYTES;
+    if (!cap?.text && Number(file.sizeBytes) > limit) return { error: 'too_large' };
+    if (!cap?.text) {
+      const mime = kind === 'video'
+        ? (String(file.mimeType || '').startsWith('video/') ? file.mimeType : 'video/mp4')
+        : (String(file.mimeType || '').startsWith('audio/') ? file.mimeType : (AUDIO_MIME[e] || 'audio/mpeg'));
+      const res = await transcribeAudio(localUrl(file.path), mime, file.name, { projectId });
+      const createdAt = Date.now();
+      cap = { text: res.text, segments: res.segments, language: res.language, createdAt, original: { text: res.text, segments: res.segments } };
+      saveCaptions(file.path, cap);
+    }
+    const text = String(cap?.text || '').trim();
     return text ? { text, method: 'captions' } : { error: 'no_speech' };
   }
   const blob = await readLocalBlob(file.path);
@@ -999,7 +1017,7 @@ export async function scanProjectFiles(projectDir, { projectId, projectName, for
   // event carries `overall` (0…1, the whole scan — reading and understanding
   // the files is 2–70%, connecting 72%, cross-referencing 78–95%, writing 97%)
   // and, while files are read, the FILE being worked on: its `step` in words and
-  // `fileFrac` (0…1 through its own steps: opening → extracting / reading captions /
+  // `fileFrac` (0…1 through its own steps: opening → extracting / transcribing /
   // reading → read, waiting to be understood → understood).
   let at = 0;
   const overallAt = (n, frac) => 0.02 + 0.68 * Math.min(1, (n + frac) / Math.max(1, files.length));
@@ -1009,6 +1027,7 @@ export async function scanProjectFiles(projectDir, { projectId, projectName, for
     stage: 'read', index: n, total: files.length, name: file.name, step, fileFrac, fileAt,
     overall: overallAt(n, fileFrac), done: n + (fileFrac >= 1 ? 1 : 0), skipped: skipped.length, understood, ...extra,
   });
+  let mediaDown = null;       // captions unavailable (no key, offline) — the rest of the media is skipped
   const flush = async () => {
     if (!batch.length) return;
     const list = batch; batch = []; batchSize = 0;
@@ -1086,8 +1105,9 @@ export async function scanProjectFiles(projectDir, { projectId, projectName, for
     }
     const kind = scanKindOf(file.name, file.mimeType);
     if (!features[featureOfKind(kind)]) { held.push(rel); sayFile(n, file, 'Left out \u2014 switched off', 1, { quiet: true }); continue; }
+    if ((kind === 'video' || kind === 'audio') && mediaDown) { skipped.push({ name: file.name, error: mediaDown }); continue; }
     fileAt = Date.now();
-    sayFile(n, file, kind === 'image' ? 'Extracting its text' : kind === 'video' || kind === 'audio' ? 'Reading its captions' : 'Reading its text', 0.15);
+    sayFile(n, file, kind === 'image' ? 'Extracting its text' : kind === 'video' || kind === 'audio' ? 'Transcribing' : 'Reading its text', 0.15);
     // Let the window breathe between files (paint the progress, answer clicks):
     // reading one is a chain of work that otherwise never gives the thread back.
     await new Promise((r) => { setTimeout(r, 0); });
@@ -1113,6 +1133,9 @@ export async function scanProjectFiles(projectDir, { projectId, projectName, for
       batch.push({ file, rel, stamp, method: res.method, text, raw: res.text, legal }); batchSize += text.length;
     } catch (err) {
       const why = err?.message || 'unreadable';
+      // Transcription not set up (or unreachable): every other recording
+      // would fail the same way — don't load them all to find out.
+      if ((kind === 'video' || kind === 'audio') && /configured|reach the AI|signed in|OpenAI|switched off/i.test(why)) mediaDown = why;
       skipped.push({ name: file.name, rel, stamp, error: why });
       sayFile(n, file, 'Skipped — couldn\u2019t be read', 1);
     }

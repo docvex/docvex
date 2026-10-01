@@ -35,6 +35,13 @@ const MODELS = [
     sees: 'The picture or the part of it you select',
     optional: true,
   },
+  {
+    name: 'Whisper',
+    by: 'OpenAI',
+    used: 'Turning recordings into captions, when cloud reading is switched on for the project',
+    sees: 'The audio you ask it to transcribe',
+    optional: true,
+  },
 ];
 
 export default function SecurityInfoModal({ onClose }) {
@@ -88,11 +95,10 @@ export default function SecurityInfoModal({ onClose }) {
           <h3 className="sec-h3">When AI is used — and what it sees</h3>
           <p className="sec-note">
             AI runs only when you ask it to, or when you switch on automatic understanding of new files
-            for a project. What does get sent goes to Anthropic’s <strong>business API</strong> in the
-            United States, whose terms exclude your data from training its models; it is held roughly
+            for a project. What does get sent goes to the providers’ <strong>business APIs</strong> in the
+            United States, whose terms exclude your data from training their models; it is held roughly
             30 days for abuse monitoring and then deleted. The table that turns placeholders back into
-            real names never leaves this computer. Audio is never sent anywhere: DocVex does not
-            transcribe recordings.
+            real names never leaves this computer.
           </p>
           <div className="sec-models">
             {MODELS.map((m) => (
@@ -112,7 +118,7 @@ export default function SecurityInfoModal({ onClose }) {
         <section className="sec-section">
           <h3 className="sec-h3">GDPR</h3>
           <ul className="sec-list">
-            <li>Our servers are in the EU; our AI provider, Anthropic, is in the United States (EU–US Data Privacy Framework / Standard Contractual Clauses). You decide what leaves your machine.</li>
+            <li>Our servers are in the EU; AI providers are in the United States (EU–US Data Privacy Framework / Standard Contractual Clauses). You decide what leaves your machine.</li>
             <li>Searches in the Legislation, Court files and Companies tools go straight to the Romanian public services that answer them.</li>
             <li>Access, correction, export and erasure are all available from the Account page.</li>
             <li>A Data Processing Agreement is available for firms that need one on file.</li>

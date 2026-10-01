@@ -54,7 +54,7 @@ export const ACTIVITY_ACTION_LABELS = Object.freeze({
   restore: 'Restored',
   purge: 'Permanently deleted',
   'extract-text': 'Text extracted',
-  captions: 'Captions generated', // older entries only — nothing transcribes any more
+  captions: 'Captions generated',
   'generate-doc': 'Documents generated',
   'export-pdf': 'PDF exports',
 });

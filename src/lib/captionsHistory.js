@@ -1,8 +1,9 @@
-// Per-file store of a recording's captions — transcripts saved for a file
-// earlier (DocVex no longer transcribes anything; what is here is the user's
-// own data, shown and edited in the Doc Viewer and read by the AI scan). One
-// result per file (text + timed segments + language), unlike the OCR history
-// which keeps a list of snippets (see lib/extractionHistory.js).
+// Per-file cache of the DocViewer audio pane's AI captions. Transcription costs
+// tokens (OpenAI Whisper via the doc-ai Edge Function), so the result is saved
+// keyed by the file — reopening the same file restores the transcript instantly
+// instead of re-transcribing. One result per file (text + timed segments +
+// language), unlike the OCR history which keeps a list of snippets (see
+// lib/extractionHistory.js).
 //
 // WHERE IT LIVES: the project index, knowledge kind `captions` (see
 // lib/projectIndexClient) — tied to the recording's content, and carried with
@@ -71,8 +72,6 @@ export function saveCaptions(filePath, data) {
         }
       : null,
   };
-  // `engine` names what made the saved captions — kept as it was written, so
-  // existing data reads the same.
   const facet = { kind: 'captions', at: value.updatedAt, engine: 'whisper', paid: true, data: value };
   const writeLegacy = () => safeWrite(KEY_PREFIX + filePath, JSON.stringify(value));
   if (putFacet({ path: filePath }, 'captions', facet, { onFail: writeLegacy })) {

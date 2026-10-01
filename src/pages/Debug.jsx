@@ -526,7 +526,7 @@ function AiInventory() {
         <RuleOptions field={AI_VIEWS} value={view} onPick={setView} />
       </div>
       <p className="debug-icons-count">
-        {AI_PROVIDERS.length} {AI_PROVIDERS.length === 1 ? 'service' : 'services'} · {AI_FUNCTIONS.length} functions · {uses.length} uses · {Object.keys(AI_SURFACES).length} surfaces.
+        {AI_PROVIDERS.length} services · {AI_FUNCTIONS.length} functions · {uses.length} uses · {Object.keys(AI_SURFACES).length} surfaces.
         Kept as data in lib/aiInventory.js — update it when an AI use is added, moved or removed.
       </p>
 

@@ -20,6 +20,15 @@ export const AI_PROVIDERS = [
     tone: 'var(--accent)',
     privacy: 'Commercial API: not used for training; kept about 30 days for abuse monitoring.',
   },
+  {
+    id: 'openai',
+    name: 'OpenAI',
+    role: 'Transcription',
+    key: 'OPENAI_API_KEY',
+    tone: 'var(--success)',
+    privacy: 'API: not used for training by default; kept about 30 days.',
+    warning: 'CLAUDE.md says OPENAI_API_KEY is not configured yet, so transcription will not work until it is added.',
+  },
 ];
 
 // Where an AI use is reached from — the surfaces to unify later.
@@ -42,6 +51,7 @@ export const AI_TASKS = {
   draft: 'Draft or rewrite documents',
   extract: 'Read data out of files',
   ocr: 'Read text in pictures',
+  transcribe: 'Transcribe audio',
   analyse: 'Compare / check / analyse',
   route: 'Pick a model',
   summarise: 'Summarise / brief',
@@ -86,7 +96,7 @@ export const AI_FUNCTIONS = [
     id: 'doc-ai',
     provider: 'anthropic',
     title: 'Doc Viewer tools',
-    note: 'Ask, summary, risks, Romanian, draft and review on claude-opus-4-7; paid OCR on claude-haiku-4-5.',
+    note: 'Ask, summary, risks, Romanian, draft and review on claude-opus-4-7; paid OCR on claude-haiku-4-5. Also carries the OpenAI Whisper call below.',
     models: ['claude-opus-4-7', 'claude-haiku-4-5'],
     uses: [
       { id: 'ask / summary / risks / romanian / draft / review', surface: 'doc-viewer', task: 'chat', model: 'claude-opus-4-7', what: 'The Doc Viewer\'s quick AI tools on the open document.' },
@@ -123,6 +133,15 @@ export const AI_FUNCTIONS = [
       { id: 'summary / risks / romanian / ask', surface: 'word-addin', task: 'chat', model: 'claude-opus-4-7', what: 'The Word add-in\'s tasks.' },
     ],
   },
+  {
+    id: 'doc-ai · transcribe',
+    provider: 'openai',
+    title: 'Whisper',
+    models: ['whisper-1'],
+    uses: [
+      { id: 'transcribe', surface: 'doc-viewer', task: 'transcribe', model: 'whisper-1', what: 'Transcribes audio and video for captions.' },
+    ],
+  },
 ];
 
 // Features that use NO AI service — they run on the computer.
@@ -133,9 +152,9 @@ export const AI_LOCAL = [
   { name: 'The app\'s own code', what: 'Legal citations, CNP and CUI checks, and old land-measure conversions.' },
 ];
 
-export const AI_PRIVACY = 'Claude is called through Anthropic\'s paid API, never through a consumer app like claude.ai. Anthropic doesn\'t train on API data but keeps it about 30 days. (Deepgram, whose standard terms allow training, was removed.)';
+export const AI_PRIVACY = 'Both services are called through their paid APIs, never through consumer apps like claude.ai or chatgpt.com. Anthropic and OpenAI don\'t train on API data but keep it about 30 days. (Deepgram, whose standard terms allow training, was removed.)';
 
-export const AI_INTRO = 'DocVex uses one AI company: Anthropic\'s Claude. The app never calls it directly. Every call goes through one of the Supabase Edge Functions, which hold the API key (ANTHROPIC_API_KEY). Nothing is transcribed: recordings are read only from captions already saved for them.';
+export const AI_INTRO = 'DocVex uses two AI companies: Anthropic\'s Claude and OpenAI. The app never calls any of them directly. Every call goes through one of the Supabase Edge Functions, which hold the API keys (ANTHROPIC_API_KEY, OPENAI_API_KEY).';
 
 /** Every use, flattened, each carrying its function and provider. */
 export function allAiUses() {

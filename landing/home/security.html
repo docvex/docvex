@@ -74,7 +74,7 @@
             <li>File-organization metadata (a sidecar file with filenames and content hashes) stays inside that folder, on your device.</li>
             <li>Content reaches an external processor only when you explicitly invoke a feature on it (for example an AI summary) or switch on automatic understanding for a project, and only the content needed for that request is transmitted.</li>
             <li><strong>Pseudonymisation</strong> — before text is sent to an AI provider, names, national ID numbers (CNP), tax codes, IBANs, phone numbers, e-mail and postal addresses are replaced on your computer with placeholders, and the answer is restored locally. The table linking placeholders to real values never leaves your computer. On by default; a project can switch it off.</li>
-            <li>Pictures are read on your computer unless cloud reading is switched on for the project. Audio is never sent anywhere: DocVex does not transcribe recordings.</li>
+            <li>Pictures and audio are read on your computer unless cloud reading is switched on for the project.</li>
             <li>The app refuses to read, write or delete in system locations (the operating system, program folders, other users' profiles, the app's own data) and only writes in folders you have opened as a project.</li>
             <li>Deleted files move to a local recycle folder on your device, not to a server.</li>
           </ul>
@@ -131,7 +131,7 @@
             <li>Backend secrets (AI provider keys, email keys, token-encryption keys) live in the managed secrets store of our serverless platform — never in source code or clients.</li>
             <li>Production access is limited to the small DocVex team on a need-to-use basis.</li>
             <li>Third-party providers are limited to those listed in the <a href="dpa.html#subprocessors">sub-processor list</a>, each bound by data-processing terms.</li>
-            <li>Our AI provider (Anthropic) is used via its business API, which does not train on submitted content.</li>
+            <li>AI providers are used via their business APIs, which do not train on submitted content.</li>
           </ul>
         </section>
 

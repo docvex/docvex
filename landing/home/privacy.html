@@ -122,11 +122,11 @@
         <section class="lg-card" id="ai">
           <h2>5. AI features &amp; your content</h2>
           <p class="lg-sub">What is sent, when, and to whom.</p>
-          <p>AI features — document Q&amp;A, summaries, risk review, drafting, OCR text extraction, document generation, and the legal-feed briefing — are powered by a third-party AI provider: <strong>Anthropic</strong> (Claude models). DocVex does not transcribe audio; recordings are never sent to an AI provider. When you have DocVex build an Office file, the draft is created in Anthropic's file storage and code-execution environment and downloaded to your computer.</p>
+          <p>AI features — document Q&amp;A, summaries, risk review, drafting, OCR text extraction, audio transcription, document generation, and the legal-feed briefing — are powered by third-party AI providers: <strong>Anthropic</strong> (Claude models) and, for audio transcription, <strong>OpenAI</strong> (Whisper). When you have DocVex build an Office file, the draft is created in Anthropic's file storage and code-execution environment and downloaded to your computer.</p>
           <ul class="lg-list">
             <li>Content is transmitted to an AI provider <strong>only when you invoke an AI feature on it</strong>, or when you have switched on automatic understanding of new files for a project (Section 4) — never otherwise in the background.</li>
-            <li>We send the minimum needed: the selected document content, image region, or prompt.</li>
-            <li>We use this provider through its business API, which does not use API content to train its models.</li>
+            <li>We send the minimum needed: the selected document content, image region, audio track, or prompt.</li>
+            <li>We use these providers through their business APIs, which do not use API content to train their models.</li>
             <li>What we keep afterwards: the results shown to you (some are cached on your device for convenience) and usage metadata (action, model, token counts) — not a server-side copy of your documents.</li>
           </ul>
         </section>
@@ -141,6 +141,7 @@
               <tbody>
                 <tr><td>Supabase</td><td>Database, authentication, realtime sync, serverless functions (hosted on AWS)</td><td>EU (Ireland, eu-west-1)</td></tr>
                 <tr><td>Anthropic</td><td>AI document features and legal-feed briefing (Claude)</td><td>United States</td></tr>
+                <tr><td>OpenAI</td><td>Audio transcription (Whisper), only when you use captions/transcription</td><td>United States</td></tr>
                 <tr><td>Resend</td><td>Transactional email delivery</td><td>United States / EU</td></tr>
                 <tr><td>GitHub</td><td>Hosting the website, application downloads, and the update feed</td><td>United States</td></tr>
                 <tr><td>Google / Microsoft</td><td>Sign-in with Google; Gmail/Outlook sync — only if you connect them</td><td>United States / EU</td></tr>
