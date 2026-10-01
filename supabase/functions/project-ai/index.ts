@@ -64,6 +64,7 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { firmDescriptor, jurisdictionPrompt } from "../_shared/jurisdictions.ts";
 import { handleCrossref, handlePassport } from "./fileGraph.ts";
+import { guardAiCall } from "../_shared/guard.ts";
 import {
   anthropicFilesHeaders,
   callClaude as claudeTransport,
@@ -198,7 +199,7 @@ const WRITE_DOCUMENT_TOOL = {
     "Create or update the document the user is building, and save it as a NEW version. " +
     "Call this for ANY request to create, draft, write, change, edit, add to, extend, shorten, reword, redo, " +
     "regenerate, remake, or otherwise modify the document — including tiny edits and 'make another version'. " +
-    "You CAN produce unlimited versions; NEVER refuse, NEVER say you can only provide text or cannot make real " +
+    "You CAN produce unlimited versions; never decline on the grounds that you can only provide text or cannot make real " +
     "Office files, and NEVER tell the user to build it themselves or copy-paste. DocVex turns this call into a " +
     "real file on disk. Always pass the COMPLETE document — every unchanged part included verbatim — not a diff " +
     "or a snippet.",
@@ -504,7 +505,7 @@ async function handleAsk(body: {
     "otherwise modify the document, call the `write_document` tool with the COMPLETE updated document (every unchanged part " +
     "included verbatim — never a diff or a snippet). The most recent document content is given to you in the conversation; " +
     "edits are full rewrites of it. " +
-    "You CAN and SHOULD produce as many versions as the user asks for — there is NO limit. NEVER refuse, NEVER claim you can " +
+    "You CAN and SHOULD produce as many versions as the user asks for — there is NO limit. Never decline on the grounds that you can " +
     "only provide text or cannot create real Office files, and NEVER tell the user to build it themselves or copy-paste. " +
     "DocVex turns each write_document call into a real .docx/.pptx/.xlsx on disk. " +
     "Only reply in plain text (without calling write_document) when the user asks a pure question that does NOT change the " +
@@ -870,6 +871,9 @@ Deno.serve(async (req: Request) => {
   } catch {
     return jsonResponse({ error: "invalid_json" }, 400);
   }
+  // Signed-in user, a member of the project named, within the rate limit.
+  const guard = await guardAiCall(req, body, "project-ai", corsHeaders);
+  if (guard instanceof Response) return guard;
 
   switch (body.action) {
     case "ask":

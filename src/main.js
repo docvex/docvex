@@ -5552,16 +5552,36 @@ app.whenReady().then(() => {
 // the legislation service: a 2000s-era asmx endpoint with no CORS headers.
 // A search by party name can answer with hundreds of files at a few kilobytes
 // each, so the answer is capped and the count of the whole is reported.
-const COURTS_ENDPOINT = 'http://portalquery.just.ro/query.asmx';
+// HTTPS first (security fix, 2026-10-01): over plain HTTP anyone on the path
+// could rewrite a court file's hearings or parties in transit. The service has
+// long been published on http:// only, so when the HTTPS endpoint cannot be
+// reached at all (no TLS listener, a certificate error) the HTTP one is used
+// for the rest of the session and every answer says so (`insecure: true`).
+const COURTS_ENDPOINTS = ['https://portalquery.just.ro/query.asmx', 'http://portalquery.just.ro/query.asmx'];
+let courtsEndpointAt = 0;
 const COURTS_NS = 'portalquery.just.ro';
 const COURTS_TIMEOUT_MS = 60000;
 const COURTS_MAX = 400;
 
 async function courtsPost(action, body) {
+  for (let i = courtsEndpointAt; i < COURTS_ENDPOINTS.length; i++) {
+    const out = await courtsPostTo(COURTS_ENDPOINTS[i], action, body);
+    // Only a connection that never got an answer moves on to the next
+    // endpoint; a timeout or an HTTP error is the service's answer.
+    if (out.error === 'unreachable' && i + 1 < COURTS_ENDPOINTS.length) {
+      courtsEndpointAt = i + 1;
+      continue;
+    }
+    return { ...out, insecure: COURTS_ENDPOINTS[i].startsWith('http:') };
+  }
+  return { ok: false, error: 'unreachable' };
+}
+
+async function courtsPostTo(endpoint, action, body) {
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), COURTS_TIMEOUT_MS);
   try {
-    const res = await fetch(COURTS_ENDPOINT, {
+    const res = await fetch(endpoint, {
       method: 'POST',
       signal: ctrl.signal,
       headers: {
@@ -5656,7 +5676,7 @@ ipcMain.handle('courts:search', async (_e, query) => {
   const res = await courtsPost('CautareDosare', body);
   if (!res.ok) return res;
   const blocks = xmlBlocks(res.xml, 'Dosar');
-  return { ok: true, total: blocks.length, dosare: blocks.slice(0, COURTS_MAX).map(courtsParseDosar) };
+  return { ok: true, insecure: res.insecure, total: blocks.length, dosare: blocks.slice(0, COURTS_MAX).map(courtsParseDosar) };
 });
 
 // A court's hearings on a day: `{ institutie, dataSedinta }` (both required).
@@ -5680,7 +5700,7 @@ ipcMain.handle('courts:hearings', async (_e, query) => {
       stadiu: xmlField(d, 'stadiuProcesualNume') || xmlField(d, 'stadiuProcesual'),
     })),
   }));
-  return { ok: true, sedinte };
+  return { ok: true, insecure: res.insecure, sedinte };
 });
 
 // ── ANAF: a company's fiscal record ──────────────────────────────────────

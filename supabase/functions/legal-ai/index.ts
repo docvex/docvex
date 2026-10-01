@@ -30,6 +30,7 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { callClaude as claudeTransport, claudeConfigured } from "../_shared/claude.ts";
+import { guardAiCall } from "../_shared/guard.ts";
 
 const corsHeaders: Record<string, string> = {
   "Access-Control-Allow-Origin": "*",
@@ -205,12 +206,27 @@ type IngestItem = {
   slug?: string;
 };
 
+// Constant-time comparison: both sides hashed, then every byte compared, so
+// the time taken says nothing about how much of a guess was right.
+async function sameSecret(a: string, b: string): Promise<boolean> {
+  const enc = new TextEncoder();
+  const [x, y] = await Promise.all([
+    crypto.subtle.digest("SHA-256", enc.encode(a)),
+    crypto.subtle.digest("SHA-256", enc.encode(b)),
+  ]);
+  const u = new Uint8Array(x);
+  const v = new Uint8Array(y);
+  let diff = 0;
+  for (let i = 0; i < u.length; i++) diff |= u[i] ^ v[i];
+  return diff === 0 && a.length > 0;
+}
+
 async function handleIngest(req: Request, items: IngestItem[]): Promise<Response> {
   // Gate: secret must be configured AND match. Without it, ingest is off.
   if (!LEGAL_INGEST_SECRET) {
     return jsonResponse({ ok: false, error: "ingest_disabled" }, 403);
   }
-  if (req.headers.get("x-ingest-secret") !== LEGAL_INGEST_SECRET) {
+  if (!(await sameSecret(req.headers.get("x-ingest-secret") ?? "", LEGAL_INGEST_SECRET))) {
     return jsonResponse({ ok: false, error: "forbidden" }, 403);
   }
   if (!claudeConfigured()) {
@@ -315,8 +331,12 @@ Deno.serve(async (req: Request) => {
   }
 
   switch (body.action) {
-    case "digest":
+    case "digest": {
+      // A signed-in user within the rate limit (ingest has its own secret).
+      const guard = await guardAiCall(req, body as Record<string, unknown>, "legal-ai", corsHeaders);
+      if (guard instanceof Response) return guard;
       return handleDigest();
+    }
     case "ingest":
       return handleIngest(req, body.items ?? []);
     default:

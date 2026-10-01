@@ -34,6 +34,7 @@
 // back the Windows release.
 
 import { RELEASE_REPO_URL } from './releaseRepo.mjs';
+import { signingStatus, allowUnsigned } from './check-signing.mjs';
 import { spawnSync } from 'node:child_process';
 import { readFileSync, statSync, createReadStream } from 'node:fs';
 import { resolve, dirname, join } from 'node:path';
@@ -71,6 +72,16 @@ function run(label, cmd, args) {
 }
 
 async function main() {
+  // Signed or not at all: a Mac build is only Developer-ID signed and
+  // notarized ON a Mac with the Apple credentials set. Anything else would be
+  // an ad-hoc build Gatekeeper blocks (and, from a Windows host, one that
+  // Apple Silicon kills at launch).
+  const mac = signingStatus('darwin');
+  if ((process.platform !== 'darwin' || !mac.ok) && !allowUnsigned()) {
+    warn(`Skipping the macOS zips: they can only be released signed and notarized from a Mac (${mac.ok ? 'this is not a Mac' : mac.missing}). Set DOCVEX_ALLOW_UNSIGNED=1 to upload unsigned zips anyway.`);
+    process.exitCode = 1;
+    return;
+  }
   const token = process.env.GITHUB_TOKEN;
   if (!token) {
     warn('GITHUB_TOKEN not set — cannot upload Mac zips. Skipping.');

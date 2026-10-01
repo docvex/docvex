@@ -29,6 +29,7 @@
 // DOC_AI_MODEL / LEGAL_AI_MODEL).
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { callClaude as claudeTransport, claudeConfigured } from "../_shared/claude.ts";
+import { guardAiCall } from "../_shared/guard.ts";
 
 const corsHeaders: Record<string, string> = {
   "Access-Control-Allow-Origin": "*",
@@ -255,6 +256,10 @@ Deno.serve(async (req: Request) => {
   } catch {
     return jsonResponse({ ok: false, error: "invalid_json" }, 400);
   }
+
+  // Signed-in user, a member of the project named, within the rate limit.
+  const guard = await guardAiCall(req, body, "doc-ai", corsHeaders);
+  if (guard instanceof Response) return guard;
 
   const task = String(body.task ?? "");
 

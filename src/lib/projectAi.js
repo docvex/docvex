@@ -28,8 +28,11 @@ const vaultError = () => ({ error: new Error('vault_unavailable') });
 // The body as it will go out — masked when the call is — and a record of it in
 // the "What was sent" log (lib/pseudonymize/sentLog: the masked text only;
 // nothing for a call sent as it is).
+// It also names the project the call is made in (`projectId`), which the
+// function checks the caller belongs to (supabase/functions/_shared/guard.ts).
 const masked = (guard, body, usageAction, { log = true } = {}) => {
-  const out = guard.vault ? guard.wire.maskBody(body, guard.vault, guard.maskOpts) : body;
+  const maskedBody = guard.vault ? guard.wire.maskBody(body, guard.vault, guard.maskOpts) : body;
+  const out = guard.projectId ? { ...maskedBody, projectId: guard.projectId } : maskedBody;
   if (log) {
     recordSent({
       usageAction, projectId: guard.projectId, masked: !!guard.vault,
@@ -39,6 +42,21 @@ const masked = (guard, body, usageAction, { log = true } = {}) => {
   }
   return out;
 };
+// A body whose pictures are redacted too (lib/pseudonymize/imageRedact) when
+// the call is masked: identifiers in a picture painted over with their tokens.
+// Fails closed — a picture that cannot be read here is not sent.
+async function maskedWithImages(guard, body, usageAction) {
+  if (guard.vault) {
+    const { redactImagesInBody } = await import('./pseudonymize/imageRedact');
+    try {
+      body = await redactImagesInBody(body, guard.vault, guard.maskOpts);
+    } catch (err) {
+      recordSent({ usageAction, projectId: guard.projectId, masked: false, sent: false, reason: 'not sent: a picture could not be redacted on this computer' });
+      throw err;
+    }
+  }
+  return masked(guard, body, usageAction);
+}
 const restored = (guard, answer) => (guard.vault ? guard.vault.reidentify(answer) : answer);
 
 // Every request carries the open project's jurisdiction so the Edge Function
@@ -159,7 +177,9 @@ export async function askProjectAi(opts) {
   const { usageProject, usageAction = 'chat', model } = opts;
   const guard = await vaultForCall(usageProject, usageAction);
   if (guard.error) return vaultError();
-  const { data, error } = await supabase.functions.invoke('project-ai', { body: masked(guard, askBody(opts), usageAction) });
+  let body;
+  try { body = await maskedWithImages(guard, askBody(opts), usageAction); } catch (err) { return { error: err }; }
+  const { data, error } = await supabase.functions.invoke('project-ai', { body });
   const res = unwrap(data, error);
   if (res.error) return res;
   return restored(guard, answerFrom(res.data, { usageProject, usageAction, model }));
@@ -179,15 +199,19 @@ export async function askProjectAiStream(opts) {
   // Re-identified as it arrives, a token never split across two pieces.
   const sink = guard.vault ? guard.wire.makeStreamReidentifier(guard.vault, opts.onText) : null;
   const onText = sink ? (piece) => sink.push(piece) : opts.onText;
+  let body;
+  try { body = await maskedWithImages(guard, askBody(opts), usageAction); } catch (err) { return { error: err }; }
   let token = '';
   try { token = (await supabase.auth.getSession())?.data?.session?.access_token || ''; } catch { token = ''; }
+  // Signed in or nothing: the function refuses the anon key, so don't send it.
+  if (!token) return { error: new Error('not_signed_in') };
   const anon = import.meta.env.VITE_SUPABASE_ANON_KEY;
   let resp;
   try {
     resp = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/project-ai`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', apikey: anon, Authorization: `Bearer ${token || anon}` },
-      body: JSON.stringify({ ...masked(guard, askBody(opts), usageAction), stream: true }),
+      headers: { 'Content-Type': 'application/json', apikey: anon, Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ ...body, stream: true }),
       signal,
     });
   } catch (e) {
