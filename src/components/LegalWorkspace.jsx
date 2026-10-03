@@ -9,7 +9,6 @@ import { toLayoutPx } from '../lib/appZoom';
 import { openExternal } from '../lib/platform';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { publishWorkspace, registerWorkspace, requestWorkspace, subscribeWorkspaces, workspacesSnapshot } from '../lib/workspaceItems';
-import { syncSourceItems } from '../lib/legislationEntries';
 import { researchStore } from '../lib/researchChats';
 import AskRail, { ASK_RAIL_WIDTH_KEY, ASK_RAIL_MIN, ASK_RAIL_MAX, ASK_RAIL_DEFAULT, readAskRailWidth, useAskRailState, AskRailToggle } from './AskRail';
 import { PLATFORMS } from '../lib/legalBrowser';
@@ -516,8 +515,6 @@ export default function LegalWorkspace({
   useEffect(() => {
     if (newsletter) return;
     publishWorkspace(pathname, { items, activeId });
-    // Every item opened here is kept in the ONE list (lib/legislationEntries).
-    syncSourceItems(pathname, items);
   });
   useEffect(() => (newsletter ? undefined : registerWorkspace(pathname, {
     onSelect: (id) => live.current.onSelect?.(id),

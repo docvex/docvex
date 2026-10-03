@@ -29,7 +29,7 @@
       <p class="lg-eyebrow">DocVex — Legal</p>
       <h1 class="lg-title">Privacy Policy</h1>
       <p class="lg-lead">DocVex is built privacy-first: your project documents stay on your device, and we collect only what we need to run your account and the collaborative parts of the Service.</p>
-      <p class="lg-updated">Last updated: 2 October 2026</p>
+      <p class="lg-updated">Last updated: 3 October 2026</p>
     </header>
 
     <div class="lg-layout">
@@ -167,6 +167,8 @@
           </div>
           <h3>Public legal portals</h3>
           <p>The Legislation, Court files, Companies (ANAF) and CAEN tools send what you type into them — including a party name, file number or tax code — directly from your computer to the Romanian public service that answers it: legislatie.just.ro (Ministry of Justice), portal.just.ro (the courts' portal; its service is reached over plain HTTP, so a search can be seen on the network path), and ANAF's public web services. These are independent public authorities, not our processors; they receive your IP address and the search. Search the courts' portal by party name only where you have a reason to. When portal.just.ro cannot answer (it is often offline, and a search by name is never sent to it unencrypted), the same search is sent instead from DocVex's server to a backup service — first EasyAPI (easyapi.ro), then DosarJust (dosarjust.ro) — which hold copies of the courts' public file data. They receive the search (a file number, a party's name, an object or a court), not your IP address, and answer it from their copy, which may be a few hours behind.</p>
+          <h3>The APIs page on our website</h3>
+          <p>Searches on the APIs page (docvex.ro/apis.html) for a company by tax code (CUI) or a court file by its number pass through DocVex's server, which sends the search on to ANAF's public web service or to portal.just.ro and returns the answer. Those services receive the search from our server, not your IP address. Our server uses your IP address only for a few seconds, in memory, to limit how many searches can be made per minute; it does not store the search, your IP address or the answer. Court files can only be searched by file number there, not by a person's name. The courts' service is currently reached over plain HTTP, so a court-file search from our server to portal.just.ro can be seen on the network path. CAEN searches on that page run entirely in your browser and are not sent anywhere.</p>
           <h3>Other things we keep on our servers</h3>
           <p>If you import documents into the Playbook so DocVex learns your writing style, an excerpt of each (up to 12,000 characters) and the style description learned from them are stored with your account. Names, national ID numbers, IBANs, addresses and similar identifiers are replaced with placeholders on your computer before either is stored. Deleting a document or your account deletes them.</p>
           <p>The authoritative, maintained list — including how to object to changes — is in the <a href="dpa.html#subprocessors">Data Processing Agreement</a>.</p>

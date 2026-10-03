@@ -27,7 +27,7 @@
 
 import { supabase } from './supabaseClient';
 
-const VERSION = 2;   // 2: empty fields no longer marked — bump when the pagination or the marks change shape
+const VERSION = 4;   // 4: paginated again after a short-lived continuous layout (3); 2: empty fields no longer marked — bump when the pagination or the marks change shape
 const MEM_MAX = 8;
 const DISK_MAX = 60;
 const DISK_BYTES = 250 * 1024 * 1024;

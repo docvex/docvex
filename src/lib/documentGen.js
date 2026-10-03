@@ -494,9 +494,12 @@ function base64ToBlob(base64, mime) {
 //   • 'local' — skip the network round-trip and use the themed local builders
 //     directly (instant, offline, free).
 // `instructions` is optional extra guidance passed to the Skills engine.
+// `onEngine(used, reason?)` is told which builder made the file — 'skills', or
+// 'local' with why the Office service did not (it falls back silently).
 export const DOC_ENGINES = { skills: 'skills', local: 'local' };
 const OFFICE_KINDS = new Set(['docx', 'pptx', 'xlsx', 'pdf']);
-export async function buildDocumentBlobSmart(kind, text, { instructions, engine = 'skills', model } = {}) {
+export async function buildDocumentBlobSmart(kind, text, { instructions, engine = 'skills', model, onEngine } = {}) {
+  let reason = engine === 'local' ? 'chosen' : 'unsupported_kind';
   if (engine !== 'local' && OFFICE_KINDS.has(kind)) {
     try {
       const res = await generateOfficeFile({ kind, content: String(text || ''), instructions, model });
@@ -507,16 +510,20 @@ export async function buildDocumentBlobSmart(kind, text, { instructions, engine 
         // builder rather than serving a corrupt download.
         if (await validateBlob(kind, blob)) {
           try { console.info('[DocVex] Office Skills produced the file (high-fidelity).'); } catch { /* noop */ }
+          onEngine?.('skills');
           return blob;
         }
+        reason = 'invalid_file';
         try { console.warn('[DocVex] Office Skills returned an invalid file — using the local builder.'); } catch { /* noop */ }
       } else {
         // res.unavailable or res.error → log WHY, then fall through to the local builder.
+        reason = res?.code || res?.error?.message || 'unknown';
         try {
           console.warn(`[DocVex] Office Skills unavailable — using the local builder. Reason: ${res?.code || res?.error?.message || 'unknown'}${res?.detail ? ` — ${res.detail}` : ''}`);
         } catch { /* noop */ }
       }
     } catch (e) {
+      reason = String(e?.message || e || 'failed');
       try { console.warn(`[DocVex] Office Skills call failed — using the local builder: ${e?.message || e}`); } catch { /* noop */ }
     }
   }
@@ -524,6 +531,7 @@ export async function buildDocumentBlobSmart(kind, text, { instructions, engine 
   // The local builders are deterministic and well-formed; this assertion just
   // guarantees we never hand back a corrupt file.
   if (!(await validateBlob(kind, blob))) throw new Error(`built ${kind} failed validation`);
+  onEngine?.('local', reason);
   return blob;
 }
 

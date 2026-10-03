@@ -1201,8 +1201,9 @@ const NUMBER_AFTER = {
 //                                  different records
 //
 // The token IS the identity field's own name, so recognition is a lookup rather
-// than a judgement. Keep this list in step with PLACEHOLDER_RULE in
-// supabase/functions/project-ai/index.ts, which publishes it to the model.
+// than a judgement. No AI is told to WRITE these tokens any more (2026-10-03:
+// drafts use the Playbook's unnamed blank) — they are only recognised in
+// documents that already carry them.
 //
 // The derived names (addressStreet…, idSeries/idNumber) are the pieces a
 // Romanian identification clause asks for one at a time; splitAddress and

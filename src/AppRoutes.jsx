@@ -2,7 +2,7 @@ import React, { lazy, Suspense, useState } from 'react';
 import { Routes, Route, Navigate, Outlet } from 'react-router-dom';
 import ProjectVersionGate from './components/ProjectVersionGate';
 import { useAuth } from './context/AuthContext';
-import { LEGAL_STUB_TABS } from './components/LegalTabs';
+import { LEGAL_TABS } from './components/LegalTabs';
 
 // The app's route tree. The "/" layout `Shell` and the /projects/:id
 // `ProjectShell` wrapper are passed in as props by App.jsx (the main window
@@ -61,13 +61,8 @@ const Settings = page(() => import('./pages/Settings'));
 const DesignSystem = page(() => import('./pages/DesignSystem'));
 const Updates = page(() => import('./pages/Updates'));
 const Newsletter = page(() => import('./pages/Newsletter'), { warm: 1 });
-const Legislation = page(() => import('./pages/Legislation'), { warm: 1 });
-const Caen = page(() => import('./pages/Caen'), { warm: 1 });
 // Research — the Legislation search and the Advisor as one search engine.
 const Research = page(() => import('./pages/Research'), { warm: 1 });
-const PortalJust = page(() => import('./pages/PortalJust'), { warm: 1 });
-const Anaf = page(() => import('./pages/Anaf'), { warm: 1 });
-const LegalSourceStub = page(() => import('./pages/LegalSourceStub'), { warm: 1 });
 const Playbook = page(() => import('./pages/Playbook'));
 const Debug = page(() => import('./pages/Debug'));
 // The Hub is the one lazy route we deliberately pre-warm: it's reached by a
@@ -125,31 +120,13 @@ export default function AppRoutes({ Shell, ProjectShell }) {
           <Route path="versions" element={<Updates />} />
           {/* Legacy alias — old links / stored notifications used /updates. */}
           <Route path="updates" element={<Navigate to="/versions" replace />} />
-          {/* The Legislation tab's three pages — one sidebar entry, each on
-              its own route, each drawing the shared tab bar
-              (components/LegalTabs) under its own masthead: the Newsletter,
-              the national legislative portal read through its own web service
-              and kept on this machine (pages/Legislation), and the CAEN
-              nomenclature bundled with the app (pages/Caen). Public: the law
-              is not project data. */}
           <Route path="newsletter" element={<Newsletter />} />
-          <Route path="legislation" element={<Legislation />} />
-          <Route path="caen" element={<Caen />} />
-          {/* Research: one search over the legal platforms AND the Advisor
-              (pages/Research). Neither tab is replaced. */}
+          {/* Legislation is ASK alone (pages/Research): the AI reads the portals
+              itself. The platforms' own search pages were removed (2026-10-03);
+              their old addresses land on Ask. */}
           <Route path="research" element={<Research />} />
-          {/* The courts' portal (case files, live over SOAP from main) and
-              ANAF (a company's fiscal record, live over REST from main). */}
-          <Route path="portal-just" element={<PortalJust />} />
-          <Route path="anaf" element={<Anaf />} />
-          {/* The tab's sources not yet connected (aggregators, BPI, …):
-              placeholders, one page for all (pages/LegalSourceStub). */}
-          {/* One component serves every placeholder, so the ELEMENT is keyed
-              by tab: without it, going from one placeholder to another kept
-              the mounted page and the Legislation bar's enter motion (which
-              plays on mount) never ran. */}
-          {LEGAL_STUB_TABS.map((t) => (
-            <Route key={t.to} path={t.to.slice(1)} element={<LegalSourceStub key={t.id} />} />
+          {LEGAL_TABS.map((t) => (
+            <Route key={t.to} path={t.to.slice(1)} element={<Navigate to="/research" replace />} />
           ))}
           {import.meta.env.DEV && <Route path="debug" element={<Debug />} />}
           <Route path="notifications" element={<Navigate to="/" replace />} />

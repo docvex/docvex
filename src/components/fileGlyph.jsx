@@ -121,7 +121,8 @@ export function extCategory(ext) {
   if (e === 'pdf') return 'pdf';
   // Word and everything it can save/export to (incl. templates, macro-enabled,
   // RTF and the OpenDocument / Pages equivalents).
-  if (['doc', 'docx', 'docm', 'dot', 'dotx', 'dotm', 'rtf', 'odt', 'pages'].includes(e)) return 'doc';
+  // A DocVex draft (lib/draftFile) is a document too.
+  if (['doc', 'docx', 'docm', 'dot', 'dotx', 'dotm', 'rtf', 'odt', 'pages', 'dvdraft'].includes(e)) return 'doc';
   // Excel and everything it can save/export to (workbooks, macro-enabled,
   // binary, templates, CSV and the OpenDocument / Numbers equivalents).
   if (['xls', 'xlsx', 'xlsm', 'xlsb', 'xlt', 'xltx', 'xltm', 'csv', 'ods', 'numbers'].includes(e)) return 'xls';

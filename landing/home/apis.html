@@ -1,0 +1,360 @@
+<!doctype html>
+<html lang="en" data-theme="ink">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<base href="/">
+<title>APIs — DocVex</title>
+<meta name="description" content="Search the Romanian public sources DocVex reads: company records from ANAF, court files from portal.just.ro and the CAEN nomenclature.">
+<link rel="icon" href="favicon.ico">
+<link rel="canonical" href="https://docvex.ro/apis.html">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="DocVex">
+<meta property="og:title" content="APIs — DocVex">
+<meta property="og:description" content="Search the Romanian public sources DocVex reads.">
+<meta property="og:url" content="https://docvex.ro/apis.html">
+<meta property="og:image" content="https://docvex.ro/assets/logo-lockup.png">
+<link href="fonts/fonts.css" rel="stylesheet">
+<link rel="stylesheet" href="chrome.css">
+<script>(function(){var d=document.documentElement,t='ink';try{t=localStorage.getItem('docvex.site.theme')||'ink';}catch(e){}d.setAttribute('data-theme',t);d.style.backgroundColor=t==='cream'?'#F5F2EA':'#0F172A';})();</script>
+<style>
+  *, *::before, *::after { box-sizing: border-box; }
+  html, body { margin: 0; min-height: 100%; }
+  body {
+    font-family: 'Inter', system-ui, -apple-system, sans-serif;
+    -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale;
+    background: var(--bg-page); color: var(--text-primary);
+  }
+  .ap-shell { max-width: 1100px; margin: 0 auto; padding: clamp(28px,4vw,48px) clamp(16px,5vw,40px) 96px; }
+  .ap-eyebrow { margin: 0; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.26em; color: var(--accent); }
+  .ap-title { margin: 12px 0 0; font-family: 'Plus Jakarta Sans', sans-serif; font-weight: 800; font-size: clamp(34px,5vw,48px); letter-spacing: -0.03em; }
+  .ap-lead { margin: 14px 0 0; max-width: 680px; font-size: 16px; line-height: 1.6; color: var(--text-muted); }
+
+  /* Tabs — one per source, an underline under the chosen one. */
+  .ap-tabs { display: flex; gap: 4px; margin-top: 36px; border-bottom: 1px solid var(--border); overflow-x: auto; scrollbar-width: none; }
+  .ap-tabs::-webkit-scrollbar { display: none; }
+  .ap-tab {
+    position: relative; flex: none; padding: 10px 14px 12px; border: 0; background: none; cursor: pointer;
+    font: 600 14px 'Inter', sans-serif; color: var(--text-muted);
+  }
+  .ap-tab:hover { color: var(--text-primary); }
+  .ap-tab.is-on { color: var(--text-primary); }
+  .ap-tab.is-on::after { content: ''; position: absolute; left: 10px; right: 10px; bottom: -1px; height: 2px; border-radius: 2px; background: var(--accent); }
+  .ap-tab .ap-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; margin-right: 8px; vertical-align: 1px; }
+
+  .ap-panel { padding-top: 28px; }
+  .ap-panel[hidden] { display: none; }
+  .ap-about { margin: 0 0 18px; max-width: 720px; font-size: 14.5px; line-height: 1.6; color: var(--text-muted); }
+  .ap-form { display: flex; gap: 8px; flex-wrap: wrap; }
+  .ap-input {
+    flex: 1 1 260px; min-width: 0; height: 44px; padding: 0 14px; border-radius: 10px;
+    border: 1px solid var(--border-strong); background: var(--bg-input); color: var(--text-primary);
+    font: 15px 'Inter', sans-serif; outline: none;
+  }
+  .ap-input:focus { border-color: var(--accent); }
+  .ap-btn {
+    flex: none; height: 44px; padding: 0 20px; border-radius: 10px; border: 0; cursor: pointer;
+    background: var(--accent); color: var(--text-on-accent); font: 600 14.5px 'Inter', sans-serif;
+  }
+  .ap-btn:hover { background: var(--accent-hover); }
+  .ap-btn:disabled { opacity: 0.55; cursor: default; }
+  .ap-tries { margin-top: 10px; display: flex; gap: 6px; flex-wrap: wrap; font-size: 12.5px; color: var(--text-muted); align-items: center; }
+  .ap-try { border: 1px solid var(--border); background: none; color: var(--text-secondary); border-radius: 999px; padding: 3px 10px; font: 12.5px 'Inter', sans-serif; cursor: pointer; }
+  .ap-try:hover { border-color: var(--accent); color: var(--text-primary); }
+
+  .ap-status { margin-top: 18px; font-size: 14px; color: var(--text-muted); min-height: 20px; }
+  .ap-status.is-error { color: #e0796b; }
+  .ap-results { margin-top: 8px; display: grid; gap: 12px; }
+
+  /* A record: page ground, hairline, label / value rows. */
+  .ap-card { border: 1px solid var(--border); border-radius: 14px; padding: 18px 20px; background: color-mix(in srgb, var(--bg-card) 40%, transparent); }
+  .ap-card h3 { margin: 0; font: 700 18px 'Plus Jakarta Sans', sans-serif; letter-spacing: -0.01em; }
+  .ap-sub { margin: 4px 0 0; font-size: 13px; color: var(--text-muted); }
+  .ap-pills { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 12px; }
+  .ap-pill { font-size: 11.5px; font-weight: 600; padding: 3px 9px; border-radius: 999px; border: 1px solid currentColor; }
+  .ap-pill.ok { color: #5fb98a; } .ap-pill.warn { color: #d9a650; } .ap-pill.bad { color: #e0796b; } .ap-pill.info { color: #6fa2d8; }
+  .ap-rows { margin: 14px 0 0; display: grid; grid-template-columns: 180px 1fr; gap: 8px 16px; font-size: 14px; }
+  .ap-rows dt { color: var(--text-muted); }
+  .ap-rows dd { margin: 0; color: var(--text-primary); overflow-wrap: anywhere; }
+  @media (max-width: 600px) { .ap-rows { grid-template-columns: 1fr; gap: 2px; } .ap-rows dd { margin-bottom: 8px; } }
+  .ap-section { margin: 18px 0 6px; font-size: 11px; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase; color: var(--text-muted); }
+  .ap-list { margin: 0; padding: 0; list-style: none; display: grid; gap: 6px; font-size: 14px; }
+  .ap-list li { padding: 8px 0; border-top: 1px solid var(--border); }
+  .ap-list li:first-child { border-top: 0; }
+  .ap-muted { color: var(--text-muted); }
+
+  /* CAEN results */
+  .ap-code { font-variant-numeric: tabular-nums; font-weight: 700; color: var(--accent); margin-right: 10px; }
+  .ap-hit { width: 100%; text-align: left; border: 0; background: none; color: inherit; padding: 10px 4px; border-top: 1px solid var(--border); cursor: pointer; font: 14px 'Inter', sans-serif; }
+  .ap-hit:hover { background: color-mix(in srgb, var(--text-primary) 4%, transparent); }
+  .ap-lvl { font-size: 11px; color: var(--text-muted); margin-left: 8px; }
+
+  .ap-notice { border: 1px solid var(--border); border-radius: 14px; padding: 20px 22px; max-width: 720px; }
+  .ap-notice h3 { margin: 0 0 6px; font: 700 17px 'Plus Jakarta Sans', sans-serif; }
+  .ap-notice p { margin: 6px 0 0; font-size: 14.5px; line-height: 1.6; color: var(--text-muted); }
+  .ap-notice a, .ap-foot a { color: var(--accent); }
+  .ap-foot { margin-top: 48px; font-size: 13px; line-height: 1.6; color: var(--text-muted); max-width: 760px; }
+</style>
+</head>
+<body>
+  <main class="ap-shell">
+    <p class="ap-eyebrow">APIs</p>
+    <h1 class="ap-title">Romanian public sources.</h1>
+    <p class="ap-lead">The public services DocVex reads when it answers a legal question. Search them here directly. Every answer comes live from the source, except CAEN, which is bundled.</p>
+
+    <div class="ap-tabs" role="tablist" aria-label="Sources">
+      <button class="ap-tab is-on" role="tab" data-tab="anaf" aria-selected="true"><span class="ap-dot" style="background:#5fb98a"></span>anaf.ro</button>
+      <button class="ap-tab" role="tab" data-tab="court" aria-selected="false"><span class="ap-dot" style="background:#6fa2d8"></span>portal.just.ro</button>
+      <button class="ap-tab" role="tab" data-tab="caen" aria-selected="false"><span class="ap-dot" style="background:#d9a650"></span>insse.ro · CAEN</button>
+      <button class="ap-tab" role="tab" data-tab="legis" aria-selected="false"><span class="ap-dot" style="background:#a58bd6"></span>legislatie.just.ro</button>
+    </div>
+
+    <!-- ANAF -->
+    <section class="ap-panel" data-panel="anaf" role="tabpanel">
+      <p class="ap-about">A company's fiscal record from ANAF: name, address, trade-register number, main CAEN code, VAT registration, VAT on collection, inactive or struck-off status, split VAT and e-Factura. Up to 10 CUIs at once, as of today.</p>
+      <form class="ap-form" id="anafForm">
+        <input class="ap-input" id="anafQ" placeholder="CUI, e.g. RO14399840 (several separated by spaces)" autocomplete="off" inputmode="numeric">
+        <button class="ap-btn" id="anafGo" type="submit">Look up</button>
+      </form>
+      <div class="ap-tries">Try <button type="button" class="ap-try" data-fill="anafQ" data-value="14399840">14399840</button><button type="button" class="ap-try" data-fill="anafQ" data-value="RO6859662">RO6859662</button></div>
+      <div class="ap-status" id="anafStatus" aria-live="polite"></div>
+      <div class="ap-results" id="anafOut"></div>
+    </section>
+
+    <!-- Courts -->
+    <section class="ap-panel" data-panel="court" role="tabpanel" hidden>
+      <p class="ap-about">A court file from the courts' portal: the court, its subject and stage, the parties and their roles, every hearing with its solution, and the appeals. Search by file number only.</p>
+      <form class="ap-form" id="courtForm">
+        <input class="ap-input" id="courtQ" placeholder="File number, e.g. 1234/3/2025" autocomplete="off">
+        <button class="ap-btn" id="courtGo" type="submit">Search</button>
+      </form>
+      <div class="ap-status" id="courtStatus" aria-live="polite"></div>
+      <div class="ap-results" id="courtOut"></div>
+    </section>
+
+    <!-- CAEN -->
+    <section class="ap-panel" data-panel="caen" role="tabpanel" hidden>
+      <p class="ap-about">The CAEN Rev. 3 nomenclature of economic activities, from the National Institute of Statistics. Search by code or by words; it runs entirely in your browser.</p>
+      <form class="ap-form" id="caenForm">
+        <input class="ap-input" id="caenQ" placeholder="Code or words, e.g. 6210 or software" autocomplete="off">
+      </form>
+      <div class="ap-tries">Try <button type="button" class="ap-try" data-fill="caenQ" data-value="6210">6210</button><button type="button" class="ap-try" data-fill="caenQ" data-value="restaurante">restaurante</button><button type="button" class="ap-try" data-fill="caenQ" data-value="construcții">construcții</button></div>
+      <div class="ap-status" id="caenStatus" aria-live="polite"></div>
+      <div class="ap-results" id="caenOut"></div>
+    </section>
+
+    <!-- Legislation -->
+    <section class="ap-panel" data-panel="legis" role="tabpanel" hidden>
+      <div class="ap-notice">
+        <h3>Available in the desktop app</h3>
+        <p>The Ministry of Justice's legislation service refuses requests from web servers, so it can't be searched from this page. The DocVex desktop app reads it over your own connection, and its AI quotes the acts and articles it cites.</p>
+        <p>You can search the portal itself at <a href="https://legislatie.just.ro" rel="noopener" target="_blank">legislatie.just.ro</a>, or <a href="installers.html">download DocVex</a>.</p>
+      </div>
+    </section>
+
+    <p class="ap-foot">Sources: <a href="https://static.anaf.ro/static/10/Anaf/Informatii_R/API/Oferta_api_v9_tva.pdf" rel="noopener" target="_blank">ANAF web service</a> · <a href="https://portal.just.ro" rel="noopener" target="_blank">portal.just.ro</a> · <a href="https://insse.ro/cms/ro/caen" rel="noopener" target="_blank">INS — CAEN</a>. Answers are shown as the source gives them and are not legal advice. Searches go to the source through DocVex's server and are not stored.</p>
+  </main>
+
+<script type="module" src="chrome.js"></script>
+<script type="module">
+  import { SUPABASE_URL, SUPABASE_ANON_KEY } from './supabase.js';
+
+  var $ = function (id) { return document.getElementById(id); };
+  var esc = function (s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); };
+  var status = function (id, text, error) { var el = $(id); el.textContent = text || ''; el.classList.toggle('is-error', !!error); };
+
+  // ── Tabs (the choice kept in the address: apis.html#court) ──
+  var tabs = Array.prototype.slice.call(document.querySelectorAll('.ap-tab'));
+  function show(id) {
+    tabs.forEach(function (t) { var on = t.dataset.tab === id; t.classList.toggle('is-on', on); t.setAttribute('aria-selected', on ? 'true' : 'false'); });
+    document.querySelectorAll('.ap-panel').forEach(function (p) { p.hidden = p.dataset.panel !== id; });
+    if (id === 'caen') loadCaen();
+  }
+  tabs.forEach(function (t) { t.addEventListener('click', function () { show(t.dataset.tab); history.replaceState(null, '', '#' + t.dataset.tab); }); });
+  var start = (location.hash || '').slice(1);
+  if (tabs.some(function (t) { return t.dataset.tab === start; })) show(start);
+
+  document.querySelectorAll('.ap-try').forEach(function (b) {
+    b.addEventListener('click', function () {
+      var input = $(b.dataset.fill); input.value = b.dataset.value;
+      input.form.requestSubmit ? input.form.requestSubmit() : input.dispatchEvent(new Event('input'));
+      input.dispatchEvent(new Event('input'));
+    });
+  });
+
+  // ── The proxy (supabase/functions/portal-proxy) ──
+  var ERRORS = {
+    rate_limited: 'Too many searches in a short time. Wait a minute and try again.',
+    timeout: 'The source took too long to answer. Try again.',
+    unreachable: 'The source could not be reached right now.',
+    bad_number: 'That does not look like a court file number (for example 1234/3/2025).',
+    empty_query: 'Type something to search for.',
+    service_fault: 'The source refused the search.',
+  };
+  async function proxy(body) {
+    try {
+      var res = await fetch(SUPABASE_URL + '/functions/v1/portal-proxy', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', apikey: SUPABASE_ANON_KEY, Authorization: 'Bearer ' + SUPABASE_ANON_KEY },
+        body: JSON.stringify(body),
+      });
+      var data = await res.json().catch(function () { return null; });
+      return data || { ok: false, error: 'http_' + res.status };
+    } catch (e) { return { ok: false, error: 'unreachable' }; }
+  }
+  var errorText = function (e) { return ERRORS[e] || ('The search failed (' + e + ').'); };
+
+  // ── ANAF ──
+  var CUI_W = [7, 5, 3, 2, 1, 7, 5, 3, 2];
+  function cuiValid(n) {
+    var d = String(n); if (d.length < 2 || d.length > 10) return false;
+    var body = d.slice(0, -1).padStart(9, '0'), s = 0;
+    for (var i = 0; i < 9; i++) s += Number(body[i]) * CUI_W[i];
+    var c = (s * 10) % 11; if (c === 10) c = 0;
+    return c === Number(d.slice(-1));
+  }
+  var rows = function (pairs) {
+    return '<dl class="ap-rows">' + pairs.filter(function (p) { return p[1]; }).map(function (p) { return '<dt>' + esc(p[0]) + '</dt><dd>' + esc(p[1]) + '</dd>'; }).join('') + '</dl>';
+  };
+  function addr(a) {
+    if (!a) return '';
+    return [a.ddenumire_Strada || a.sdenumire_Strada, a.dnumar_Strada || a.snumar_Strada ? 'nr. ' + (a.dnumar_Strada || a.snumar_Strada) : '', a.ddenumire_Localitate || a.sdenumire_Localitate, a.ddenumire_Judet || a.sdenumire_Judet].filter(Boolean).join(', ');
+  }
+  function companyCard(c) {
+    var g = c.date_generale || {};
+    var tva = c.inregistrare_scop_Tva || {};
+    var rtvai = c.inregistrare_RTVAI || {};
+    var inactiv = c.stare_inactiv || {};
+    var split = c.inregistrare_SplitTVA || {};
+    var pills = [];
+    pills.push(tva.scpTVA ? '<span class="ap-pill ok">VAT payer</span>' : '<span class="ap-pill info">Not a VAT payer</span>');
+    if (rtvai.statusTvaIncasare) pills.push('<span class="ap-pill info">VAT on collection</span>');
+    if (inactiv.statusInactivi) pills.push('<span class="ap-pill bad">Inactive</span>');
+    if (inactiv.dataRadiere) pills.push('<span class="ap-pill bad">Struck off</span>');
+    if (split.statusSplitTVA) pills.push('<span class="ap-pill warn">Split VAT</span>');
+    if (g.statusRO_e_Factura) pills.push('<span class="ap-pill ok">e-Factura</span>');
+    var office = addr(c.adresa_sediu_social) || g.adresa || '';
+    return '<article class="ap-card">' +
+      '<h3>' + esc(g.denumire || '—') + '</h3>' +
+      '<p class="ap-sub">CUI ' + esc(g.cui) + (g.forma_juridica ? ' · ' + esc(g.forma_juridica) : '') + '</p>' +
+      '<div class="ap-pills">' + pills.join('') + '</div>' +
+      rows([
+        ['Registered office', office],
+        ['Trade register', g.nrRegCom],
+        ['Registered', g.data_inregistrare],
+        ['Main CAEN', g.cod_CAEN],
+        ['Status', g.stare_inregistrare],
+        ['Phone', g.telefon],
+        ['Tax office', g.organFiscalCompetent],
+        ['Legal form', g.forma_organizare],
+        ['IBAN', g.iban],
+      ]) +
+      '</article>';
+  }
+  $('anafForm').addEventListener('submit', async function (e) {
+    e.preventDefault();
+    var cuis = ($('anafQ').value.match(/\d{2,10}/g) || []).map(Number);
+    cuis = cuis.filter(function (n, i) { return cuis.indexOf(n) === i; }).slice(0, 10);
+    $('anafOut').innerHTML = '';
+    if (!cuis.length) { status('anafStatus', ERRORS.empty_query, true); return; }
+    var bad = cuis.filter(function (n) { return !cuiValid(n); });
+    if (bad.length === cuis.length) { status('anafStatus', 'Not a valid CUI: the check digit does not match.', true); return; }
+    $('anafGo').disabled = true; status('anafStatus', 'Asking ANAF…');
+    var r = await proxy({ action: 'anaf', cuis: cuis.filter(cuiValid) });
+    $('anafGo').disabled = false;
+    if (!r.ok) { status('anafStatus', errorText(r.error), true); return; }
+    var found = r.found || [];
+    var missing = (r.notFound || []).length + bad.length;
+    status('anafStatus', found.length ? ('As of ' + r.asOf + ' · live from anaf.ro' + (missing ? ' · ' + missing + ' not found' : '')) : 'ANAF has no company with that CUI.');
+    $('anafOut').innerHTML = found.map(companyCard).join('');
+  });
+
+  // ── Courts ──
+  var courts = null;
+  async function courtLabel(id) {
+    if (!courts) { try { courts = await (await fetch('data/courts.json')).json(); } catch (e) { courts = []; } }
+    var c = courts.find(function (x) { return x.id === id; });
+    return c ? c.label : id;
+  }
+  var day = function (s) { var m = /^(\d{4})-(\d{2})-(\d{2})/.exec(s || ''); return m ? m[3] + '.' + m[2] + '.' + m[1] : (s || ''); };
+  async function fileCard(f) {
+    var court = await courtLabel(f.institutie);
+    var hearings = (f.sedinte || []).slice().sort(function (a, b) { return String(b.data).localeCompare(String(a.data)); });
+    return '<article class="ap-card">' +
+      '<h3>Dosar ' + esc(f.numar) + '</h3>' +
+      '<p class="ap-sub">' + esc(court) + (f.departament ? ' · ' + esc(f.departament) : '') + '</p>' +
+      rows([['Subject', f.obiect], ['Category', f.categorie], ['Stage', f.stadiu], ['Registered', day(f.data)], ['Last changed', day(f.modificat)], ['Former number', f.numarVechi]]) +
+      (f.parti && f.parti.length ? '<p class="ap-section">Parties</p><ul class="ap-list">' + f.parti.map(function (p) { return '<li>' + esc(p.nume) + (p.calitate ? ' <span class="ap-muted">· ' + esc(p.calitate) + '</span>' : '') + '</li>'; }).join('') + '</ul>' : '') +
+      (hearings.length ? '<p class="ap-section">Hearings</p><ul class="ap-list">' + hearings.map(function (h) {
+        return '<li><b>' + esc(day(h.data)) + '</b>' + (h.ora ? ' ' + esc(h.ora) : '') + (h.complet ? ' <span class="ap-muted">· ' + esc(h.complet) + '</span>' : '') +
+          (h.solutie ? '<div>' + esc(h.solutie) + '</div>' : '') + (h.sumar ? '<div class="ap-muted">' + esc(h.sumar) + '</div>' : '') + '</li>';
+      }).join('') + '</ul>' : '') +
+      (f.caiAtac && f.caiAtac.length ? '<p class="ap-section">Appeals</p><ul class="ap-list">' + f.caiAtac.map(function (c) { return '<li>' + esc(c.tip) + ' · ' + esc(day(c.data)) + (c.parte ? ' <span class="ap-muted">· ' + esc(c.parte) + '</span>' : '') + '</li>'; }).join('') + '</ul>' : '') +
+      '</article>';
+  }
+  $('courtForm').addEventListener('submit', async function (e) {
+    e.preventDefault();
+    var nr = $('courtQ').value.trim();
+    $('courtOut').innerHTML = '';
+    if (!nr) { status('courtStatus', ERRORS.empty_query, true); return; }
+    $('courtGo').disabled = true; status('courtStatus', 'Asking portal.just.ro…');
+    var r = await proxy({ action: 'court', numar: nr });
+    $('courtGo').disabled = false;
+    if (!r.ok) { status('courtStatus', errorText(r.error), true); return; }
+    var list = r.dosare || [];
+    status('courtStatus', list.length ? ('Live from portal.just.ro' + (r.insecure ? ' (over an unencrypted connection)' : '')) : 'The portal has no file with that number.');
+    var cards = await Promise.all(list.map(fileCard));
+    $('courtOut').innerHTML = cards.join('');
+  });
+
+  // ── CAEN (in the browser) ──
+  var caen = null, caenLoading = null;
+  var LEVEL = { s: 'Section', d: 'Division', g: 'Group', c: 'Class' };
+  var fold = function (s) { return String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[şș]/g, 's').replace(/[ţț]/g, 't').toLowerCase(); };
+  function loadCaen() {
+    if (caen || caenLoading) return caenLoading;
+    status('caenStatus', 'Loading the nomenclature…');
+    caenLoading = fetch('data/caen-rev3.json').then(function (r) { return r.json(); }).then(function (d) {
+      caen = d; status('caenStatus', ''); if ($('caenQ').value) searchCaen();
+    }).catch(function () { status('caenStatus', 'The nomenclature could not be loaded.', true); });
+    return caenLoading;
+  }
+  function entryCard(code) {
+    var it = caen.items[code]; if (!it) return '';
+    var trail = [], p = it.p;
+    while (p && caen.items[p]) { trail.unshift(p + ' ' + caen.items[p].n); p = caen.items[p].p; }
+    var kids = Object.keys(caen.items).filter(function (k) { return caen.items[k].p === code; }).sort();
+    return '<article class="ap-card">' +
+      '<h3><span class="ap-code">' + esc(code) + '</span>' + esc(it.n) + '</h3>' +
+      '<p class="ap-sub">' + esc(LEVEL[it.l] || '') + ' · CAEN Rev. 3' + (trail.length ? ' · ' + esc(trail.join(' › ')) : '') + '</p>' +
+      (kids.length ? '<p class="ap-section">In it</p>' + kids.map(function (k) { return '<button type="button" class="ap-hit" data-code="' + esc(k) + '"><span class="ap-code">' + esc(k) + '</span>' + esc(caen.items[k].n) + '</button>'; }).join('') : '') +
+      '</article>';
+  }
+  function searchCaen() {
+    if (!caen) { loadCaen(); return; }
+    var q = $('caenQ').value.trim(), out = $('caenOut');
+    if (!q) { out.innerHTML = ''; status('caenStatus', ''); return; }
+    var codes = Object.keys(caen.items);
+    var exact = q.toUpperCase();
+    if (caen.items[exact]) { out.innerHTML = entryCard(exact); status('caenStatus', ''); return; }
+    var hits;
+    if (/^\d+$/.test(q)) hits = codes.filter(function (k) { return k.indexOf(q) === 0; });
+    else {
+      var words = fold(q).split(/\s+/).filter(Boolean);
+      hits = codes.filter(function (k) { var n = fold(caen.items[k].n); return words.every(function (w) { return n.indexOf(w) !== -1; }); });
+    }
+    hits.sort(function (a, b) { return a.length - b.length || a.localeCompare(b); });
+    status('caenStatus', hits.length ? (hits.length + (hits.length === 1 ? ' entry' : ' entries')) : 'Nothing matches.');
+    out.innerHTML = '<div>' + hits.slice(0, 80).map(function (k) {
+      return '<button type="button" class="ap-hit" data-code="' + esc(k) + '"><span class="ap-code">' + esc(k) + '</span>' + esc(caen.items[k].n) + '<span class="ap-lvl">' + esc(LEVEL[caen.items[k].l] || '') + '</span></button>';
+    }).join('') + '</div>';
+  }
+  $('caenForm').addEventListener('submit', function (e) { e.preventDefault(); searchCaen(); });
+  $('caenQ').addEventListener('input', searchCaen);
+  $('caenOut').addEventListener('click', function (e) {
+    var b = e.target.closest('[data-code]'); if (!b) return;
+    $('caenQ').value = b.dataset.code; searchCaen();
+  });
+</script>
+</body>
+</html>

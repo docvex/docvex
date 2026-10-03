@@ -1245,7 +1245,7 @@ export default function FilesWorkspace({
   // Several items at once (multi-select, a drop of several on the Trash):
   // (items) => void. One batch, one notification; falls back to onDelete /
   // onRestore per item when not given.
-  onDeleteMany, onRestoreMany, onNewFile, onCreateTypedFile, onAddHighlightsSample, onUpload, onUploadFolder, onOpenLocation,
+  onDeleteMany, onRestoreMany, onNewFile, onCreateTypedFile, onUpload, onUploadFolder, onOpenLocation,
   // A waiting phone file (item.incoming): (item, 'accept' | 'reject').
   onIncoming,
   onEmptyBin,
@@ -2322,9 +2322,10 @@ export default function FilesWorkspace({
         label: 'Create',
         submenu: [
           { key: 'newfolder', label: <><Icon name="folder-plus" className="fx-icon" /> New folder</>, onClick: () => requestNewFolder() },
-          // One entry, no type: the file is created without an extension and
-          // becomes Word / PowerPoint / Excel / PDF from what the user asks for.
-          onCreateTypedFile && { key: 'document', label: <><Icon name="file-doc" className="fx-icon" /> Document</>, onClick: () => onCreateTypedFile('auto') },
+          // A DRAFT (.dvdraft, lib/draftFile): DocVex's own document file — the
+          // text, its versions and the AI conversation in one file; the Word
+          // file is made from it (the viewer's "To Word").
+          onCreateTypedFile && { key: 'draft', label: <><Icon name="file-doc" className="fx-icon" /> Draft</>, onClick: () => onCreateTypedFile('draft') },
           // A PDF is made FROM a document: opening it asks which one to convert.
           onCreateTypedFile && { key: 'pdf', label: <><Icon name="file-pdf" className="fx-icon" /> PDF</>, onClick: () => onCreateTypedFile('pdf') },
         ].filter(Boolean),
@@ -3102,11 +3103,11 @@ export default function FilesWorkspace({
                         <Icon name="folder-plus" className="fx-icon" /> New folder
                       </button>
                       {onCreateTypedFile && (
-                        // One entry, no type: the file is created without an
-                        // extension and becomes Word / PowerPoint / Excel / PDF
-                        // from what the user asks for when they open it.
-                        <button onClick={() => { setCreateMenuOpen(false); onCreateTypedFile('auto'); }}>
-                          <Icon name="file-doc" className="fx-icon" /> Document
+                        // A DRAFT (lib/draftFile): the document, its versions
+                        // and the AI conversation in one file; "To Word" in
+                        // the viewer makes the Word file from it.
+                        <button onClick={() => { setCreateMenuOpen(false); onCreateTypedFile('draft'); }}>
+                          <Icon name="file-doc" className="fx-icon" /> Draft
                         </button>
                       )}
                       {/* A PDF is made FROM a document: opening it asks which
@@ -3122,13 +3123,6 @@ export default function FilesWorkspace({
                 <button className="fx-tb-btn" disabled={!canEdit} onClick={() => onUpload?.()}>
                   <Icon name="upload" className="fx-icon" /><span>Import</span>
                 </button>
-                {onAddHighlightsSample && (
-                  <Tooltip content="Add a Word document showing every highlight the file viewer draws — laws, codes, CAEN codes, CUIs, cross-references and empty fields">
-                    <button className="fx-tb-btn" disabled={!canEdit} onClick={() => onAddHighlightsSample()}>
-                      <Icon name="file-doc" className="fx-icon" /><span>Highlights sample</span>
-                    </button>
-                  </Tooltip>
-                )}
                 <div className="fx-tb-sep" />
                 <button className="fx-tb-btn" disabled={!selectedItem} onClick={(e) => selectedItem && openItem(selectedItem, e)}>
                   <Icon name="open" className="fx-icon" /><span>Open</span>

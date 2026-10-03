@@ -5,9 +5,9 @@ import LegalTabs from '../components/LegalTabs';
 import Tooltip from '../components/Tooltip';
 import { useAuth } from '../context/AuthContext';
 import { useSelectedProject } from '../context/SelectedProjectContext';
-import { exactMatchPage, projectContext, prepareTurn, askAi, historyTurns, withData, withStyle, warmTurn, withLimit, TIMEOUT, aiModel, modelName, viewForRef, AI_PROMPTS } from '../lib/aiEngine';
+import { exactMatchPage, projectContext, prepareTurn, askAi, historyTurns, withData, withStyle, warmTurn, withLimit, TIMEOUT, aiModel, modelName, AI_PROMPTS } from '../lib/aiEngine';
 import AiControls, { useAiSettings } from '../components/AiControls';
-import AiAnswer, { AiRefPill } from '../components/AiAnswer';
+import AiAnswer from '../components/AiAnswer';
 import { SourcesReviewed, searchLabel } from '../components/WebSources';
 import { useMultilinePills } from '../components/AiChoices';
 import SourcesModal from '../components/SourcesModal';
@@ -17,7 +17,6 @@ import { toLayoutPx } from '../lib/appZoom';
 import { platformsFor, searchPlatform } from '../lib/legalSearch';
 import { PLATFORMS, takeRecord } from '../lib/legalBrowser';
 import ResearchDrawer, { viewForRow, recordText } from './ResearchDrawer';
-import { setLawRefOpener } from '../lib/lawDrawer';
 import RuleOptions from '../components/RuleOptions';
 import ThinkingStatus from '../components/AiThinking';
 import { useChatFind } from '../lib/useChatFind';
@@ -259,14 +258,14 @@ function FixedAnswer({ legal, onOpen, mode = 'portal', pick = 0, onMode, summary
         // status line under it while it searches or before the first words.
         summarizing ? (
           <>
-            {streamText ? <AiAnswer text={streamText} sources={summarizing.sources} streaming revealKey={revealKey} onTick={onTick} onRef={(hit) => onOpen(viewForRef(hit))} className="rs-summary" /> : null}
+            {streamText ? <AiAnswer text={streamText} sources={summarizing.sources} streaming revealKey={revealKey} onTick={onTick} className="rs-summary" /> : null}
             {!streamText || /^Searching/.test(summarizing.label || '') ? <ThinkingStatus query="summary" label={summarizing.label || ''} /> : null}
           </>
         ) : summary?.error ? (
           <p className="rs-error">{summary.error}</p>
         ) : summary?.text ? (
           <>
-            <AiAnswer text={summary.text} sources={summary.sources} revealKey={revealKey} onTick={onTick} onRef={(hit) => onOpen(viewForRef(hit))} className="rs-summary" />
+            <AiAnswer text={summary.text} sources={summary.sources} revealKey={revealKey} onTick={onTick} className="rs-summary" />
             <SourcesReviewed sources={summary.sources} />
           </>
         ) : (
@@ -392,13 +391,6 @@ export default function Research() {
   const openFresh = (v) => { if (v) setDrawer([v]); };
   const closeDrawer = React.useCallback(() => setDrawer([]), []);
   const backDrawer = () => setDrawer((st) => st.slice(0, -1));
-  // A legislation reference pressed ANYWHERE while Research is on screen
-  // (lib/lawDetect, the app-wide layer) opens in Research's own drawer — one
-  // view deeper when it is open.
-  useEffect(() => setLawRefOpener((hit) => {
-    const v = viewForRef(hit);
-    if (v) setDrawer((st) => (st.length ? [...st, v] : [v]));
-  }), []);
 
   // ── The rail (the Advisor's): width, hidden, handed to the app sidebar ──
   const [railWidth, setRailWidth] = useState(readAskRailWidth);
@@ -814,8 +806,7 @@ export default function Research() {
   const header = (
     <>
       <LegislationMasthead />
-      {/* The Legislation entry's tab row: Ask (this page) first, then every
-          source (components/LegalTabs LEGISLATION_ROW). */}
+      {/* The mini header (no tab row: the Legislation entry is Ask alone). */}
       <LegalTabs
         className="aichat-bar"
         tools={(
@@ -921,7 +912,6 @@ export default function Research() {
               revealKey={i === messages.length - 1 ? `rs:${activeId}` : undefined}
               onTyped={() => setTyping(null)}
               onTick={scrollToBottom}
-              onRef={(hit) => openFresh(viewForRef(hit))}
             />
           )}
         {!m.isError && !isTyping ? <SourcesReviewed sources={m.sources} /> : null}
@@ -974,7 +964,6 @@ export default function Research() {
           <div className="aichat-thread-col">
             <div className="aichat-main" ref={threadRef}>
               {/* Legislation in an answer: its hover pill (a click opens the drawer). */}
-              <AiRefPill hostRef={threadRef} />
               {messages.length === 0 && !busy && (
                 <div className="aichat-convo-empty">
                   <section className="lss-card">
@@ -1032,7 +1021,7 @@ export default function Research() {
                         {runner.stream[activeId]
                           ? (
                             <>
-                              <AiAnswer text={runner.stream[activeId]} sources={busy.sources} streaming revealKey={`rs:${activeId}`} onTick={scrollToBottom} onRef={(hit) => openFresh(viewForRef(hit))} />
+                              <AiAnswer text={runner.stream[activeId]} sources={busy.sources} streaming revealKey={`rs:${activeId}`} onTick={scrollToBottom} />
                               {/* A search started mid-answer says so under what is written. */}
                               {busy.phase === 'search' ? <ThinkingStatus query="search" label={busyLabel} /> : null}
                             </>

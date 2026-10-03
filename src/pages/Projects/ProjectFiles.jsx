@@ -2453,35 +2453,6 @@ export default function ProjectFiles({ embedded = false } = {}) {
   // Create new <type> file → write an empty styled Office file of the chosen kind
   // (docx / pptx / xlsx) to disk, then open it in a Doc Viewer window with the AI
   // generator armed (generate:true) so the user describes what they want and
-  // The toolbar's "Highlights sample": a Word document holding every highlight
-  // the file viewer draws (lib/highlightsSample), written into the folder on
-  // show under a free name — never over a file — and selected.
-  const fxAddHighlightsSample = async () => {
-    if (!localFolder) { notify({ category: 'file', variant: 'info', title: 'Connect a folder first', body: 'Choose a folder on your computer, then you can add the sample to it.', dedupeKey: 'fx-hlsample-nofolder' }); return; }
-    const { buildHighlightsSampleDocx, HIGHLIGHTS_SAMPLE_NAME } = await import('../../lib/highlightsSample');
-    const existing = new Set((viewLocalFiles || []).map((f) => String(f.name || '').toLowerCase()));
-    const stem = HIGHLIGHTS_SAMPLE_NAME.replace(/\.docx$/i, '');
-    let filename = HIGHLIGHTS_SAMPLE_NAME;
-    for (let n = 2; existing.has(filename.toLowerCase()); n += 1) filename = `${stem} (${n}).docx`;
-    const dir = currentDir;
-    const ids = beginOps([{ type: 'add', isDir: false, path: joinPath(dir, filename), entry: { sizeBytes: 0, mtimeIso: new Date().toISOString() } }]);
-    try {
-      const blob = await buildHighlightsSampleDocx();
-      const { results, error } = await callDisk(() => localFolderApi.writeFiles({ dir, files: [{ filename, blob }] }));
-      const res = results?.[0];
-      if (error || !res?.ok || !res?.path) {
-        endOps(ids);
-        notify({ category: 'file', variant: 'error', title: 'Couldn’t add the highlights sample', body: error || res?.error || 'The file could not be written in this folder.', dedupeKey: 'fx-hlsample-error' });
-        return;
-      }
-      await settleOps(ids, { dirs: [dir], expect: [res.path] });
-      notify({ category: 'file', variant: 'success', icon: 'plus', title: 'Highlights sample added', body: `“${filename}” — open it to see every highlight.`, silent: true, payload: actMeta('create', filename, { filePath: res.path }) });
-    } catch (err) {
-      endOps(ids);
-      notify({ category: 'file', variant: 'error', title: 'Couldn’t add the highlights sample', body: String(err?.message || err), dedupeKey: 'fx-hlsample-error' });
-    }
-  };
-
   // Claude builds it. Uses a unique "Untitled" name so repeated creates don't
   // collide. Backs the "Create new file" dropdown in the Files toolbar.
   const fxCreateTypedFile = async (kind) => {
@@ -2490,7 +2461,10 @@ export default function ProjectFiles({ embedded = false } = {}) {
     // empty file with NO extension. Opening it lands on "What do you want to
     // make?", and the advisor picks Word / PowerPoint / Excel / PDF from what
     // the user asks for, renaming the file to match when it writes it.
-    const ext = kind === 'auto' ? '' : (['pptx', 'xlsx', 'pdf'].includes(kind) ? kind : 'docx');
+    // 'draft' (the Create menu's "Draft"): DocVex's own document file
+    // (lib/draftFile) — the text, its versions and the AI conversation in one
+    // file, the Word file made from it on request.
+    const ext = kind === 'draft' ? 'dvdraft' : kind === 'auto' ? '' : (['pptx', 'xlsx', 'pdf'].includes(kind) ? kind : 'docx');
     const suffix = ext ? `.${ext}` : '';
     // Pick the first free "Untitled[ n]" against the current folder listing. A
     // wildcard also steers clear of "Untitled.docx" and friends — it is about
@@ -2513,7 +2487,9 @@ export default function ProjectFiles({ embedded = false } = {}) {
     try {
       // A PDF starts as zero bytes too: it isn't written, it's converted from
       // another file, and an empty file is what makes the viewer ask which.
-      const blob = (ext && ext !== 'pdf')
+      const blob = ext === 'dvdraft'
+        ? (await import('../../lib/draftFile')).draftBlob((await import('../../lib/draftFile')).emptyDraft())
+        : (ext && ext !== 'pdf')
         ? await emptyDocumentBlob(ext)
         : new Blob([''], { type: ext === 'pdf' ? 'application/pdf' : 'application/octet-stream' });
       const { results, error } = await callDisk(() => localFolderApi.writeFiles({ dir, files: [{ filename, blob }] }));
@@ -2698,7 +2674,6 @@ export default function ProjectFiles({ embedded = false } = {}) {
     onNewFolder: fxNewFolder,
     onNewFile: (hasLocalFolderApi && filesTab === 'drafts' && Boolean(localFolder)) ? fxNewFile : undefined,
     onCreateTypedFile: (hasLocalFolderApi && filesTab === 'drafts' && Boolean(localFolder)) ? fxCreateTypedFile : undefined,
-    onAddHighlightsSample: (hasLocalFolderApi && filesTab === 'drafts' && Boolean(localFolder)) ? fxAddHighlightsSample : undefined,
     renameTargetPath,
     onRenameTargetConsumed: () => setRenameTargetPath(null),
     selectTargetPath,

@@ -1,5 +1,4 @@
 import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { useLocation, useNavigate } from 'react-router-dom';
 import FilterTabs from './FilterTabs';
 import MiniHeaderFade from './MiniHeaderFade';
 import Tooltip from './Tooltip';
@@ -70,11 +69,6 @@ const DownGlyph = (
   </svg>
 );
 const isMacPlatform = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform || '');
-
-// The tab the bar was on last — each tab is a route, so the bar mounts afresh
-// with every switch; this is how the new one knows where the underline was
-// (to slide from it) and which way the content should enter.
-let lastActive = null;
 
 export const LEGAL_TAB_PATHS = LEGAL_TABS.map((t) => t.to);
 // THE TAB ROW of the Legislation entry (2026-10-02): ASK — the conversation
@@ -230,19 +224,6 @@ export function LegalSearchBox({ search, className = '', hotkey = true }) {
 // `line2`: false leaves the second line out altogether — a bar whose page
 // has nothing to put under the hairline is its rows alone.
 export default function LegalTabs({ search = null, tools = null, status = null, trailing = null, noSearch = false, dropSearch = false, onPinnedChange = null, standalone = false, ownTabs = null, rows = null, line2 = true, className = '' }) {
-  const navigate = useNavigate();
-  const { pathname } = useLocation();
-  const active = LEGISLATION_ROW.find((t) => t.to === pathname)?.id ?? LEGISLATION_ROW[0].id;
-
-  // Where the bar came from (captured once, at mount): the underline slides
-  // from that tab, and the content under the bar enters from the side the
-  // underline travelled toward — the Activity tab's feed slide. Nothing
-  // moves on a first arrival.
-  const [from] = useState(() => lastActive);
-  useEffect(() => { if (!standalone) lastActive = active; }, [active, standalone]);
-  const idx = (id) => LEGISLATION_ROW.findIndex((t) => t.id === id);
-  const dir = from && from !== active ? Math.sign(idx(active) - idx(from)) : 0;
-
   // Pinned = actually stuck at the scroller's top (rect-based, like every
   // other mini header) — paints the frosted surface.
   const [pinned, setPinned] = useState(false);
@@ -269,31 +250,17 @@ export default function LegalTabs({ search = null, tools = null, status = null, 
     return () => { el.removeEventListener('scroll', onScroll); if (raf) cancelAnimationFrame(raf); };
   }, []);
 
-  // A source not connected yet is still a tab (its page says what it will do),
-  // drawn a little quieter.
-  const tabs = LEGISLATION_ROW.map((t) => ({ id: t.id, label: t.label, className: t.stub ? 'is-planned' : '' }));
-
+  // NO TAB ROW (2026-10-03): the Legislation entry is Ask alone. The source
+  // pages keep their routes (opened from the list, a citation, a link) but
+  // are no longer tabs — the bar is the second line only, as a mini header.
   return (
     <>
       <MiniHeaderFade visible={pinned} />
-      <div ref={barRef} className={`lgt-bar${pinned ? ' is-pinned' : ''}${standalone && !ownTabs && !rows ? ' is-standalone' : ''}${!standalone && dir > 0 ? ' is-enter-right' : !standalone && dir < 0 ? ' is-enter-left' : ''}${className ? ` ${className}` : ''}`}>
+      <div ref={barRef} className={`lgt-bar${pinned ? ' is-pinned' : ''}${!ownTabs && !rows ? ' is-standalone' : ''}${className ? ` ${className}` : ''}`}>
       {rows ? rows.filter(Boolean).map((r, i) => <div key={i} className="lgt-row lgt-row-own">{r}</div>) : null}
       {ownTabs ? <div className="lgt-row">
         <FilterTabs tabs={ownTabs.tabs} active={ownTabs.active} onSelect={ownTabs.onSelect} ariaLabel="Views" />
       </div> : null}
-      {!standalone && !ownTabs && <div className="lgt-row">
-        <FilterTabs
-          tabs={tabs}
-          active={active}
-          fromId={from}
-          onSelect={(id) => {
-            const t = LEGISLATION_ROW.find((x) => x.id === id);
-            if (t && t.to !== pathname) navigate(t.to);
-          }}
-          ariaLabel="Legislation"
-        />
-        {status ? <div className="lgt-status">{status}</div> : null}
-      </div>}
       {/* The mini header's SECOND LINE, under the hairline: a page's own
           controls at the left (the CAEN view switch, the courts' mode
           switch — when the page has one) and the search at the right, as
@@ -305,7 +272,7 @@ export default function LegalTabs({ search = null, tools = null, status = null, 
             its search back (the Legislation tab's find, on opening an act). */}
         {noSearch && dropSearch ? null : <LegalSearchBox search={noSearch ? null : search} className={noSearch ? 'is-hidden' : ''} />}
         {/* With no tabs row, the page's status pill stands on this line. */}
-        {(standalone || ownTabs) && !rows && status ? <div className="lgt-status">{status}</div> : null}
+        {!rows && status ? <div className="lgt-status">{status}</div> : null}
         {trailing}
       </div> : null}
       </div>

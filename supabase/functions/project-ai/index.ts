@@ -862,11 +862,10 @@ async function handleOffice(body: {
   const userText =
     `Create a polished, professional ${kind.toUpperCase()} file from the content/spec below. ` +
     `${designGuide}` +
-    `Reproduce the content faithfully — in particular, keep every bracketed placeholder such as ` +
-    `[[the information that the user needs to provide]] EXACTLY as written, doubled brackets included, ` +
-    `as visible text. ` +
-    `Do not resolve, invent, delete or restyle them into underscores or blank gaps: they are the fields the ` +
-    `user fills in later. ` +
+    `Reproduce the content faithfully — in particular, keep every blank left for the user to fill in ` +
+    `(a run of underscores "_____", a run of dots ".........", or either inside square brackets) EXACTLY as ` +
+    `written, as visible text. Do not resolve, invent, delete or restyle them: they are the fields the user ` +
+    `fills in later. ` +
     `Build the COMPLETE file and SAVE it to disk with a .${kind} extension. This is the most important step — do not finish until the file is written. Output ONLY the file.\n\n` +
     (instructions ? `Additional instructions: ${instructions}\n\n` : "") +
     `CONTENT / SPEC:\n${content}`;

@@ -287,9 +287,8 @@ export function fieldsFromAnaf(c) {
 }
 
 // ── The prompt ──────────────────────────────────────────────────────────────
-// A party's details as the record keys the blanks are named by — the drafter
-// writes a value where it knows one and `[[role.key]]` where it does not (the
-// Doc Viewer fills those from a record afterwards).
+// A party's details, keyed by the record's field names — the drafter writes a
+// value where it knows one and the Playbook's blank where it does not.
 function partyLines(p, records) {
   const role = String(p.role || '').trim();
   const unknown = [`- ${role}: ${p.kind === 'org' ? 'persoană juridică' : p.kind === 'person' ? 'persoană fizică' : ''} — date necunoscute, lasă spații de completat`];
@@ -333,13 +332,16 @@ function answerText(q, a) {
 export function buildBriefPrompt({ template, custom, answers, records = [], collections = [], presets = [], activePresetId }) {
   const ctx = { family: briefFamily(template), template };
   const title = String(answers.title?.text || '').trim() || template?.label || custom || '';
-  const base = template ? templatePrompt(template) : customPrompt(title || custom);
+  // The empty-field style: the picked preset's, else the rules in use.
+  const pickedPreset = presets.find((p) => p.id === answers.preset?.choice?.[0]);
+  const blankRules = pickedPreset?.rules || undefined;
+  const base = template ? templatePrompt(template, { rules: blankRules }) : customPrompt(title || custom, { rules: blankRules });
   const out = [base, '', '# Detaliile documentului, date de utilizator', ''];
   if (title) out.push(`Titlul documentului: ${title}`, '');
 
   const parties = answers.parties?.parties || [];
   if (parties.length) {
-    out.push('Părțile — blocul de identificare (folosește datele de mai jos acolo unde sunt date; pentru persoane juridice: denumire, formă, sediu, nr. ORC, CUI, IBAN, bancă, reprezentant legal; pentru persoane fizice: nume, prenume, domiciliu, CNP, serie și număr CI; orice lipsește rămâne spațiu de completat numit după rolul părții):');
+    out.push('Părțile — blocul de identificare (folosește datele de mai jos acolo unde sunt date; pentru persoane juridice: denumire, formă, sediu, nr. ORC, CUI, IBAN, bancă, reprezentant legal; pentru persoane fizice: nume, prenume, domiciliu, CNP, serie și număr CI; orice lipsește rămâne spațiu de completat, în forma de mai sus):');
     for (const p of parties) out.push(...partyLines(p, records));
     out.push('');
   }

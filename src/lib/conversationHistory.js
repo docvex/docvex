@@ -194,14 +194,87 @@ function parseRecord(raw) {
   }
 }
 
+// ── A conversation FOLLOWS a generate-time rename ──────────────────────────
+// A new document is a wildcard ("Untitled 3") that the AI renames once it knows
+// the kind ("Untitled 3.docx"). The viewer goes on showing — and saving under —
+// the old path for a moment after the rename, so the messages landed under the
+// old name and the new name kept only the version: reopening the file showed an
+// empty thread (2026-10-03). Now the old path REDIRECTS to the new one for the
+// rest of the session, and a record found split that way is joined back.
+const renamedTo = new Map(); // folded old path → new path
+function resolvePath(filePath) {
+  let p = filePath;
+  for (let i = 0; i < 8; i += 1) {
+    const next = renamedTo.get(folded(p));
+    if (!next || folded(next) === folded(p)) break;
+    p = next;
+  }
+  return p;
+}
+const threadOf = (rec) => !!rec && (rec.messages.length
+  || (rec.branches || []).some((b) => Array.isArray(b.messages) && b.messages.length));
+
+// Join an older record (the messages, saved under the wildcard path) into the
+// newer one (the versions, saved under the renamed path): messages / branches
+// from whichever has them, versions merged by number (the newer wins).
+function joinRecords(main, extra) {
+  const useExtraThread = !threadOf(main) && threadOf(extra);
+  const byN = new Map();
+  for (const v of extra.versions || []) byN.set(v.n, v);
+  for (const v of main.versions || []) byN.set(v.n, v);
+  const out = {
+    messages: useExtraThread ? extra.messages : main.messages,
+    versions: [...byN.values()].sort((a, b) => (a.n || 0) - (b.n || 0)),
+    updatedAt: Date.now(),
+  };
+  const br = useExtraThread ? extra.branches : main.branches;
+  if (br) { out.branches = br; out.activeBranchId = (useExtraThread ? extra.activeBranchId : main.activeBranchId) || undefined; }
+  const paras = { ...(extra.paraThreads || {}), ...(main.paraThreads || {}) };
+  if (Object.keys(paras).length) out.paraThreads = paras;
+  return out;
+}
+
+/** The file at `oldPath` is now `newPath` (a generate-time rename): move its
+ *  conversation across and send every later save of the old path there. */
+export function followRename(oldPath, newPath) {
+  if (!oldPath || !newPath || folded(oldPath) === folded(newPath)) return false;
+  renamedTo.set(folded(oldPath), newPath);
+  const old = parseRecord(readRaw(oldPath));
+  if (!old) return false;
+  const cur = parseRecord(readRaw(newPath));
+  writeRecord(newPath, cur ? joinRecords(cur, old) : { ...old, updatedAt: Date.now() });
+  removeRecord(oldPath);
+  return true;
+}
+
+// A record saved before this fix: the versions under "X.docx", the messages
+// under "X" (the same document before its extension). Joined only when the two
+// share a version's text, so an unrelated extension-less file is never borrowed.
+function recoverSplit(filePath, rec) {
+  if (!rec || threadOf(rec)) return rec;
+  const stem = String(filePath).replace(/\.[a-z0-9]{2,5}$/i, '');
+  if (stem === String(filePath)) return rec;
+  const old = parseRecord(readRaw(stem));
+  if (!threadOf(old)) return rec;
+  const texts = new Set((old.versions || []).map((v) => v.text).filter(Boolean));
+  if (!(rec.versions || []).some((v) => v.text && texts.has(v.text))) return rec;
+  const joined = joinRecords(rec, old);
+  writeRecord(filePath, joined);
+  removeRecord(stem);
+  return parseRecord(joined);
+}
+
 // Returns { messages: [...], versions: [...], updatedAt } | null.
 export function loadConversation(filePath) {
   if (!filePath) return null;
-  return parseRecord(readRaw(filePath));
+  const p = resolvePath(filePath);
+  return recoverSplit(p, parseRecord(readRaw(p)));
 }
 
-export function saveConversation(filePath, { messages, versions, branches, activeBranchId, paraThreads }) {
-  if (!filePath) return false;
+export function saveConversation(filePathIn, { messages, versions, branches, activeBranchId, paraThreads }) {
+  if (!filePathIn) return false;
+  // A save of a path that was renamed goes to its new name.
+  const filePath = resolvePath(filePathIn);
   const msgs = Array.isArray(messages) ? messages : [];
   const vers = Array.isArray(versions) ? versions : [];
   const brs = Array.isArray(branches) ? branches : null;

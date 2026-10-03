@@ -125,7 +125,7 @@ export default function AiSettings() {
   const steer = useDraftingSteer(view === 'prompts');
   const picked = loadAiModel();
   const files = loadAiProjectFiles();
-  const sample = 'Art. 1. Vânzătorul vinde, iar cumpărătorul cumpără imobilul situat în [[adresa]].';
+  const sample = 'Art. 1. Vânzătorul vinde, iar cumpărătorul cumpără imobilul situat în _____.';
 
   return (
     <section className="debug-icons debug-arc">

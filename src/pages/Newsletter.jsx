@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import './Newsletter.css';
 import LegalWorkspace from '../components/LegalWorkspace';
+import { openLawView } from '../lib/lawDrawer';
 import { LegalSearchBox } from '../components/LegalTabs';
 import {
   listLegalUpdates,
@@ -285,14 +286,12 @@ export default function Newsletter() {
     setItems((arr) => arr.map((i) => (i.id === item.id ? { ...i, unread: false } : i)));
     setUpdateRead(item.id, true);
   };
-  // The act itself. The Legislation tab searches the ministry's own service by
-  // kind, number and year and opens the act when the answer is unambiguous
-  // (`open=1`); an act with no number (a set of norms) goes to the
+  // The act itself, read from the ministry's service into the side drawer
+  // (lib/lawDrawer); an act with no number (a set of norms) goes to the
   // portal page the row was written from.
   const openAct = (act) => {
     if (isElectron && act.number && act.year) {
-      const p = new URLSearchParams({ tip: act.type, nr: act.number, an: act.year, open: '1' });
-      navigate(`/legislation?${p.toString()}`);
+      openLawView({ type: 'act', q: { tip: act.type || '', numar: String(act.number), an: String(act.year), titlu: '' }, label: `${act.type || 'Act'} ${act.number}/${act.year}` });
       return;
     }
     if (act.url) openExternal(act.url);

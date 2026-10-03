@@ -79,6 +79,7 @@ router):
 
   Other sub-page **navbars are the homepage's navbar** (see below); page bodies
   + footer still use the older Cream/Ink chrome styling.
+- `apis.html` (nav **APIs**) — search the public sources the app's AI reads: ANAF and court files (by file number only) through the `portal-proxy` Edge Function, CAEN in the browser from `data/caen-rev3.json` (a copy of the app's `src/lib/caenRev3.json` — re-copy when INS publishes a new edition), legislatie.just.ro as a notice (it blocks Supabase's servers).
 - `chrome.js` — shared site chrome injected into the **sub-pages** (the
   homepage has its own inline copy of the same navbar). `navbarHTML()` emits
   the homepage navbar (round logo + DOCVEX wordmark; links Home / Company /

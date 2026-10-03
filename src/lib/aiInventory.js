@@ -29,7 +29,7 @@ export const AI_SURFACES = {
   files: { name: 'Files tab (AI scan, search)', route: '/files' },
   insights: { name: 'Insights', route: '/files' },
   pictures: { name: 'Pictures & scans', route: '/doc-viewer' },
-  legislation: { name: 'Legislation tab', route: '/legislation' },
+  legislation: { name: 'Legislation (Ask)', route: '/research' },
   newsletter: { name: 'Newsletter', route: '/newsletter' },
   playbook: { name: 'Playbook', route: '/playbook' },
   design: { name: 'Design system tab', route: '/design' },

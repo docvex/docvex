@@ -163,31 +163,7 @@
 .lg-reader-tools { display: flex; align-items: center; gap: 4px; margin-left: auto; margin-right: -9px; flex: none; }
 /* ── Find in the act ── every occurrence of the words in the tab bar's box,
    marked where it stands; the current one in the accent. */
-/* A reference in the act made pressable where it stands (`marked` in
-   Legislation.jsx): a button that is nothing but the words with a wash
-   behind them and a rule under them — background layers only, no padding,
-   no font change, so marking cannot re-wrap a line. Three kinds, as the Doc
-   Viewer draws them: an ACT or code in the accent (opens here), a CAEN code
-   in amber (the nomenclature, in a modal), a COURT FILE number in the info
-   colour (the Court files tab). Hover deepens the wash. */
-.lg-ref {
-  display: inline; margin: 0; padding: 0; border: 0;
-  font: inherit; color: inherit; text-align: inherit; line-height: inherit;
-  cursor: pointer; border-radius: 2px;
-  /* Each kind in its PLATFORM's colour (lib/legalBrowser PLATFORMS): an act
-     legislatie.just.ro's violet, CAEN insse.ro's amber, a court file
-     portal.just.ro's blue, a CUI anaf.ro's green. */
-  --ref: var(--cat-update); --ref-wash: 12%;
-  background-image: linear-gradient(var(--ref), var(--ref));
-  background-size: 100% 1.4px; background-position: 0 100%; background-repeat: no-repeat;
-  background-color: color-mix(in srgb, var(--ref) var(--ref-wash), transparent);
-  transition: background-color 120ms ease;
-}
-.lg-ref:hover { --ref-wash: 24%; }
-.lg-ref:focus-visible { outline: 2px solid var(--ref); outline-offset: 1px; }
-.lg-ref.is-caen { --ref: var(--warning); --ref-wash: 16%; }
-.lg-ref.is-case { --ref: var(--info); --ref-wash: 14%; }
-.lg-ref .lg-hit { border-radius: 0; }
+.lg-hit { border-radius: 0; }
 .lg-hit {
   padding: 0 1px; border-radius: 2px;
   background: color-mix(in srgb, var(--accent) 22%, transparent);
@@ -463,7 +439,6 @@
 @media (max-width: 760px) {
   .lg-act { padding: 20px 18px 30px; }
 }
-.lg-ref.is-cui { --ref: var(--success); --ref-wash: 14%; }
 
 /* LOADING — a spinner with a line of text, shown only once something has
    taken a moment (LoadingNote): reading an act, getting the portal's

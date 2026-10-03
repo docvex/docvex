@@ -380,6 +380,24 @@ export const blankFor = (id) => {
   }
 };
 
+/**
+ * The empty-field instruction for a drafting prompt (lib/docTemplates,
+ * lib/docBrief), in Romanian like the prompts it joins: the Playbook's CHOSEN
+ * blank shape (`blanks`), whether or not its rules are switched on — the
+ * shape of a gap is never left to the model. Unnamed on purpose: no
+ * [[field]] tokens.
+ */
+export function blankRuleRo(rules = loadDocRules()) {
+  const b = blankFor(normalizeRules(rules).blanks);
+  return 'Nu inventa date. Fiecare informație care nu ți-a fost dată (un nume, un CNP, o adresă, un preț, '
+    + `un termen, o dată) rămâne spațiu de completat, scris EXACT așa: „${b}”. Câte un spațiu separat pentru `
+    + `fiecare informație — de exemplu: domiciliat în ${b}, str. ${b}, nr. ${b}, CNP ${b}. `
+    + 'Nu folosi nicio altă formă pentru un spațiu gol: nici paranteze duble cu nume de câmp, nici „[...]”, '
+    + 'nici acolade, paranteze unghiulare sau „TBD”. '
+    + 'GEN: păstrează formulele care acoperă ambele variante — „Domnul/Doamna”, „domiciliat(ă)”, '
+    + '„identificat(ă)” — atunci când nu știi genul părții.';
+}
+
 const markerFor = (id, i) => {
   switch (id) {
     case 'letterDot': return `${LETTERS[i]}.`;

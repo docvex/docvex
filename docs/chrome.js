@@ -67,6 +67,7 @@ function navbarHTML() {
         '<a href="index.html">Home</a>' +
         '<a href="company.html">Company</a>' +
         '<a href="legal.html">Legal</a>' +
+        '<a href="apis.html">APIs</a>' +
         '<a href="installers.html">Download</a>' +
       '</nav>' +
       '<div class="dvx-actions">' +

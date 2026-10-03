@@ -185,7 +185,9 @@ function PartyCard({ party, index, canRemove, onChange, onRemove }) {
   );
 }
 
-export default function DocBrief({ template, custom, hint, onBack, onGenerate, busy }) {
+// `panel`: answered in the Doc Viewer's side panel (a draft's brief) — the same
+// questions, laid out for a narrow column.
+export default function DocBrief({ template, custom, hint, onBack, onGenerate, busy, panel = false }) {
   const presets = useMemo(() => loadRulePresets(), []);
   const activePresetId = useMemo(() => presetInUse(presets, loadDocRules(), loadActivePresetId())?.id || null, [presets]);
   const ctx = useMemo(() => ({ family: briefFamily(template), template }), [template]);
@@ -314,7 +316,7 @@ export default function DocBrief({ template, custom, hint, onBack, onGenerate, b
   };
 
   return (
-    <div className="dbr-root" ref={scrollRef}>
+    <div className={`dbr-root${panel ? ' is-panel' : ''}`} ref={scrollRef}>
       <div className="dbr-inner">
         <button type="button" className="dbr-back" onClick={onBack} disabled={busy}>
           <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M15 18l-6-6 6-6" /></svg>
@@ -346,6 +348,7 @@ export default function DocBrief({ template, custom, hint, onBack, onGenerate, b
         </ol>
 
         <div className="dbr-stage" key={step.id}>
+          {panel && <h2 className="dbr-stage-title">{step.n}. {step.title} <span>{step.ask}</span></h2>}
           <p className="dbr-stage-sub">{step.sub}</p>
           {stepQs(step.id).map(renderQuestion)}
         </div>

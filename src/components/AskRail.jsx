@@ -1,5 +1,4 @@
 import React, { useEffect, useState, useSyncExternalStore } from 'react';
-import { useLocation, useNavigate } from 'react-router-dom';
 import { createPortal } from 'react-dom';
 import Tooltip from './Tooltip';
 import { useItemSpots } from './DocRibbon';
@@ -7,7 +6,6 @@ import { useRailSpotlight } from '../lib/pointerSpots';
 import { researchStore } from '../lib/researchChats';
 import { subscribeRunner, runnerState, isThreadBusy } from '../lib/researchRunner';
 import { isBlankChat } from '../lib/advisorChats';
-import { isSourceEntry, isEntryActive, openEntry, closeEntry, subscribeWorkspaces, workspacesSnapshot } from '../lib/legislationEntries';
 import { ICONS as I } from '../pages/Projects/aiHub';
 import { RailToggle } from './LegalTabs';
 
@@ -102,9 +100,6 @@ function highlightMatch(text, q) {
 export default function AskRail({ railRef, askOn = false, activeId = null, onNew, onOpenChat, searchQ = '', searchText = '', className = '', style, hidden = false }) {
   const chats = useSyncExternalStore(researchStore.subscribe, researchStore.getState);
   const runner = useSyncExternalStore(subscribeRunner, runnerState);
-  const lists = useSyncExternalStore(subscribeWorkspaces, workspacesSnapshot);
-  const navigate = useNavigate();
-  const { pathname } = useLocation();
   const [chatDrag, setChatDrag] = useState(null);
   const [chatMenu, setChatMenu] = useState(null); // { id, x, y }
 
@@ -113,25 +108,17 @@ export default function AskRail({ railRef, askOn = false, activeId = null, onNew
   const setRef = (n) => { spotRef.current = n; if (railRef) railRef.current = n; };
 
   const threads = chats.threads || [];
-  const listed = threads.filter((t) => !isBlankChat(t));
-  const titleOf = (t) => String(t.source?.title || t.title || '');
-  const visible = searchQ ? listed.filter((t) => titleOf(t).toLowerCase().includes(searchQ) || String(t.source?.kind || '').toLowerCase().includes(searchQ)) : listed;
+  const listed = threads.filter((t) => !isBlankChat(t) && !t.source);
+  const visible = searchQ ? listed.filter((t) => String(t.title || '').toLowerCase().includes(searchQ)) : listed;
   const activeThread = threads.find((t) => t.id === activeId) || null;
   const blankOn = askOn && (!activeThread || isBlankChat(activeThread));
-  // A chat opens on Ask; an item a source tab opened opens on that tab.
-  const open = (id) => {
-    const t = threads.find((x) => x.id === id);
-    if (isSourceEntry(t)) { openEntry(t, navigate, pathname); return; }
-    researchStore.select(id);
-    onOpenChat?.(id);
-  };
-  const closeOne = (t) => (isSourceEntry(t) ? closeEntry(t) : researchStore.close(t.id));
+  const open = (id) => { researchStore.select(id); onOpenChat?.(id); };
+  const closeOne = (t) => researchStore.close(t.id);
 
   const tabEl = (t) => {
     const tBusy = isThreadBusy(runner, t.id);
     const m = researchStore.meta(t, { busy: tBusy });
-    const src = isSourceEntry(t);
-    const on = src ? isEntryActive(t, pathname, lists) : askOn && t.id === activeId;
+    const on = askOn && t.id === activeId;
     return (
       <div
         key={t.id}
@@ -150,19 +137,19 @@ export default function AskRail({ railRef, askOn = false, activeId = null, onNew
         onDrop={(e) => { e.preventDefault(); researchStore.move(chatDrag?.id, t.id); setChatDrag(null); }}
         onDragEnd={() => setChatDrag(null)}
       >
-        <Tooltip content={src ? (t.source.tip || titleOf(t)) : t.title}>
+        <Tooltip content={t.title}>
           <span className="lg-rail-title">
             <span className="lg-rail-kind lgb-rtab-kind">
               {tBusy ? <span className="lgb-spin" style={{ '--tone': m.tone }} /> : <span className="lgb-dot" style={{ '--tone': m.tone }} />}
               <span className="lgb-rtab-kindtext">{m.kind}</span>
             </span>
-            <span className="lg-rail-num">{highlightMatch(src ? titleOf(t) : t.title, searchQ)}</span>
+            <span className="lg-rail-num">{highlightMatch(t.title, searchQ)}</span>
           </span>
         </Tooltip>
         <span className="lg-rail-actions">
           {!t.pinned ? (
-            <Tooltip content={src ? 'Close' : 'Close chat'}>
-              <button type="button" aria-label={src ? 'Close' : 'Close chat'} onClick={(e) => { e.stopPropagation(); closeOne(t); }}>{I.x({ width: 12, height: 12 })}</button>
+            <Tooltip content="Close chat">
+              <button type="button" aria-label="Close chat" onClick={(e) => { e.stopPropagation(); closeOne(t); }}>{I.x({ width: 12, height: 12 })}</button>
             </Tooltip>
           ) : null}
         </span>

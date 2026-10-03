@@ -38,7 +38,7 @@ import NotificationToast from '../components/NotificationToast';
 import '../components/NotificationCenter.css';
 import ThinkingStatus from '../components/AiThinking';
 import SourcesCheckCard from '../components/SourcesCheckCard';
-import { LoadingNote } from './Legislation';
+import { LoadingNote } from '../components/LoadingNote';
 import '../components/Sidebar.css';
 import '../components/SwitchProjectLoader.css';
 import '../components/UpdateProgressBar.css';
@@ -359,8 +359,6 @@ export default function DesignSystem() {
               </li>
             </ul>
           </Sample>
-
-          <LegalHighlightsSample />
 
           <PlatformColoursSample />
 
@@ -1169,109 +1167,6 @@ function SegmentedSample() {
   );
 }
 
-// Every way text read as Romanian law is highlighted, stood side by side:
-// the Word preview's marks (pages/DocViewer — act, CAEN, CUI, the internal
-// cross-reference and where it lands), the same marks on a picture's
-// extracted text, and the Legislation tab's pressable references + its find.
-// The Doc Viewer's stylesheet is bound to its window, so its marks are
-// mirrored in DesignSystem.css (.dsg-refdoc / .dsg-refs-photo) — keep them in
-// step with DocViewer.css. The Legislation ones are the live .lg-ref / .lg-hit.
-const REF_DOC_ROWS = [
-  {
-    name: 'Act or code',
-    of: '.dv-lawref — AI gradient wash + rule, shimmering; toggled by the Laws action',
-    body: <>potrivit <span className="dv-ref dv-lawref is-head is-tail">Legii nr. 31/1990 privind societățile</span>, republicată</>,
-  },
-  {
-    name: 'Act split across Word runs',
-    of: '.dv-ref.is-head / .is-tail — only the outer ends rounded',
-    body: <>conform <span className="dv-ref dv-lawref is-head">art. 5 din </span><span className="dv-ref dv-lawref"><b>O.U.G.</b></span><span className="dv-ref dv-lawref is-tail"> nr. 195/2002</span></>,
-  },
-  {
-    name: 'CAEN code',
-    of: '.dv-caenref — flat amber stamp, solid rule, no motion; always on',
-    body: <>având ca obiect principal <span className="dv-ref dv-caenref is-head is-tail">cod CAEN 6210</span></>,
-  },
-  {
-    name: 'Fiscal code (CUI)',
-    of: '.dv-cuiref — info colour, rule, hand cursor; opens ANAF',
-    body: <>înregistrată sub <span className="dv-ref dv-cuiref is-head is-tail">CUI RO 14399840</span></>,
-  },
-  {
-    name: 'Cross-reference · rest / hover / pressed',
-    of: '.dv-xref · .is-hot · .is-press — a teal button, ringed edge by edge',
-    body: (
-      <>
-        indicată la <span className="dv-ref dv-xref is-head is-tail">pct. 6.1. lit. d)</span>
-        {' · '}<span className="dv-ref dv-xref is-head is-tail is-hot">clauza 4.3</span>
-        {' · '}<span className="dv-ref dv-xref is-head is-tail is-press">art. 7</span>
-      </>
-    ),
-  },
-  {
-    name: 'Where a cross-reference lands',
-    of: '.has-xref-focus — everything but .is-xref-target (the clause and the item named) fades back',
-    body: (
-      <span className="dsg-refdoc-land has-xref-focus">
-        <span>5.2. Plata se face în termen de 30 de zile de la emiterea facturii.</span>
-        <span className="is-xref-target">6.1. Datele de contact ale părților sunt următoarele:</span>
-        <span>c) telefon: 0722 000 000;</span>
-        <span className="is-xref-target is-xref-exact">d) adresa de e-mail pentru notificări.</span>
-        <span>6.2. Orice modificare se comunică în scris.</span>
-      </span>
-    ),
-  },
-];
-
-function LegalHighlightsSample() {
-  return (
-    <Sample name="Legal highlights" of="lib/lawRefs — every mark drawn on text read as Romanian law" wide>
-      <div className="dsg-refs">
-        <p className="dsg-refs-label">Word preview · pages/DocViewer (mirrored)</p>
-        <div className="dsg-refdoc">
-          {REF_DOC_ROWS.map((r) => (
-            <div key={r.name} className="dsg-refs-row">
-              <div className="dsg-refs-meta"><span className="dsg-refs-name">{r.name}</span><code>{r.of}</code></div>
-              <p className="dsg-refs-text">{r.body}</p>
-            </div>
-          ))}
-        </div>
-
-        <p className="dsg-refs-label">A picture's extracted text · TextRegionsLayer .dv-textword, over the photograph</p>
-        <div className="dsg-refs-photo">
-          <span className="dv-textword dv-lawref">Legea 31/1990</span>{' '}
-          <span className="dv-textword dv-caenref">CAEN 4711</span>{' '}
-          <span className="dv-textword dv-cuiref">CUI 2408422</span>
-        </div>
-
-        <p className="dsg-refs-label">Legislation tab · pages/Legislation .lg-ref and the find .lg-hit (live)</p>
-        <div className="dsg-refs-row">
-          <div className="dsg-refs-meta"><span className="dsg-refs-name">Act · rest / hover</span><code>.lg-ref — accent; opens the act here</code></div>
-          <p className="dsg-refs-text">
-            modificată prin <button type="button" className="lg-ref">Legea nr. 287/2009</button>
-            {' · '}<button type="button" className="lg-ref dsg-ref-hover">O.U.G. nr. 195/2002</button>
-          </p>
-        </div>
-        <div className="dsg-refs-row">
-          <div className="dsg-refs-meta"><span className="dsg-refs-name">CAEN · court file · CUI</span><code>.lg-ref.is-caen · .is-case · .is-cui</code></div>
-          <p className="dsg-refs-text">
-            <button type="button" className="lg-ref is-caen">cod CAEN 6201</button>
-            {' · '}<button type="button" className="lg-ref is-case">Dosarul nr. 1234/3/2022</button>
-            {' · '}<button type="button" className="lg-ref is-cui">CUI 14399840</button>
-          </p>
-        </div>
-        <div className="dsg-refs-row">
-          <div className="dsg-refs-meta"><span className="dsg-refs-name">Find · match / current / inside a reference</span><code>.lg-hit · .is-current · .lg-ref .lg-hit</code></div>
-          <p className="dsg-refs-text">
-            <mark className="lg-hit">societate</mark> comercială, <mark className="lg-hit is-current">societate</mark> pe acțiuni,{' '}
-            <button type="button" className="lg-ref">Legea <mark className="lg-hit">societăților</mark> nr. 31/1990</button>
-          </p>
-        </div>
-      </div>
-    </Sample>
-  );
-}
-
 // ── The Notifications section ──────────────────────────────────────────────
 // Every sample notification as the real toast, held open. A file notification
 // with its thumbnail's glyph is added (the phone upload's arrival).
@@ -1333,7 +1228,7 @@ function LoadersSample() {
         <div className="ai-chat-page dsg-ld-plain"><ThinkingStatus query="summary" /></div>
       </Sample>
 
-      <Sample name="Loading note" of="pages/Legislation LoadingNote (and Research's drawer) — a ring and a line" row>
+      <Sample name="Loading note" of="components/LoadingNote (Research's drawer) — a ring and a line" row>
         <LoadingNote delay={0}>Reading the act…</LoadingNote>
         <LoadingNote delay={0} className="is-foot">Laying out the rest of the act…</LoadingNote>
       </Sample>
@@ -1402,25 +1297,6 @@ function NotificationsSample() {
 const Pill = ({ menu = false, multi = false, mod = '', children }) => (
   <div className={`tooltip project-files-morph-pill${menu ? ' is-menu' : ''}${multi ? ' is-multiline' : ''}${mod ? ` ${mod}` : ''}`} role="presentation">{children}</div>
 );
-// The Doc Viewer's highlight tooltip content (refPill), for a sample mark.
-function RefPillSample({ tone, kind, head, lines = [], quote = '', action, full = false }) {
-  return (
-    <span className={`dv-refpill${full ? ' is-full' : ''}`} style={{ '--refpill-tone': tone }}>
-      <span className="dv-refpill-kind">{kind}</span>
-      <span className="dv-refpill-head">{head}</span>
-      {lines.map((l) => <span key={l} className="dv-refpill-line">{l}</span>)}
-      {quote ? <span className="dv-refpill-quote">“{quote}”</span> : null}
-      <span className="dv-refpill-act">{action}</span>
-    </span>
-  );
-}
-const REF_HOVERS = [
-  { name: 'Act', tone: 'var(--cat-update)', kind: 'legislatie.just.ro · Act', head: 'Legea nr. 31/1990', lines: ['privind societățile', 'republicată · cu modificările și completările ulterioare'] },
-  { name: 'Article of an act', tone: 'var(--cat-update)', kind: 'legislatie.just.ro · Act', head: 'Legea nr. 287/2009', lines: ['art. 1.166 alin. (1)', 'privind Codul civil'] },
-  { name: 'Code', tone: 'var(--cat-update)', kind: 'legislatie.just.ro · Code', head: 'Codul muncii', lines: [] },
-  { name: 'CAEN code', tone: 'var(--warning)', kind: 'insse.ro · CAEN code', head: 'CAEN 6201', lines: ['6201 — Activități de realizare a soft-ului la comandă (software orientat client)'] },
-  { name: 'CUI', tone: 'var(--success)', kind: 'anaf.ro · Fiscal code', head: 'CUI 14399840', lines: [] },
-];
 function TooltipsSamples() {
   return (
     <>
@@ -1475,55 +1351,6 @@ function TooltipsSamples() {
             </div>
           </div>
         </Pill>
-      </Sample>
-      <Sample name="Over a highlight · hover" of="pages/DocViewer refPill — the platform in its colour, what is cited, what a click does (components/RefPill.css)" wide>
-        <div className="dsg-tips-row">
-          {REF_HOVERS.map((r) => (
-            <Pill key={r.name} multi>
-              <span className="project-files-morph-text"><RefPillSample {...r} action="Click for more — and to search it" /></span>
-            </Pill>
-          ))}
-          <Pill><span className="project-files-morph-text">Go to 6.1 lit. d)</span></Pill>
-        </div>
-      </Sample>
-      <Sample name="A highlight clicked · its card" of="DocParaPill card — the tooltip expanded (sticky): all that is known, the citation as written, Search (a new Legislation tab, or the one showing it) and Close" wide>
-        <div className="dsg-tips-row">
-          <Pill menu>
-            <div className="dv-refcard">
-              <RefPillSample full tone="var(--cat-update)" kind="legislatie.just.ro · Act" head="Legea nr. 31/1990"
-                lines={['privind societățile', 'republicată · cu modificările și completările ulterioare']}
-                quote="Legii nr. 31/1990 privind societățile, republicată, cu modificările și completările ulterioare"
-                action="Search finds it on legislatie.just.ro, in a new tab" />
-            </div>
-            <ul className="project-files-morph-list">
-              <li><button type="button" className="project-files-morph-item dv-refcard-search">Search</button></li>
-              <li><button type="button" className="project-files-morph-item">Close</button></li>
-            </ul>
-          </Pill>
-          <Pill menu>
-            <div className="dv-refcard">
-              <RefPillSample full tone="var(--warning)" kind="insse.ro · CAEN code" head="CAEN 6202, CAEN 6209"
-                lines={['6202 — Activități de consultanță în tehnologia informației', '6209 — Alte activități de servicii privind tehnologia informației']}
-                quote="CAEN 6202, 6209"
-                action="Search opens it in CAEN codes, in a new tab" />
-            </div>
-            <ul className="project-files-morph-list">
-              <li><button type="button" className="project-files-morph-item dv-refcard-search">Search</button></li>
-              <li><button type="button" className="project-files-morph-item">Close</button></li>
-            </ul>
-          </Pill>
-          <Pill menu>
-            <div className="dv-refcard">
-              <RefPillSample full tone="var(--success)" kind="anaf.ro · Fiscal code" head="CUI 14399840"
-                lines={['A valid fiscal code — its check digit is correct']}
-                action="Search looks the company up at ANAF, in a new tab" />
-            </div>
-            <ul className="project-files-morph-list">
-              <li><button type="button" className="project-files-morph-item dv-refcard-search">Search</button></li>
-              <li><button type="button" className="project-files-morph-item">Close</button></li>
-            </ul>
-          </Pill>
-        </div>
       </Sample>
     </>
   );

@@ -4093,49 +4093,6 @@ body.dv-advisor-sb-dragging .dv-advisor-sb-thumb {
    bar pinned to the top of the pane (content scrolls under it). */
 /* The Generate pane has no masthead and no compact-on-scroll bar — the side
    panel's tab strip names it, and the thread gets the height back. */
-/* Branch nav — pills for each split conversation, under the header. */
-.dv-branch-nav {
-  display: flex; flex-wrap: wrap; gap: 4.8px;
-  padding: 8px 14.4px 3.2px;
-}
-.dv-branch-nav-pill {
-  appearance: none; cursor: pointer;
-  padding: 3.2px 9.6px; border-radius: 999px;
-  border: 1px solid var(--border);
-  background: var(--bg-card); color: var(--text-secondary);
-  font: inherit; font-size: 9.6px; font-weight: 600; white-space: nowrap;
-  transition: background 120ms ease, color 120ms ease, border-color 120ms ease;
-}
-.dv-branch-nav-pill:hover:not(:disabled) { border-color: var(--border-strong); color: var(--text-primary); }
-.dv-branch-nav-pill.is-active {
-  background: var(--color-sand); border-color: var(--color-cognac); color: var(--color-ink);
-}
-.dv-branch-nav-pill:disabled { opacity: 0.55; cursor: default; }
-
-/* Persistent split marker in the thread — shows where a branch was split off
-   (clickable to open that branch). Distinct from the hover divider. */
-.dv-split-marker {
-  appearance: none; cursor: pointer; width: 100%;
-  display: flex; align-items: center; gap: 8px;
-  margin: 8px 0; padding: 0; border: none; background: none;
-  color: var(--color-cognac);
-}
-.dv-split-marker-line {
-  flex: 1; height: 1px; min-width: 9.6px;
-  background: color-mix(in srgb, var(--color-cognac) 45%, transparent);
-}
-.dv-split-marker-tag {
-  flex: none; display: inline-flex; align-items: center; gap: 4.8px;
-  padding: 2.4px 8px; border-radius: 999px;
-  border: 1px dashed color-mix(in srgb, var(--color-cognac) 55%, transparent);
-  font-size: 9.2px; font-weight: 700; letter-spacing: 0.01em; white-space: nowrap;
-  transition: background 120ms ease, border-color 120ms ease;
-}
-.dv-split-marker-tag svg { width: 11.2px; height: 11.2px; }
-.dv-split-marker:hover .dv-split-marker-tag {
-  background: color-mix(in srgb, var(--color-cognac) 12%, transparent);
-  border-color: var(--color-cognac);
-}
 /* The thread reuses the main app's AI-advisor bubbles/markdown verbatim by
    carrying its .ai-hub / .ai-chat-page classes. .ai-hub normally caps the page
    at its 944px measure — neutralise that here so the bubbles fill the side
@@ -4281,94 +4238,6 @@ body.dv-advisor-sb-dragging .dv-advisor-sb-thumb {
 }
 @keyframes dv-preview-spin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { .dv-preview-spinner { animation-duration: 1.4s; } }
-
-/* "Split from here" control — a hover divider after an AI message with the pill
-   pushed to the far right, outside the message (bubble) column. Revealed on
-   hover of the AI bubble above or the divider row itself. */
-/* Zero-height overlay so the divider + pill never add to message spacing — the
-   line + pill are absolutely positioned on the seam after the AI turn, with the
-   pill pinned to the far right (by the scrollbar). */
-.dv-branch-anchor {
-  /* z-index above the custom scrollbar (2) so the divider's right end paints
-     ON TOP of the scrollbar instead of tucking behind it. */
-  position: relative; display: block; width: 100%; height: 0; z-index: 3;
-  opacity: 0; transition: opacity 70ms ease, height 340ms cubic-bezier(0.16, 1, 0.3, 1);
-}
-/* Dwelled on: the seam opens, pushing the messages above and below apart to
-   make room for the button that sits on the divider. Height (rather than
-   margin) so the growth is animatable and the line can stay centred in it. */
-.dv-branch-anchor.is-open { height: 40px; }
-/* Full-width invisible hit strip sitting ABOVE the seam — it starts at the
-   divider and extends UPWARD (over the message/card just above), plus whatever
-   height the seam itself currently has.
-
-   Pinned by TOP, not by bottom. The seam's top edge is fixed (opening it pushes
-   the content below downward, it never moves itself), whereas its bottom edge
-   travels the full 52px as it opens. A bottom-anchored strip therefore slid out
-   from under the pointer mid-animation, firing mouseleave — the seam closed,
-   which shrank it back, which re-entered it: a flicker loop. Anchored to the
-   top, the hot zone only ever GROWS downward as the seam opens, so the pointer
-   that triggered it stays inside for the whole animation. */
-.dv-branch-anchor::before {
-  content: ''; position: absolute; left: 0; right: 0;
-  top: -51.2px; bottom: 0; height: auto; transform: none;
-}
-/* Reveal on hovering a chat bubble above or the strip itself. Version cards are
-   intentionally NOT a trigger — the divider only appears from the seam after. */
-/* The divider is shown ONLY when its seam is the active one (branchHover state),
-   the same condition that renders the floating pill — so the line never appears
-   without the button. (Hovering a bubble above no longer reveals it on its own.) */
-.dv-branch-anchor.is-active { opacity: 1; }
-.dv-branch-line {
-  /* Right end extends past the chat content's 16px right padding so it reaches
-     the section's right edge (under the scrollbar). */
-  position: absolute; left: 0; right: -12.8px; top: 50%; height: 1.6px;
-  /* Centred in whatever height the seam currently has: 0 while it's just a
-     hover line, half of 52px once it has opened. */
-  transform: translateY(-50%);
-  /* Closed (no button yet): a flat white rule, held well back — it marks where
-     the split WOULD land without competing with the messages around it. */
-  background: rgba(255, 255, 255, 0.32);
-  /* Symmetric fade: both ends dissolve identically, so the line reads as a
-     hairline centred on the thread rather than one anchored to an edge. (It
-     used to fade on the left only, because its right end had to meet the
-     floating pill that sat out in the gutter — that pill is gone.) */
-  -webkit-mask-image: linear-gradient(to right, transparent 0, #000 14%, #000 86%, transparent 100%);
-          mask-image: linear-gradient(to right, transparent 0, #000 14%, #000 86%, transparent 100%);
-  /* Paced with the seam's height so the colour shift and the opening read as
-     one movement. */
-  transition: background 300ms ease;
-}
-/* An opened seam brightens its divider, so the line and the button read as one
-   control rather than two things that happen to overlap. */
-.dv-branch-anchor.is-open .dv-branch-line {
-  /* Flat, not a left-to-right ramp: the button sits in the MIDDLE of the line
-     now, and the mask above fades both ends equally — a directional gradient
-     under a symmetric mask reads lopsided. */
-  background: var(--color-cognac);
-}
-/* The button rides ON the divider, centred in the gap the seam just opened. */
-.dv-branch-split {
-  position: absolute; left: 50%; top: 50%;
-  transform: translate(-50%, -50%);
-  appearance: none; cursor: pointer;
-  display: inline-flex; align-items: center; gap: 6.4px;
-  padding: 6.4px 14.4px; border-radius: 999px;
-  border: none;
-  /* Sand (brand palette) — matches the divider line and the active page-numbers
-     button. */
-  background: var(--color-sand);
-  color: var(--color-ink); font: inherit; font-size: 10.4px; font-weight: 600;
-  white-space: nowrap; box-shadow: var(--shadow-elev);
-  transition: color 130ms ease, background 130ms ease;
-  animation: dv-branch-split-in 280ms cubic-bezier(0.16, 1, 0.3, 1);
-}
-.dv-branch-split svg { width: 12px; height: 12px; }
-.dv-branch-split:hover { color: var(--color-cream); background: var(--color-cognac); }
-@keyframes dv-branch-split-in {
-  from { opacity: 0; transform: translate(-50%, -50%) scale(0.92); }
-  to   { opacity: 1; transform: translate(-50%, -50%) scale(1); }
-}
 
 /* ── Clarifying-questions panel (over the document pane) ──────────────────── */
 /* Claude-artifact styling: a centred card with numbered questions + answer
@@ -6012,152 +5881,6 @@ button.dv-snip-entry-thumb { cursor: pointer; }
   50%      { opacity: 1;    transform: scaleY(1); }
 }
 
-/* ── Law references in the document ───────────────────────────────────────
-   Every citation lib/lawRefs finds is marked in the colour of the PLATFORM
-   it opens — an act legislatie.just.ro's violet (--cat-update), a CAEN code
-   insse.ro's amber (--warning), a CUI anaf.ro's green (--success), a court
-   file portal.just.ro's blue (--info) — the same tones the Legislation tab's
-   tabs, results and scopes wear (lib/legalBrowser PLATFORMS). An act's mark
-   keeps its 5.5s shimmer, as a sweep of its one hue.
-
-   Drawn ENTIRELY in background layers: the gradient as a soft wash behind the
-   words and again, at full strength, as a rule under them. Nothing here
-   changes a text metric — no padding, no margin, no font-size, no
-   font-weight — because the mark is applied to a document that has already
-   been measured and sliced into pages, and a single pixel of padding would
-   re-wrap the line and shift every page after it. It is also what keeps the
-   save path honest: a paragraph is serialised from computed weight and style,
-   so a mark that changed either would turn into stray `**` in the file.
-   (Colour is safe, and stays the document's own: the point is to show where a
-   citation is, not to repaint the text of a legal document.)
-
-   A citation Word split across runs is several spans; only the outer ends are
-   rounded (`is-head` / `is-tail`) so the pieces read as one mark. */
-/* THE HIGHLIGHTS FADE IN AND OUT (the eye quick action). Every mark's colour
-   below is scaled by `--dv-ref-a` (0 → 1), a registered NUMBER so it can be
-   transitioned: the pane makes the marks under `.is-refs-hidden` on the host
-   (every mark at 0) and takes it off to fade them in — or puts it on, waits
-   REF_FADE_MS and only then unwraps them. Non-inheriting and set on the marks
-   themselves, so a fade restyles the marks and nothing else. */
-@property --dv-ref-a { syntax: '<number>'; inherits: false; initial-value: 1; }
-.dv-docx .dv-ref { --dv-ref-a: 1; transition: --dv-ref-a 280ms ease; }
-.dv-docx.is-refs-hidden .dv-ref { --dv-ref-a: 0; }
-:root[data-reduce-motion='true'] .dv-docx .dv-ref { transition: none; }
-@media (prefers-reduced-motion: reduce) { .dv-docx .dv-ref { transition: none; } }
-.dv-docx .dv-lawref {
-  /* legislatie.just.ro's colour (PLATFORMS.legislation.tone in lib/legalBrowser):
-     every mark wears the colour of the platform it opens. The shimmer is
-     a sweep of that one hue, stronger and fainter. */
-  --lawref: var(--cat-update);
-  --lawref-wash: 20%;
-  background-image:
-    linear-gradient(115deg, color-mix(in srgb, var(--lawref) calc(var(--lawref-wash) * 0.6 * var(--dv-ref-a)), transparent) 0%, color-mix(in srgb, var(--lawref) calc(var(--lawref-wash) * var(--dv-ref-a)), transparent) 32%, color-mix(in srgb, var(--lawref) calc(var(--lawref-wash) * 1.4 * var(--dv-ref-a)), transparent) 58%, color-mix(in srgb, var(--lawref) calc(var(--lawref-wash) * var(--dv-ref-a)), transparent) 80%, color-mix(in srgb, var(--lawref) calc(var(--lawref-wash) * 0.6 * var(--dv-ref-a)), transparent) 100%),
-    linear-gradient(115deg, color-mix(in srgb, var(--lawref) calc(55% * var(--dv-ref-a)), transparent) 0%, color-mix(in srgb, var(--lawref) calc(100% * var(--dv-ref-a)), transparent) 58%, color-mix(in srgb, var(--lawref) calc(55% * var(--dv-ref-a)), transparent) 100%);
-  background-size: 300% 100%, 300% 1.6px;
-  background-position: 0 0, 0 100%;
-  /* TILED, not a single pass. The gradient is three times the mark's width and
-     the animation slides it a full width along, so with `no-repeat` it walked
-     clean out of the box and the mark went blank for part of every cycle —
-     citations blinking in and out. Repeating it means the mark is painted at
-     every moment of the animation, and because the gradient opens and closes
-     on the same blue the tiles join invisibly. The size never changes: the
-     gradient only travels, so nothing about the mark appears to scale. */
-  background-repeat: repeat, repeat-x;
-  animation: dv-lawref-shimmer 5.5s linear infinite;
-}
-/* On Ink the page is dark, so the same alpha barely shows — lift it. */
-:root[data-theme='ink'] .dv-docx .dv-lawref { --lawref-wash: 30%; }
-.dv-docx .dv-ref.is-head { border-top-left-radius: 3px; border-bottom-left-radius: 3px; }
-.dv-docx .dv-ref.is-tail { border-top-right-radius: 3px; border-bottom-right-radius: 3px; }
-/* NO ROOM AROUND A MARK (2026-10-02): a highlight is a purely visual indicator.
-   It used to carry padding (cancelled by a negative margin at its ends), which
-   still nudged text at a line's edge and in justified lines; now a mark is
-   exactly its words' box — colour, background and rounded corners only. */
-/* Both layers travel together, so the wash and the rule under it stay in step. */
-@keyframes dv-lawref-shimmer { to { background-position: -300% 0, -300% 100%; } }
-/* ── A CAEN code ──────────────────────────────────────────────────────────
-   "cod CAEN 6201" is not an act and is not a pointer — it is a CLASSIFICATION,
-   the one way a company's object of activity is ever written. So it gets a
-   flat stamp: one steady colour, a solid rule under it, and NO animation. It
-   is marked whatever the Laws action says, because hiding it would hide the
-   fact itself.
-
-   Amber, a fixed brand-neutral value like the act's blues: none of the three
-   marks may be mistaken for another, and a document theme must not be able to
-   turn one of them into a different one. Painted in background layers only,
-   for the same reason the act's mark is — the document has already been
-   measured and sliced into pages. */
-.dv-docx .dv-caenref {
-  --caenref: var(--warning); /* insse.ro's colour */
-  --caenref-wash: 18%;
-  background-image: linear-gradient(color-mix(in srgb, var(--caenref) calc(100% * var(--dv-ref-a)), transparent), color-mix(in srgb, var(--caenref) calc(100% * var(--dv-ref-a)), transparent));
-  background-size: 100% 1.6px;
-  background-position: 0 100%;
-  background-repeat: no-repeat;
-  background-color: color-mix(in srgb, var(--caenref) calc(var(--caenref-wash) * var(--dv-ref-a)), transparent);
-}
-:root[data-theme='ink'] .dv-docx .dv-caenref { --caenref-wash: 24%; }
-
-/* ── An INTERNAL cross-reference ────────────────────────────────────
-   "…indicată la pct. 6.1. lit. d)" points at a clause of THIS document, so it
-   is not a highlight at all: it is a CONTROL, and it is drawn as a button — a
-   faded black face, a ring all the way round it, rounded ends and the hand cursor.
-   Clicking it takes the reader to that clause. Marked whatever the Laws action
-   says: a way of getting around the document must not depend on a highlighting
-   preference.
-
-   Every property here is one that PAINTS and nothing more. The ring is an
-   inset box-shadow rather than a border, and the press is a shadow rather than
-   a transform, because the document underneath has already been measured and
-   sliced into pages: a real border would add its width to the inline box and
-   re-wrap the line it sits on.
-
-   The ring is drawn EDGE BY EDGE because Word cuts one reference into several
-   runs: top and bottom always, the left edge only on the first piece and the
-   right edge only on the last, so a reference split across three spans is one
-   button with one outline instead of three little boxes in a row. */
-/* The cross-reference colour: BLACK, faded — a quiet button on the page (the
-   page sheet is white in both themes). It points inside this document, not at
-   a platform, so it wears none of the platforms' colours the other marks do. */
-/* THE LAW MARK'S LOOK, IN GREY (at the user's request): the same sweeping
-   wash, the rule under it and the 5.5s shimmer as an act (.dv-lawref), in a
-   neutral grey — it points inside this document, not at a platform, so it
-   wears none of the platforms' colours. It deepens on hover (`.is-hot`, the
-   whole reference however many runs Word cut it into — CSS can only reach
-   the piece under the pointer) and further while held (`.is-press`). */
-.dv-docx .dv-xref {
-  --lawref: #6B7280;
-  --lawref-wash: 16%;
-  background-image:
-    linear-gradient(115deg, color-mix(in srgb, var(--lawref) calc(var(--lawref-wash) * 0.6 * var(--dv-ref-a)), transparent) 0%, color-mix(in srgb, var(--lawref) calc(var(--lawref-wash) * var(--dv-ref-a)), transparent) 32%, color-mix(in srgb, var(--lawref) calc(var(--lawref-wash) * 1.4 * var(--dv-ref-a)), transparent) 58%, color-mix(in srgb, var(--lawref) calc(var(--lawref-wash) * var(--dv-ref-a)), transparent) 80%, color-mix(in srgb, var(--lawref) calc(var(--lawref-wash) * 0.6 * var(--dv-ref-a)), transparent) 100%),
-    linear-gradient(115deg, color-mix(in srgb, var(--lawref) calc(55% * var(--dv-ref-a)), transparent) 0%, color-mix(in srgb, var(--lawref) calc(100% * var(--dv-ref-a)), transparent) 58%, color-mix(in srgb, var(--lawref) calc(55% * var(--dv-ref-a)), transparent) 100%);
-  background-size: 300% 100%, 300% 1.6px;
-  background-position: 0 0, 0 100%;
-  background-repeat: repeat, repeat-x;
-  animation: dv-lawref-shimmer 5.5s linear infinite;
-  cursor: pointer;
-
-}
-.dv-docx .dv-xref:hover,
-.dv-docx .dv-xref.is-hot { --lawref-wash: 26%; }
-.dv-docx .dv-xref.is-press { --lawref-wash: 36%; }
-/* Where the jump LANDS. The clause is not marked — it is ordinary text of the
-   document — but it does have to be FOUND, and a page of legal prose gives the
-   eye nothing to land on. So nothing is painted on it: EVERYTHING ELSE fades
-   back (the recede a picked paragraph uses) and the clause, with the item the
-   reference named, is left standing at full strength. The pane puts the page
-   back when the reader has been over it and moved away, or after
-   `XREF_LIT_MS` (see the jump handler). Opacity only — nothing moves. */
-.dv-docx:is(.has-xref-focus, .is-xref-leaving) .dv-docx-page > article > * { transition: opacity 260ms ease; }
-.dv-docx.has-xref-focus .dv-docx-page > article > :not(.is-xref-target):not(:has(.is-xref-target)) { opacity: 0.38; }
-
-/* A picked paragraph keeps its marks: a citation is worth seeing most when the
-   paragraph making it is the one being worked on. */
-:root[data-reduce-motion='true'] .dv-docx :is(.dv-lawref, .dv-xref) { animation: none; }
-@media (prefers-reduced-motion: reduce) {
-  .dv-docx :is(.dv-lawref, .dv-xref) { animation: none; }
-}
-
 /* ── When a turn happened ──────────────────────────────────────────────────
    The advisor's thread is saved per file and reopened days later, so it says
    when things were said — the team chat's way of saying it (.dvx-day-divider /
@@ -6247,83 +5970,6 @@ button.dv-snip-entry-thumb { cursor: pointer; }
 .dv-live-cancel { border: 1px solid var(--border); background: transparent; color: var(--text-secondary); }
 .dv-live-save { border: 1px solid var(--accent); background: var(--accent); color: var(--text-on-accent); }
 .dv-live-save:disabled { opacity: 0.6; cursor: default; }
-
-/* A company's FISCAL CODE (CUI / CIF): anaf.ro's green, a solid rule and the
-   hand — a click opens the company in the ANAF tab. Background layers only,
-   like the other marks, so marking never re-wraps a line. */
-.dv-docx .dv-cuiref {
-  --cuiref: var(--success); /* anaf.ro's colour */
-  cursor: pointer;
-  background-image: linear-gradient(color-mix(in srgb, var(--cuiref) calc(100% * var(--dv-ref-a)), transparent), color-mix(in srgb, var(--cuiref) calc(100% * var(--dv-ref-a)), transparent));
-  background-size: 100% 1.6px;
-  background-position: 0 100%;
-  background-repeat: no-repeat;
-  background-color: color-mix(in srgb, var(--cuiref) calc(16% * var(--dv-ref-a)), transparent);
-}
-.dv-docx .dv-cuiref:hover { background-color: color-mix(in srgb, var(--cuiref) calc(28% * var(--dv-ref-a)), transparent); }
-/* Acts, codes and CAEN codes open on a click too (the jump handler). */
-.dv-docx .dv-ref[data-href] { cursor: pointer; }
-.dv-docx .dv-caenref[data-href]:hover { --caenref-wash: 30%; }
-.dv-docx .dv-lawref[data-href]:hover { --lawref-wash: 34%; }
-
-/* The same marks on a PICTURE's extracted text (TextRegionsLayer): each word
-   cell a citation touches. The text there is transparent, so the wash and the
-   rule are what show — over the photograph. */
-.dv-textword.dv-lawref, .file-preview-pdf-text .dv-lawref {
-  --lawref: var(--cat-update); --lawref-wash: 30%;
-  background-image:
-    linear-gradient(115deg, color-mix(in srgb, var(--lawref) calc(var(--lawref-wash) * 0.6), transparent) 0%, color-mix(in srgb, var(--lawref) var(--lawref-wash), transparent) 32%, color-mix(in srgb, var(--lawref) calc(var(--lawref-wash) * 1.4), transparent) 58%, color-mix(in srgb, var(--lawref) var(--lawref-wash), transparent) 80%, color-mix(in srgb, var(--lawref) calc(var(--lawref-wash) * 0.6), transparent) 100%),
-    linear-gradient(115deg, color-mix(in srgb, var(--lawref) 55%, transparent) 0%, var(--lawref) 58%, color-mix(in srgb, var(--lawref) 55%, transparent) 100%);
-  background-size: 300% 100%, 300% 2px;
-  background-position: 0 0, 0 100%;
-  background-repeat: repeat, repeat-x;
-  /* STILL here — no shimmer (2026-10-03). The marks live inside the picture's
-     / the PDF's text layer, a GPU layer of its own: an animated background
-     there re-rasters the layer on every frame, larger the more it is zoomed —
-     measured on a photographed parking sign: 92 fps and an 88 ms first frame
-     of every pan / zoom with the shimmer, 2,800 fps and 2 ms without. The Word
-     preview's marks keep theirs. */
-}
-.dv-textword.dv-caenref, .file-preview-pdf-text .dv-caenref {
-  background-image: linear-gradient(var(--warning), var(--warning));
-  background-size: 100% 2px; background-position: 0 100%; background-repeat: no-repeat;
-  background-color: color-mix(in srgb, var(--warning) 28%, transparent);
-}
-.dv-textword.dv-cuiref, .file-preview-pdf-text .dv-cuiref {
-  background-image: linear-gradient(var(--success), var(--success));
-  background-size: 100% 2px; background-position: 0 100%; background-repeat: no-repeat;
-  background-color: color-mix(in srgb, var(--success) 26%, transparent);
-}
-/* A mark on a picture or a PDF is PRESSED like the Word preview's: the hand, and
-   a click expands its card (RefCardPill). */
-.dv-textword.dv-ref, .file-preview-pdf-text .dv-ref { cursor: pointer; }
-/* The PDF's wrapper (DocPane) takes no box of its own — the preview's layout is
-   as it was. */
-.dv-pdf-refs { display: contents; }
-
-
-/* The highlight's hover pill and card: components/RefPill.css (shared with the
-   Design system's Tooltips section). */
-
-/* ── The Highlights eye (EyeGlyph) ─────────────────────────────────────────
-   One drawing that BLINKS between its states: shutting, the open eye squashes
-   to its lid line while the closed lid and lashes drop in; opening, the lid
-   lifts away and the eye springs open, its pupil last. Transforms and opacity
-   only (no colour fade on an icon — see CLAUDE.md). */
-.dv-eye .dv-eye-open,
-.dv-eye .dv-eye-shut,
-.dv-eye .dv-eye-pupil {
-  transform-box: view-box;
-  transform-origin: 12px 12px;
-  transition: transform 300ms cubic-bezier(0.34, 1.4, 0.64, 1), opacity 200ms ease;
-}
-.dv-eye .dv-eye-pupil { transition-delay: 90ms; }
-.dv-eye.is-open .dv-eye-shut { transform: translateY(-2.5px) scaleY(0.2); opacity: 0; }
-.dv-eye:not(.is-open) .dv-eye-open { transform: translateY(1.5px) scaleY(0.12); opacity: 0; }
-.dv-eye:not(.is-open) .dv-eye-pupil { transform: scale(0.2); opacity: 0; transition-delay: 0ms; }
-.dv-eye:not(.is-open) .dv-eye-shut { transition-delay: 60ms; }
-:root[data-reduce-motion='true'] .dv-eye * { transition: none !important; }
-@media (prefers-reduced-motion: reduce) { .dv-eye * { transition: none !important; } }
 
 /* ── EMPTY FIELDS, NOT PICKED: the picked paragraph's slot (.dcx-inline — a
    ground, a solid rule under it, the top corners rounded) DESATURATED to
@@ -6570,11 +6216,6 @@ button.dv-snip-entry-thumb { cursor: pointer; }
 .dv-code-region:focus { outline: none; }
 .dv-code-region:focus-visible { stroke-width: 3.5px; }
 
-/* Highlights OFF: the codes are not drawn, but still take the pointer — the
-   hand cursor says a click does something. */
-.dv-code-regions.is-quiet .dv-code-region,
-.dv-code-regions.is-quiet .dv-code-region:hover { fill: transparent; stroke: transparent; }
-
 /* ── ATTACK — the compliance scan's report card in the advisor thread ──────
    On the page ground with a hairline (the Design system's card rule); the
    score a soft pill in its tone; the report's diff blocks drawn as diffs. */
@@ -6691,4 +6332,81 @@ button.dv-snip-entry-thumb { cursor: pointer; }
   --dv-strip-h: 0px;
   --dv-doc-inset: 0px;
   --dv-doc-rail: 0px;
+}
+
+/* ── A DRAFT (.dvdraft — DraftPane, lib/draftFile) ────────────────────────
+   DocVex's own document, written on a PAGE: white in both themes, as the Word
+   preview's sheets are, A4's width, Times New Roman. The page grows with its
+   text (the textarea is sized to its content) and the pane scrolls. */
+.dv-draft {
+  height: 100%; overflow-y: auto; overflow-x: hidden;
+  padding: 24px 24px 64px;
+  display: flex; flex-direction: column; align-items: center;
+}
+/* Over the page: To Word's builder switch (built-in / Anthropic's Office service). */
+.dv-draft-bar {
+  width: min(794px, 100%); flex: none;
+  display: flex; justify-content: flex-end;
+  margin-bottom: 10px;
+}
+/* A draft is PLAIN TEXT on the viewer's own ground — no sheet, no white
+   page, the app's text colour and type (at the user's request). */
+.dv-draft-page {
+  flex: none;
+  width: min(794px, 100%); min-height: 100%;
+  padding: 8px 0;
+  background: transparent; color: var(--text-primary);
+  display: flex; flex-direction: column;
+}
+/* flex: none — its height is its text (set from scrollHeight in DraftPane);
+   as a flex: 1 item with overflow hidden it was squeezed to the page's height
+   and the rest of the text cut off. The pane (.dv-draft) is what scrolls. */
+.dv-draft-text {
+  flex: none; width: 100%; min-height: 480px;
+  border: 0; outline: none; resize: none; overflow: hidden;
+  background: transparent; color: var(--text-primary);
+  font-family: var(--font-body); font-size: 14.4px; line-height: 1.6;
+  white-space: pre-wrap; overflow-wrap: break-word;
+}
+.dv-draft-text::placeholder { color: var(--text-muted); font-style: italic; }
+/* The document AS THE AI WRITES IT (the advisor's dialog streaming onto the
+   page): the same type as the editor, a pen at the end of what has arrived,
+   and the earlier text still ahead of it faded. */
+.dv-draft-text.is-live { cursor: default; user-select: text; }
+.dv-draft-caret {
+  display: inline-block; width: 2px; height: 1.1em; margin: 0 1px -0.18em;
+  background: var(--accent); border-radius: 1px;
+  animation: dv-draft-pen 1s steps(1, end) infinite;
+}
+.dv-draft-rest { color: var(--text-muted); opacity: 0.6; }
+@keyframes dv-draft-pen { 50% { opacity: 0; } }
+/* The Attack report in the thread is a CARD (a button) that opens the whole
+   report in the shared side drawer (components/SideDrawer). */
+.dv-attack.is-card {
+  width: 100%; text-align: left; font: inherit; color: inherit; cursor: pointer;
+  transition: border-color 140ms ease, background-color 140ms ease;
+}
+.dv-attack.is-card:hover,
+.dv-attack.is-card.is-open { border-color: color-mix(in srgb, var(--accent) 45%, var(--border)); background: color-mix(in srgb, var(--text-primary) 3%, var(--bg-page)); }
+.dv-attack.is-card:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.dv-attack-open { display: inline-flex; align-items: center; gap: 6px; font-size: 11.5px; font-weight: 600; color: var(--accent); }
+.dv-attack-report { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+/* Apply fixes — on the report card (beside "Open the report") and at the foot
+   of the drawer. */
+.dv-attack-foot { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.dv-attack-apply {
+  display: inline-flex; align-items: center; justify-content: center;
+  height: 26px; padding: 0 12px; border-radius: 999px;
+  font-size: 11.5px; font-weight: 600; cursor: pointer;
+  color: var(--text-on-accent); background: var(--accent);
+  transition: background-color 140ms ease, opacity 140ms ease;
+}
+.dv-attack-apply:hover { background: var(--accent-hover); }
+.dv-attack-apply:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.dv-attack-apply.is-disabled { opacity: 0.45; cursor: default; background: var(--accent); }
+.dv-attack-apply.is-primary { height: 32px; padding: 0 18px; font-size: 12.5px; }
+.dv-attack-drawer-foot {
+  position: sticky; bottom: 0; display: flex; justify-content: flex-end;
+  padding: 12px 0 4px; margin-top: 12px;
+  background: linear-gradient(to bottom, transparent, var(--bg-sidebar) 40%);
 }

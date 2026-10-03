@@ -10,7 +10,7 @@ import UpdateRestartModal from './UpdateRestartModal';
 import SwitchProjectLoader from './SwitchProjectLoader';
 import ContentShell from './SplitView';
 import CursorSpotlight from './CursorSpotlight';
-import LawDetect from './LawDetect';
+import LawDrawerHost from './LawDrawerHost';
 import { useAuth } from '../context/AuthContext';
 import { useSelectedProject } from '../context/SelectedProjectContext';
 import { isTabWindow } from '../lib/platform';
@@ -379,7 +379,7 @@ export default function AppShell() {
                 `::after`) to avoid a document-wide style recalc on every move. */}
             <CursorSpotlight follow={spotlightOn} />
             {/* Legislation, detected in every text of the window (the app's main feature). */}
-            <LawDetect />
+            <LawDrawerHost />
             {/* On project-scoped routes the page content is wrapped in a rounded
                 "sheet" panel. ContentShell renders it as a single pane with the
                 in-pane nav chrome (left rail + header). Dropped while switching

@@ -11,6 +11,8 @@
 // back in a predictable shape every time. Adding a template is adding an entry
 // to this array — no other file changes.
 
+import { blankRuleRo } from './docRules';
+
 // The groups the chooser filters by, in the order its chips appear. `top` is
 // not a group of its own: it is a flag on the templates a practice reaches for
 // most, whatever they belong to.
@@ -1346,38 +1348,13 @@ export function templateById(id) {
   return DOC_TEMPLATES.find((t) => t.id === id) || null;
 }
 
-// One blank shape for every generated document: square brackets around a short
-// description of what the person has to supply. Anything else — underscores,
-// dotted rules, curly braces, "TBD" — either escapes the Complete-data panel's
-// scan or reads inconsistently next to the blanks that don't.
-const PLACEHOLDER_RULE_RO =
-  'Nu inventa date. Scrie fiecare spațiu de completat între paranteze drepte DUBLE, iar în interior pune '
-  + 'NUMELE CÂMPULUI din această listă: legalName, nationalId, dateOfBirth, nationality, idDocument, '
-  + 'idSeries, idNumber, idIssuer, idIssuedAt, idType, placeOfBirth, taxId, regNo, legalForm, representative, '
-  + 'repCapacity, iban, bank, address, addressStreet, addressNumber, '
-  + 'addressBlock, addressStair, addressFloor, addressApartment, addressLocality, addressCounty, city, county, country, email, phone. '
-  + 'Pune înaintea numelui partea implicată atunci când sunt mai multe — [[vanzator.legalName]], '
-  + '[[cumparator.nationalId]] — și folosește numele simplu când este una singură: [[legalName]]. '
-  + 'DocVex ține câte o fișă pentru fiecare parte, așa că un spațiu numit astfel se completează dintr-un clic. '
-  + 'GREȘIT: domiciliat în [localitatea], str. [...], nr. [...], bl. [...], CNP [...]. '
-  + 'CORECT: domiciliat în [[vanzator.addressLocality]], str. [[vanzator.addressStreet]], '
-  + 'nr. [[vanzator.addressNumber]], bl. [[vanzator.addressBlock]], CNP [[vanzator.nationalId]]. '
-  + 'Câte un spațiu separat pentru fiecare informație. Pentru ce nu se află în listă (un preț, un termen, '
-  + 'autoritatea emitentă) folosește tot paranteze duble, cu o descriere scurtă: [[prețul convenit în lei]]. '
-  + 'Niciodată „[...]”, „[…]”, paranteze goale, liniuțe (____), puncte (....), {acolade} sau <paranteze unghiulare>. '
-  + 'GEN: păstrează formulele care acoperă ambele variante — „Domnul/Doamna”, „domiciliat(ă)”, '
-  + '„identificat(ă)”. DocVex le rezolvă din fișa părții la completare, deci nu alege tu genul.';
-
 // The opening instruction for a picked template.
 //
-// Placeholders, not invented facts: the drafter does not know the parties yet,
-// so it is told to leave every unknown as a bracketed blank. Those blanks are
-// exactly what the Doc Viewer's "Complete data" panel later finds and fills, so
-// the two features meet in the middle — and the panel finds them BY SHAPE
-// (`matchFields` scans for square brackets), which is why the rule below spells
-// out one blank style and forbids the rest. Keep it in step with
-// PLACEHOLDER_RULE in supabase/functions/project-ai/index.ts.
-export function templatePrompt(template) {
+// Blanks, not invented facts: the drafter does not know the parties yet, so
+// every unknown is left as a gap — written in the EMPTY-FIELD STYLE chosen in
+// the Playbook (lib/docRules `blankRuleRo`; `rules` = a preset's rules when
+// the brief picked one, else the rules in use).
+export function templatePrompt(template, { rules } = {}) {
   if (!template) return '';
   return [
     // Named after a colon rather than "Redactează un …": the labels are of
@@ -1389,7 +1366,7 @@ export function templatePrompt(template) {
     '',
     'Reguli:',
     '- Scrie textul integral, în limbaj juridic corect și uzual.',
-    `- ${PLACEHOLDER_RULE_RO}`,
+    `- ${blankRuleRo(rules)}`,
     '- Folosește exact aceleași denumiri de secțiuni de mai sus ca titluri.',
     ...(template.note ? [`- ${template.note}`] : []),
   ].join('\n');
@@ -1397,12 +1374,12 @@ export function templatePrompt(template) {
 
 // A free-text answer to "what do you want to make?". Kept in the same shape as
 // a template prompt so the advisor is entered the same way either way.
-export function customPrompt(text) {
+export function customPrompt(text, { rules } = {}) {
   const wanted = String(text || '').trim();
   if (!wanted) return '';
   return [
     wanted,
     '',
-    PLACEHOLDER_RULE_RO,
+    blankRuleRo(rules),
   ].join('\n');
 }

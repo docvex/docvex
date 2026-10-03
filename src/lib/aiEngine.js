@@ -35,7 +35,7 @@ import { recordText, viewForRef } from './portalRecords';
 export const AI_SURFACES = {
   research: {
     id: 'research', label: 'Research', where: 'pages/Research',
-    portals: true, auto: true, legalHighlight: true, projectFiles: true,
+    portals: true, auto: true, projectFiles: true,
     openFile: false, createFiles: false, editFiles: false, webSearch: true,
     // Research searches before every substantive answer, so each one comes
     // with its sources (project-ai's WEB_SEARCH_ALWAYS).
@@ -44,7 +44,7 @@ export const AI_SURFACES = {
   },
   viewer: {
     id: 'viewer', label: 'File viewer (Doc Viewer advisor)', where: 'pages/DocViewer',
-    portals: true, auto: true, legalHighlight: true, projectFiles: true,
+    portals: true, auto: true, projectFiles: true,
     openFile: true, createFiles: true, editFiles: true, webSearch: true,
     usageAction: 'viewer',
   },
@@ -56,7 +56,7 @@ export const AI_SURFACES = {
   // the code has to parse). The caller names the model and its usageAction.
   tool: {
     id: 'tool', label: 'Utility calls (answers read by the app)', where: 'lib/* — file search, Attack, picture → Word, …',
-    portals: false, auto: false, legalHighlight: false, projectFiles: false,
+    portals: false, auto: false, projectFiles: false,
     openFile: false, createFiles: false, editFiles: false, webSearch: false, conversation: false,
     usageAction: 'tool',
   },
@@ -64,7 +64,6 @@ export const AI_SURFACES = {
 export const CAPABILITIES = [
   { id: 'portals', label: 'Portals and connected APIs', what: 'Acts, court files, companies and CAEN codes named in the question are read from legislatie.just.ro, portal.just.ro, anaf.ro and the CAEN nomenclature, and handed to the model.' },
   { id: 'auto', label: 'Auto model', what: 'The model is picked per question by a small routing call (Haiku 4.5, your routing prompt).' },
-  { id: 'legalHighlight', label: 'Legislation highlight', what: 'Acts, codes, CAEN codes, court files and CUIs in the answer are marked in their platform’s colour; a click opens them.' },
   { id: 'projectFiles', label: 'Project files', what: 'The project digest (every file, data collection and what the scan read) is handed over when the composer’s switch is on.' },
   { id: 'openFile', label: 'The open file', what: 'The file on show is handed over in full (≤40,000 characters).' },
   { id: 'createFiles', label: 'Create files', what: 'The model may save a new version of the document (write_document) or ask questions first (ask_user) — written by your Playbook rules.' },
@@ -219,6 +218,13 @@ ${text}
   // File viewer, a Word file DocVex did not write: its words only.
   foreignDocument: (name, text) => `Here is the text of "${name || 'this document'}", which I am reading. It was NOT written here, so you have its words but not its layout.\n\n<<<DOCUMENT>>>\n${text}\n<<<END>>>\n\nAnswer questions about it directly. Do NOT call write_document for it: saving a new version would rebuild the file from this plain text and throw away its formatting, tables and numbering. When I want something in it changed, say exactly what to change and where, so I can make the change in Word.`,
   foreignDocumentAck: 'Understood — I have the document’s text. I’ll answer about it, and say exactly what to change when you want a change made.',
+  // File viewer, a DRAFT (.dvdraft) — written in a DIALOG: every reply is a
+  // short chat message and, when the document changes, the whole document in
+  // <document> tags, streamed onto the page as it arrives (no tools).
+  draftDocument: (name, text) => `We are writing "${name || 'the document'}" together. Here is the document as it stands on the page now (I may have typed into it myself):\n\n<document>\n${text}\n</document>`,
+  draftDocumentEmpty: (name) => `We are writing "${name || 'the document'}" together. The page is still empty.`,
+  draftDocumentAck: 'Understood — I have the document as it stands.',
+  draftDialog: (blankRule = '') => `[Meta: We are writing this document together in a chat, and the page updates from your replies. Answer every message in two parts: FIRST a short reply to me (one to three sentences: what you wrote or changed, or what you need to know); THEN — whenever the document is created or changes — the COMPLETE document between <document> and </document>: plain text, one paragraph per line, each heading on its own line, nothing after </document>. Always the whole document, never only the changed part. Leave the tags out entirely when the document does not change (I only asked something, or you must ask me first). If something essential is missing you may still write a first version with blanks and ask about it in your reply.${blankRule ? ` ${blankRule}` : ''}]`,
 };
 
 // ── Exact match (Research) ─────────────────────────────────────────────────

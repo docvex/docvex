@@ -78,13 +78,14 @@ Rules:
 - Every finding must rest on a SPECIFIC act and article that you are sure exists. Write the act the way a Romanian lawyer cites it: "Legea nr. 287/2009" (or "Codul civil"), "Legea nr. 53/2003" (or "Codul muncii"), "OUG nr. 34/2014", "Regulamentul (UE) 2016/679". Write the article as "art. 1270" (add "alin. (2)" where it matters, in the article field). Never invent a number. If you are not sure of the article, leave the finding out.
 - Mark "law": "eu" for an act of the European Union, "ro" otherwise.
 - "passage": the document's exact words the finding is about, copied character for character (empty only for something MISSING).
-- "fix": "before" = the exact passage (or "" when adding), "after" = the corrected wording, in the document's own language and style.
+- "fix": "before" = the exact passage (or "" when adding), "after" = the COMPLETE corrected wording, in the document's own language, style and numbering. The fix must RESOLVE the finding entirely — once it is applied, a lawyer re-auditing the clause against the same article must find nothing wrong with it. Never a cosmetic tweak or a half-measure: when the whole clause is the problem, "before" is the whole clause and "after" the whole clause rewritten; when something required is MISSING, "after" is the full clause ready to insert (with every element the article requires — parties' obligations, terms, amounts or blanks, the legal mention). Do not cite in "after" an act or article you are not sure of, and do not fill in facts the document does not give — leave a blank (_____) for them.
+- "where": for an addition ("before" empty), where it goes — "after <the clause's number or first words>" or "at the end of <section>"; "" otherwise.
 - "severity": "critical" (void / sanction / major liability), "major" (likely unenforceable or a real exposure), "minor" (a formal defect or a risk).
 - Write "title", "problem" and "after" in the language of the document.
-- Report AT MOST 10 findings, the most serious first. Keep it short: "passage" is the shortest exact span that shows the problem (one sentence, at most ~300 characters), "problem" at most two sentences, "after" only the corrected wording of that span.
+- Report AT MOST 10 findings, the most serious first. "passage" is the shortest exact span that shows the problem (one sentence, at most ~300 characters), "problem" at most two sentences; "after" as long as a complete fix needs — and no longer.
 
 Answer with JSON only, no prose, in exactly this shape:
-{"findings":[{"title":"","severity":"critical|major|minor","law":"ro|eu","act":"","article":"","passage":"","problem":"","fix":{"before":"","after":""}}]}
+{"findings":[{"title":"","severity":"critical|major|minor","law":"ro|eu","act":"","article":"","passage":"","problem":"","fix":{"before":"","after":"","where":""}}]}
 An answer with nothing to report is {"findings":[]}.`;
 
 export const REPORT_PROMPT = `You write the final report of a legal compliance scan. You are given the document's name, the score (already computed — use it EXACTLY), and the findings that survived verification against the official sources, each with the text of the article it rests on when the source returned it.
@@ -162,7 +163,7 @@ export function parseFindings(answer) {
       article: str(f.article, 80),
       passage: str(f.passage, 3000),
       problem: str(f.problem, 2000),
-      fix: { before: str(f.fix?.before, 3000), after: str(f.fix?.after, 3000) },
+      fix: { before: str(f.fix?.before, 3000), after: str(f.fix?.after, 6000), where: str(f.fix?.where || f.where, 300) },
     }))
     .filter((f) => f.title && f.act && f.article);
 }
@@ -304,6 +305,50 @@ const findingsForReport = (findings) => findings.map((f, i) => ({
   problem: f.problem,
   fix: f.fix,
 }));
+
+// ── Applying the fixes (the Doc Viewer's "Apply fixes") ────────────────────
+// What a thread keeps of each finding — enough to write the fix request.
+export function keptFindings(findings) {
+  return (findings || []).map((f) => ({
+    title: f.title, severity: f.severity, law: f.law, act: f.act, article: f.article,
+    passage: f.passage, problem: f.problem, fix: f.fix,
+    verified: f.verification?.status === 'verified',
+    quote: f.verification?.quote || '',
+  }));
+}
+
+/** The request that makes the advisor fix EVERY finding completely — each with
+ *  its passage, the problem, the article it rests on (its official text when
+ *  the source returned it) and the suggested rewrite, plus the rules that keep
+ *  the rewrite from creating new findings. Falls back to the report's markdown
+ *  for a scan made before findings were kept. */
+export function fixRequest({ fileName = '', findings = [], markdown = '' } = {}) {
+  const name = fileName || 'the document';
+  const head = `Fix "${name}" so that it passes a legal compliance re-audit under Romanian and EU law with NONE of the vulnerabilities below left. Resolve every one of them completely — not with a cosmetic edit.`;
+  const rules = [
+    'How to fix:',
+    '- Each finding must be FULLY resolved: the clause must comply with the article it rests on in every element that article requires. The suggested rewrite is a starting point — improve it when it does not resolve the problem entirely; where the whole clause is the problem, rewrite the whole clause.',
+    '- Something MISSING is added as a complete clause, in the place given (or where it belongs in the document\'s structure), numbered consistently with the clauses around it — renumber what follows and its cross-references if needed.',
+    '- Base each fix on the article text given; cite only acts and articles named below (or already in the document) — never add a citation you are not sure exists.',
+    '- Do not invent facts (names, amounts, dates, identifiers): leave a blank (_____) where the document does not give them.',
+    '- Keep everything no finding mentions exactly as it is — same wording, structure and numbering — and do not introduce a new problem (an unfair term, a contradiction between clauses, a wrong reference).',
+    '- Before you answer, check each finding once more against your new text and make sure it is gone.',
+  ].join('\n');
+  const list = (findings || []).map((f, i) => {
+    const lines = [`${i + 1}. [${f.severity || 'major'}] ${f.title}`];
+    lines.push(`   Legal anchor: ${f.act}, ${f.article}${f.verified ? ' (verified on the official source)' : ' (not verified — fix conservatively)'}`);
+    if (f.quote) lines.push(`   Article text: "${String(f.quote).replace(/\s+/g, ' ').slice(0, 1200)}"`);
+    lines.push(`   Problem: ${f.problem}`);
+    if (f.passage) lines.push(`   Current text: "${f.passage}"`);
+    else lines.push('   Current text: (missing — must be added)');
+    if (f.fix?.after) lines.push(`   Suggested rewrite${f.fix.where ? ` (${f.fix.where})` : ''}: "${f.fix.after}"`);
+    return lines.join('\n');
+  }).join('\n\n');
+  if (!list) {
+    return [head, rules, `<attack_report>\n${String(markdown || '').trim()}\n</attack_report>`].join('\n\n');
+  }
+  return [head, rules, `<findings>\n${list}\n</findings>`].join('\n\n');
+}
 
 // ── The scan ────────────────────────────────────────────────────────────────
 /**

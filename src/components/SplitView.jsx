@@ -29,7 +29,7 @@ function paneDestinations(selectedProject) {
         { label: 'Activity', to: '/' },
         { label: 'Projects', to: '/projects' },
         { label: 'Updates', to: '/versions' },
-        { label: 'Legislation', to: '/legislation' },
+        { label: 'Legislation', to: '/research' },
         { label: 'Account', to: '/account' },
       ];
 }

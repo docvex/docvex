@@ -226,3 +226,30 @@
 }
 :root[data-reduce-motion='true'] .dbr-stage { animation: none; }
 @media (prefers-reduced-motion: reduce) { .dbr-stage { animation: none; } }
+
+/* ── In the Doc Viewer's SIDE PANEL (a draft's brief, `panel`) ──────────────
+   The same questions in a narrow column: the steps as a compact list of
+   numbers + titles, no left indent under the questions, the foot bar wrapping
+   (Generate on a row of its own). */
+.dbr-root.is-panel { background: transparent; }
+.dbr-root.is-panel .dbr-inner { max-width: none; padding: 14px 14px 18px; }
+.dbr-root.is-panel .dbr-eyebrow { margin-top: 12px; }
+.dbr-root.is-panel .dbr-title { font-size: 19px; }
+.dbr-root.is-panel .dbr-steps { grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 4px; margin-top: 14px; }
+.dbr-root.is-panel .dbr-step { justify-content: center; padding: 7px 4px; border-radius: 9px; }
+.dbr-root.is-panel .dbr-step-text { display: none; }
+.dbr-root.is-panel .dbr-stage-sub { font-size: 12.4px; }
+.dbr-root.is-panel .dbr-q { padding: 14px 0; }
+.dbr-root.is-panel .dbr-q-title { font-size: 13.4px; }
+.dbr-root.is-panel .dbr-q-body { margin-left: 0; }
+.dbr-root.is-panel .dbr-fields { grid-template-columns: 1fr; }
+.dbr-root.is-panel .dbr-input.is-other,
+.dbr-root.is-panel .dbr-party-role { max-width: none; }
+.dbr-root.is-panel .dbr-bar { padding: 8px 10px 10px; background: linear-gradient(to top, var(--bg-sidebar) 60%, transparent); }
+.dbr-root.is-panel .dbr-bar-inner { flex-wrap: wrap; row-gap: 8px; padding: 8px; }
+.dbr-root.is-panel .dbr-bar-mid { order: -1; flex-basis: 100%; padding: 0 2px; gap: 10px; }
+.dbr-root.is-panel .dbr-progress { width: 64px; }
+.dbr-root.is-panel .dbr-btn { padding: 6px 12px; font-size: 12.4px; }
+.dbr-root.is-panel .dbr-btn.is-primary { margin-left: auto; }
+.dbr-stage-title { margin: 0 0 4px; font-size: 13.4px; font-weight: 650; color: var(--text-primary); }
+.dbr-stage-title span { font-weight: 500; color: var(--text-muted); }

@@ -14,7 +14,6 @@ import { LEGISLATION_PATHS } from './LegalTabs';
 import './RefPill.css';
 import { isBlankChat } from '../lib/advisorChats';
 import { researchStore, bindResearch } from '../lib/researchChats';
-import { isSourceEntry, isEntryActive, openEntry, closeEntry, subscribeWorkspaces as subscribeLegalItems, workspacesSnapshot as legalItemsSnapshot } from '../lib/legislationEntries';
 import { subscribeRunner as subscribeResearchRun, runnerActivity as researchRunState, anyRunning as researchAnyRunning, isThreadBusy as researchThreadBusy } from '../lib/researchRunner';
 import { prefetchProjects } from '../lib/projectListPrefetch';
 import { preloadProjectList } from '../AppRoutes';
@@ -438,8 +437,6 @@ function Sidebar({ collapsed = false, offstage = false, onHubNav }) {
   // click opening a new chat while on the page. One hook, one renderer
   // (useChatFold / renderChatEntry).
   useEffect(() => { bindResearch(session?.user?.id || '_anonymous', selectedProjectId); }, [session?.user?.id, selectedProjectId]);
-  // What the Legislation source tabs have open — marks the one-list entry on show.
-  const workspaces = useSyncExternalStore(subscribeLegalItems, legalItemsSnapshot);
   const researchFold = useChatFold(researchStore, { openKey: RESEARCH_OPEN_KEY, setEvent: 'docvex:research-list-set', listedEvent: 'docvex:research-listed', flag: '__docvexResearchListed' });
 
   // What survives the fold: Settings alone. Not "the first item" — if Settings
@@ -535,14 +532,10 @@ function Sidebar({ collapsed = false, offstage = false, onHubNav }) {
       if (count && !open) toggle();
     };
     const openChat = (id) => {
-      const t = chats.threads.find((x) => x.id === id);
-      // An item a Legislation source tab opened (lib/legislationEntries).
-      if (isSourceEntry(t)) { openEntry(t, navigate, pathname); return; }
       store.select(id);
       if (pathname !== item.to) navigate(item.to);
     };
-    const tabOnShow = (selected && listed.some((t) => t.id === chats.active && !isSourceEntry(t)))
-      || listed.some((t) => isEntryActive(t, pathname, workspaces));
+    const tabOnShow = selected && listed.some((t) => t.id === chats.active);
     return (
       <div key={item.to} className={`nav-fold${shown ? ' is-cat' : ''}`}>
         {renderNavItemRow({ ...item, onClick: onRowClick, notActive: tabOnShow }, chev)}
@@ -569,7 +562,7 @@ function Sidebar({ collapsed = false, offstage = false, onHubNav }) {
                 {g.tabs.map((t) => {
                   const tBusy = typeof busy === 'function' ? busy(t.id) : (busy && chats.active === t.id && pathname === item.to);
                   const m = store.meta(t, { busy: tBusy });
-                  const active = isSourceEntry(t) ? isEntryActive(t, pathname, workspaces) : selected && chats.active === t.id;
+                  const active = selected && chats.active === t.id;
                   return (
                     <div
                       key={t.id}
@@ -608,7 +601,7 @@ function Sidebar({ collapsed = false, offstage = false, onHubNav }) {
                         </button>
                       </TabMenuPill>
                       {!t.pinned ? (
-                        <button type="button" className="doc-tab-close" onClick={() => (isSourceEntry(t) ? closeEntry(t) : store.close(t.id))} aria-label={`Close ${m.title}`}>
+                        <button type="button" className="doc-tab-close" onClick={() => store.close(t.id)} aria-label={`Close ${m.title}`}>
                           {CloseGlyph}
                         </button>
                       ) : null}

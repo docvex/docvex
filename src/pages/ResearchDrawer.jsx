@@ -1,8 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import SideDrawer from '../components/SideDrawer';
-// The drawer also opens APP-WIDE (components/LawDetect, a legislation
-// reference pressed anywhere), outside the Research page: it carries the
-// stylesheets its views are drawn with.
+// The drawer also opens APP-WIDE (components/LawDrawerHost), outside the
+// Research page: it carries the stylesheets its views are drawn with.
 import './Legislation.css';
 import '../components/LegalBrowser.css';
 import './Research.css';

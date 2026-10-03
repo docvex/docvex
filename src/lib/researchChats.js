@@ -104,3 +104,17 @@ export function bindResearch(user, projectId) {
     });
   }
 }
+
+// The Legislation source pages are gone (2026-10-03), so the items they put in
+// this list (`source` entries, once lib/legislationEntries) are closed —
+// with their tombstones, so a merge or another window cannot bring them back.
+let purging = false;
+researchStore.subscribe(() => {
+  if (purging) return;
+  const gone = (researchStore.getState().threads || []).filter((t) => t?.source);
+  if (!gone.length) return;
+  purging = true;
+  queueMicrotask(() => {
+    try { for (const t of gone) researchStore.close(t.id); } finally { purging = false; }
+  });
+});

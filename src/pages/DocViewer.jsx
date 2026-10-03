@@ -30,16 +30,17 @@ import { transcribeAudio } from '../lib/transcribe';
 import { makeAskAnswers } from '../lib/projectAi';
 import { useAppPrefs } from '../context/AppPrefsContext';
 import AskUserPanel from '../components/AskUserPanel';
+import { isDraftName, readDraft, peekDraft, writeDraft, subscribeDrafts, draftConversation, DRAFT_MIME, setDraftLive, peekDraftLive, subscribeDraftLive, splitDraftReply } from '../lib/draftFile';
 import { docKindFromName, buildDocumentBlob, buildDocumentBlobSmart, mimeForKind, inferDocKind, withKindExtension, labelForKind } from '../lib/documentGen';
 import { renderedOfficeToPdfBlob } from '../lib/exportPdf';
 import ConvertModal from '../components/ConvertModal';
 import ConfirmModal from '../components/ConfirmModal';
-import { conversationsSettled, whenConversationsReady, loadConversation, saveConversation, clearConversation } from '../lib/conversationHistory';
+import { conversationsSettled, whenConversationsReady, loadConversation, saveConversation, clearConversation, followRename } from '../lib/conversationHistory';
 import { embedDocxSource, readDocxSource, sourcePayload } from '../lib/docxSource';
 import { styleSteer } from '../lib/writingStyle';
-import { docRulesSteer } from '../lib/docRules';
+import { docRulesSteer, blankRuleRo } from '../lib/docRules';
 import { describeQr } from '../lib/barcodes';
-import { isElectron, isMac, navigateMainWindow, focusMainWindow, extractDocText, openExternal, onFilesRemoved, onFilesChanged, notifyFilesChanged, openDocViewerWindow, setDocViewerAiStatus, onDocViewerOpenFile, notifyDocViewerWarmReady, notifyDocViewerFilePainted, onDocViewerPrepareFile, allowLocalFile, setDocViewerFile, docViewerPrompted, windowSetFullscreen, onWindowFullscreenChanged, windowIsFullscreen, windowClose } from '../lib/platform';
+import { isElectron, isMac, extractDocText, openExternal, onFilesRemoved, onFilesChanged, notifyFilesChanged, openDocViewerWindow, setDocViewerAiStatus, onDocViewerOpenFile, notifyDocViewerWarmReady, notifyDocViewerFilePainted, onDocViewerPrepareFile, allowLocalFile, setDocViewerFile, docViewerPrompted, windowSetFullscreen, onWindowFullscreenChanged, windowIsFullscreen, windowClose } from '../lib/platform';
 import { loadLinkPreview, peekLinkPreview, subscribeLinkPreviews } from '../lib/linkPreviews';
 import { beginPanShield } from '../lib/panShield';
 import { useSelectedProject } from '../context/SelectedProjectContext';
@@ -71,17 +72,14 @@ import { hydratePath } from '../lib/projectIndexClient';
 import { useChatFind } from '../lib/useChatFind';
 import { TEMPLATE_CATEGORIES, searchTemplates } from '../lib/docTemplates';
 import DocBrief from '../components/DocBrief';
+import Toggle from '../components/Toggle';
+import SideDrawer from '../components/SideDrawer';
 import SourcesCheckCard from '../components/SourcesCheckCard';
 import { checkText } from '../lib/sourceChecks';
 import { fieldLabelIn } from '../components/docConstructorStrings';
 import FilterTabs from '../components/FilterTabs';
 import { DocQuickActions, flashQuickAction, QuickExtrasContext } from '../components/DocRibbon';
-import { findLawRefs, lawRefDetails, caenContextOf, findCuiRefs, dropOverlaps, findFollowableRefs } from '../lib/lawRefs';
-import { openLawRef } from '../lib/lawDrawer';
 import SelectionTooltip from '../components/SelectionTooltip';
-import LawDetect from '../components/LawDetect';
-import { legislationHref } from '../lib/legislation';
-import { loadCaen, resolveCaen, caenHref, peekCaenRev } from '../lib/caen';
 import {
   IDENTITY_KINDS, fieldsFor, identityMrz, identityInitials, identityNameParts, resolveIdentityFields, identityValueForField, identitySummary, APARTMENT_ONLY_FIELDS, addressIsApartment, addressHasSectors,
 } from '../lib/identities';
@@ -487,6 +485,8 @@ function classify(mime, name, path) {
   // raw record instead of the form. `.json` counts too when the file sits in the
   // Identities folder; one that doesn't is caught by the content sniff in
   // DocPane, which is the only other way a record can be named.
+  // A DocVex DRAFT (lib/draftFile) — JSON bytes, so before anything else.
+  if (e === 'dvdraft') return { kind: 'draft', mime: DRAFT_MIME };
   if (m === 'application/pdf' || e === 'pdf') return { kind: 'pdf', mime: 'application/pdf' };
   if (e === 'docx' || m === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document') return { kind: 'docx', mime: m };
   // Legacy binary Word (.doc / .dot): can't render in-browser — extract text.
@@ -3292,7 +3292,6 @@ const AdvCopyGlyph = (<svg width="14" height="14" viewBox="0 0 24 24" fill="none
 const AdvCheckGlyph = (<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M20 6 9 17l-5-5" /></svg>);
 const AdvRetryGlyph = (<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 1 0 9-9 9 9 0 0 0-6.4 2.6L3 8" /><path d="M3 3v5h5" /></svg>);
 const AdvSparkGlyph = (<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M12 3v4M12 17v4M3 12h4M17 12h4M5.6 5.6l2.8 2.8M15.6 15.6l2.8 2.8M18.4 5.6l-2.8 2.8M8.4 15.6l-2.8 2.8" /></svg>);
-const AdvBranchGlyph = (<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><line x1="6" y1="3" x2="6" y2="15" /><circle cx="18" cy="6" r="3" /><circle cx="6" cy="18" r="3" /><path d="M18 9a9 9 0 0 1-9 9" /></svg>);
 
 // ── Chat presentation (copied from the main app's AI advisor so the Generate
 //    tab reads identically) ──────────────────────────────────────────────────
@@ -3433,23 +3432,6 @@ function turnMeta(prep) {
   };
 }
 
-// A reference pressed in an AI answer (components/AiAnswer) opens in the MAIN
-// window's Legislation browser, in a new tab — as a highlight's Search does.
-function openAnswerRef(hit) {
-  // The app-wide way (lib/lawDrawer): the side drawer, in this window.
-  if (hit) { openLawRef(hit); return; }
-  let href = '';
-  try {
-    if (hit.kind === 'cui') href = `/anaf?cui=${encodeURIComponent(hit.cui)}`;
-    else if (hit.kind === 'caen' && hit.codes?.length) href = caenHref(hit.codes[0], hit.rev === 2 ? 2 : 3);
-    else if (hit.kind === 'case') href = `/portal-just?nr=${encodeURIComponent(hit.number)}`;
-    else href = legislationHref(lawRefDetails(hit));
-  } catch { href = ''; }
-  if (!href) return;
-  navigateMainWindow(`${href}${href.includes('?') ? '&' : '?'}newtab=1&_=${Date.now()}`);
-  try { focusMainWindow(); } catch { /* not in Electron */ }
-}
-
 // Under an AI reply: which model answered (and, under Auto, why), the portal
 // records it was given and whether the project's files were in view — the
 // same line Research prints.
@@ -3469,11 +3451,17 @@ function AnswerByline({ m, project }) {
   );
 }
 
-function buildGenMessages(displayed, file, versions, activeVersion, readText = '') {
+// A draft's dialog turn may run as long as a drafting turn (lib/aiEngine AI_LIMITS.draftMs).
+const AI_DRAFT_TURN_MS = 4 * 60 * 1000;
+
+function buildGenMessages(displayed, file, versions, activeVersion, readText = '', draftText = null) {
   // Seed with the version that's actually on disk right now (the user may have
   // re-selected an earlier one), falling back to the most recent.
-  const active = versions.find((v) => v.n === activeVersion)
+  const picked = versions.find((v) => v.n === activeVersion)
     || (versions.length ? versions[versions.length - 1] : null);
+  // A DRAFT's text is what is on its page — the user types into it, so it can
+  // differ from every version the AI wrote; that is the document to work on.
+  const active = typeof draftText === 'string' && draftText.trim() ? { ...(picked || {}), text: draftText } : picked;
   const seq = [];
   // A Word file DocVex did not write has no version to seed from, and used to
   // be sent with NO document at all — so the advisor answered about a file it
@@ -3690,9 +3678,11 @@ function MultitoolAdvisorProvider({ file, footSlot = null, quickSlot = null, gen
     // still names the previous file).
     let gone = false;
     let undo = null;
-    const hydrate = () => {
+    const hydrate = (fromFile) => {
     setInput(''); setError(null); setBusy(false); setQuestions([]); setOptions([]);
-    const saved = file?.path ? loadConversation(file.path) : null;
+    // A DRAFT carries its own conversation (lib/draftFile); every other file's
+    // thread is in this machine's private store.
+    const saved = fromFile !== undefined ? fromFile : (file?.path ? loadConversation(file.path) : null);
     const vers = saved?.versions || [];
     // Restore the branch set if present; otherwise wrap the saved/empty thread in
     // a single "Main" branch.
@@ -3702,7 +3692,9 @@ function MultitoolAdvisorProvider({ file, footSlot = null, quickSlot = null, gen
       savedBranches.forEach((b) => { store[b.id] = b.messages || []; });
       branchStoreRef.current = store;
       setBranches(savedBranches.map((b) => ({ id: b.id, label: b.label, splits: b.splits || [] })));
-      const active = saved.activeBranchId && store[saved.activeBranchId] ? saved.activeBranchId : savedBranches[0].id;
+      // Splitting a conversation was removed (2026-10-03): a file always opens
+      // on its MAIN conversation; splits saved before are kept, unshown.
+      const active = savedBranches[0].id;
       setActiveBranchId(active);
       setMessages(store[active] || []);
       branchSeqRef.current = savedBranches.filter((b) => b.id !== 'main').length;
@@ -3799,7 +3791,11 @@ function MultitoolAdvisorProvider({ file, footSlot = null, quickSlot = null, gen
     }
     return () => { cancelled = true; };
     };
-    if (conversationsSettled()) undo = hydrate();
+    if (isDraftName(file?.name)) {
+      setMessages([]); setVersions([]);
+      readDraft(file.path).then((d) => { if (!gone) undo = hydrate(draftConversation(d)); })
+        .catch(() => { if (!gone) undo = hydrate(null); });
+    } else if (conversationsSettled()) undo = hydrate();
     else {
       setMessages([]); setVersions([]);
       whenConversationsReady().then(() => { if (!gone) undo = hydrate(); });
@@ -3827,6 +3823,12 @@ function MultitoolAdvisorProvider({ file, footSlot = null, quickSlot = null, gen
       id: b.id, label: b.label, splits: b.splits || [],
       messages: b.id === activeBranchId ? messages : (branchStoreRef.current[b.id] || []),
     }));
+    if (isDraftName(file.name)) {
+      // Nothing to write until something was said (a fresh draft stays as made).
+      if (!messages.length && !branchRecords.some((b) => b.messages.length)) return;
+      void writeDraft(file.path, { conversation: { messages, branches: branchRecords, activeBranchId } }, { delay: 400 });
+      return;
+    }
     saveConversation(file.path, {
       messages, versions, branches: branchRecords, activeBranchId,
       paraThreads: paraThreadsRef.current,
@@ -3842,6 +3844,20 @@ function MultitoolAdvisorProvider({ file, footSlot = null, quickSlot = null, gen
   // INTO the file (lib/docxSource) so its paragraph tools work on any device.
   const writeDoc = useCallback(async (text, kindArg, source = null) => {
     const p = String(file?.path || '');
+    // A DRAFT (lib/draftFile): the version is written into the draft itself —
+    // its text, the versions and which one is on the page. The Word file is made
+    // from it on request (the pane's "To Word").
+    if (isDraftName(file?.name || p)) {
+      const ok = await writeDraft(p, {
+        text: String(text || ''),
+        ...(source?.versions ? { versions: source.versions.map(({ n, text: t, instructions, kind: k }) => ({ n, text: t, instructions, kind: k, at: Date.now() })) } : null),
+        ...(source?.active != null ? { active: source.active } : null),
+      }, { delay: 0 });
+      if (!ok) throw new Error('write_failed');
+      notifyFilesChanged();
+      onDocWritten?.();
+      return;
+    }
     const cut = Math.max(p.lastIndexOf('/'), p.lastIndexOf('\\'));
     const dir = cut >= 0 ? p.slice(0, cut) : '';
     const curName = cut >= 0 ? p.slice(cut + 1) : p;
@@ -3871,10 +3887,13 @@ function MultitoolAdvisorProvider({ file, footSlot = null, quickSlot = null, gen
       payload: { activity: { action: 'generate-doc', fileName: targetName, filePath: dir ? `${dir}/${targetName}` : targetName } },
     });
     if (targetName !== curName) {
-      // The thread now lives under the NEW path (the save effect re-keys on
-      // file.path); drop the stale old-path entry so a future same-named new
-      // file (another "Untitled") can't inherit this conversation.
-      clearConversation(p);
+      // The thread MOVES to the new path (lib/conversationHistory followRename):
+      // the viewer goes on saving under the old path for a moment after the
+      // rename, and those saves now land on the new one — they used to leave
+      // the messages under the old name and the renamed file with an empty
+      // thread. The old entry goes, so a future same-named new file (another
+      // "Untitled") can't inherit this conversation.
+      followRename(p, dir ? `${dir}${p.includes('\\') ? '\\' : '/'}${targetName}` : targetName);
       onRenameFile?.(targetName, mimeForKind(kind));
     }
     onDocWritten?.();
@@ -3901,6 +3920,8 @@ function MultitoolAdvisorProvider({ file, footSlot = null, quickSlot = null, gen
     setMessages((m) => m.map((x) => (x.role === 'sources' && x.id === id ? settled : x)));
   }, []);
 
+  // The project's file listing (listProjectFiles, defined further down).
+  const listProjectFilesRef = useRef(null);
   // `ctx.meta` — the turn's byline (turnMeta), carried onto its reply.
   const applyGenResult = useCallback(async (res, lastUserText, baseMsgs, ctx = {}) => {
     if (res.tool === 'write_document' && res.toolUse?.input) {
@@ -3939,7 +3960,12 @@ function MultitoolAdvisorProvider({ file, footSlot = null, quickSlot = null, gen
       return;
     }
     // A pure conversational answer (a question that doesn't change the document).
-    setMessages((m) => [...m, { role: 'assistant', content: res.text || '', at: Date.now(), usage: res.usage, ...(ctx.meta || {}), ...(res.sources?.length ? { sources: res.sources } : null) }]);
+    // It may still PROPOSE edits to files (lib/aiFileEdits — a Word file DocVex
+    // did not write is changed paragraph by paragraph this way, e.g. Attack's
+    // Apply fixes); they are shown under it with Apply / Discard.
+    let edits = [];
+    try { edits = await proposeReplyEdits(res.text, (await listProjectFilesRef.current?.())?.files || []); } catch { edits = []; }
+    setMessages((m) => [...m, { role: 'assistant', content: res.text || '', at: Date.now(), usage: res.usage, ...(ctx.meta || {}), ...(edits.length ? { edits } : null), ...(res.sources?.length ? { sources: res.sources } : null) }]);
   }, [file, writeDoc, checkAgainstSources]);
 
 
@@ -3982,6 +4008,7 @@ function MultitoolAdvisorProvider({ file, footSlot = null, quickSlot = null, gen
       return cached;
     }
   }, [selectedProject?.id, selectedProject?.name, session?.user?.id]);
+  listProjectFilesRef.current = listProjectFiles;
 
   // The advisor reads ONE other file only when the user asks for it by its
   // exact filename ("use the address from extras-cf.pdf"). Nothing else in the
@@ -4054,6 +4081,12 @@ function MultitoolAdvisorProvider({ file, footSlot = null, quickSlot = null, gen
   // one against the connected sources and writes the report; the report lands in
   // this thread as a card (role 'attack' — kept with the thread, never sent to
   // the AI as a turn), updated as the scan moves on.
+  // A DRAFT's BRIEF (components/DocBrief), answered in the side panel: set
+  // when a template is picked on a draft's "What do you want to make?", it
+  // takes the thread's place until Generate (which sends it as the first turn)
+  // or "All templates" (back to the chooser).
+  const [draftBrief, setDraftBrief] = useState(null);
+  useEffect(() => { setDraftBrief(null); }, [file?.path]);
   const [attackBusy, setAttackBusy] = useState(false);
   const attackBusyRef = useRef(false);
   const runAttack = useCallback(async () => {
@@ -4068,20 +4101,22 @@ function MultitoolAdvisorProvider({ file, footSlot = null, quickSlot = null, gen
       const open = await readOpenFile();
       if (!open?.text) res = { ok: false, error: 'This file has no text to scan. For a picture, extract its text first.' };
       else {
-        const { runComplianceScan } = await import('../lib/complianceScan');
+        const { runComplianceScan, keptFindings } = await import('../lib/complianceScan');
         // Auto picks per question; a scan is one long legal read — Sonnet 5.
         const model = !aiSettings.model || aiSettings.model === 'auto' ? 'claude-sonnet-5' : aiSettings.model;
         res = await runComplianceScan({
           text: open.text, name: open.name, model, projectId: selectedProject?.id || null,
           onProgress: (progress) => patch((x) => ({ ...x, progress })),
         });
+        // What Apply fixes is written from (the structured findings, not the prose).
+        if (res?.ok) res.kept = keptFindings(res.findings);
       }
     } catch { res = { ok: false, error: 'The scan failed.' }; }
     const count = (st) => (res?.findings || []).filter((f) => f.verification?.status === st).length;
     patch(() => ({
       role: 'attack', id, at: Date.now(), file: file?.name || '',
       result: res?.ok
-        ? { ok: true, score: res.score, markdown: res.markdown, built: res.built, sections: res.sections, verified: count('verified'), unverified: count('unverified'), rejected: (res.rejected || []).length, documentCheck: res.documentCheck?.counts || null }
+        ? { ok: true, score: res.score, markdown: res.markdown, findings: res.kept || [], built: res.built, sections: res.sections, verified: count('verified'), unverified: count('unverified'), rejected: (res.rejected || []).length, documentCheck: res.documentCheck?.counts || null }
         : { ok: false, error: res?.error || 'The scan failed.' },
     }));
     attackBusyRef.current = false; setAttackBusy(false);
@@ -4093,10 +4128,11 @@ function MultitoolAdvisorProvider({ file, footSlot = null, quickSlot = null, gen
       return (list || []).map((f) => ({ name: f.name, path: f.path, folderPath: f.folder || '' }));
     } catch { return []; }
   }, [listProjectFiles]);
-  const prepare = useCallback(async (question, { openFile = true } = {}) => {
+  // `choice` — a model for this turn only (Attack's Apply fixes); else the picker's.
+  const prepare = useCallback(async (question, { openFile = true, choice = null } = {}) => {
     const open = openFile ? await readOpenFile() : null;
     return prepareTurn({
-      surface: 'viewer', question, choice: aiSettings.model,
+      surface: 'viewer', question, choice: choice || aiSettings.model,
       project: selectedProject, files: listForDigest, withFiles: aiSettings.projectFiles, openFile: open,
       rules: docRulesSteer(), // the Playbook: what every document is created and edited by
     });
@@ -4110,11 +4146,13 @@ function MultitoolAdvisorProvider({ file, footSlot = null, quickSlot = null, gen
     if (!input.trim() || busy) return undefined;
     const t = setTimeout(async () => {
       try {
-        const openFile = !genMode || !versions.length ? await readOpenFile() : null;
+        // A draft's turn has no open file and no tools (runTurn's dialog).
+        const draft = isDraftName(file?.name);
+        const openFile = !draft && (!genMode || !versions.length) ? await readOpenFile() : null;
         await warmTurn({
           surface: 'viewer', choice: aiSettings.model, draft: input, project: selectedProject,
           files: listForDigest, withFiles: aiSettings.projectFiles, openFile, rules: docRulesSteer(),
-          docTools: genMode, docKind: docKindFromName(file?.name || '') || undefined,
+          docTools: genMode && !draft, docKind: docKindFromName(file?.name || '') || undefined,
           fileNames: genMode ? [] : [file?.name],
         });
       } catch { /* a warm-up is only a head start */ }
@@ -4123,12 +4161,15 @@ function MultitoolAdvisorProvider({ file, footSlot = null, quickSlot = null, gen
   }, [input]); // eslint-disable-line react-hooks/exhaustive-deps
 
 
-  const runTurn = useCallback(async (convo, lastUserText) => {
+  const runTurn = useCallback(async (convo, lastUserText, turnOpts = {}) => {
     const seq = ++turnSeqRef.current;
     const stopped = () => turnSeqRef.current !== seq;
     // The turn's data and the text of any file named outright, in PARALLEL.
+    const isDraft = isDraftName(file?.name);
     const [prep, namedNote] = await Promise.all([
-      prepare(lastUserText, { openFile: !genMode || !versions.length }),
+      // A draft's document rides in the turn itself (buildDraft below), never
+      // as the open file (that would be the draft's JSON).
+      prepare(lastUserText, { openFile: !isDraft && (!genMode || !versions.length), choice: turnOpts.model }),
       buildProjectFilesNote(lastUserText),
     ]);
     if (stopped()) return;
@@ -4143,6 +4184,79 @@ function MultitoolAdvisorProvider({ file, footSlot = null, quickSlot = null, gen
         ? { ...m, content: withData(m.content, data) }
         : m
     ));
+    if (genMode && isDraft) {
+      // A DRAFT is written in a DIALOG (AI_PROMPTS.draftDialog): each reply is a
+      // short chat message and, when the document changes, the whole document
+      // in <document> tags — STREAMED, the chat part into the reply bubble and
+      // the document part onto the page as it arrives (lib/draftFile
+      // setDraftLive). Once the reply is complete the document is written into
+      // the draft as a new version. No tools: nothing to wait for but the text.
+      const path = file.path;
+      const docNow = String(peekDraft(path)?.text ?? '');
+      const seq = docNow.trim()
+        ? [{ role: 'user', content: AI_PROMPTS.draftDocument(file.name, docNow) }, { role: 'assistant', content: AI_PROMPTS.draftDocumentAck }]
+        : [{ role: 'user', content: AI_PROMPTS.draftDocumentEmpty(file.name) }, { role: 'assistant', content: AI_PROMPTS.draftDocumentAck }];
+      for (const m of dropUnanswered(convo, (x) => x.role === 'user')) {
+        if (m.role === 'user' || m.role === 'assistant') seq.push({ role: m.role, content: m.apiText || m.content || '…' });
+        else if (m.role === 'artifact') seq.push({ role: 'assistant', content: `(Version ${m.version} written on the page.)` });
+      }
+      const merged = mergeStringTurns(seq);
+      let blankRule = '';
+      try { blankRule = blankRuleRo(); } catch { blankRule = ''; }
+      const dialogMsgs = merged.map((m, i) => (
+        i === merged.length - 1 && m.role === 'user' && typeof m.content === 'string'
+          ? { ...m, content: `${m.content}\n\n${AI_PROMPTS.draftDialog(blankRule)}` }
+          : m
+      ));
+      const sentMsgs = await withVoice(withTurnData(dialogMsgs));
+      const ctl = new AbortController();
+      abortRef.current = ctl;
+      let lastPaint = 0;
+      setStreamWeb(null);
+      const res = await askAi({
+        surface: 'viewer', messages: sentMsgs, model: prep.run, context: prep.context,
+        // No web search: its citations would be written into the document.
+        webSearch: false, signal: ctl.signal, timeoutMs: AI_DRAFT_TURN_MS, effort: turnOpts.effort,
+        onText: (_d, all) => {
+          if (stopped()) return;
+          const now = performance.now();
+          if (now - lastPaint < 50) return;
+          lastPaint = now;
+          const part = splitDraftReply(all);
+          setStreamText(part.chat);
+          if (part.doc != null) {
+            setDraftLive(path, part.doc);
+            setStreamWeb((w) => (w?.writing ? w : { writing: true }));
+          }
+        },
+      });
+      setStreamText('');
+      setStreamWeb(null);
+      if (stopped()) { setDraftLive(path, null); return; }
+      if (res.error) { setDraftLive(path, null); setError(res.error === 'ai_not_configured' ? 'The AI isn’t configured to write documents.' : res.error); return; }
+      addUsage(res.usage);
+      const part = splitDraftReply(res.text);
+      const docText = part.doc != null ? part.doc : null;
+      const changed = !!(docText && docText.trim() && docText !== docNow);
+      const said = part.chat || (changed ? (versionCountRef.current ? 'I’ve updated the document.' : 'Here’s a first version.') : (res.text || '').trim());
+      setMessages((m) => [...m, { role: 'assistant', content: said, at: Date.now(), usage: res.usage, ...meta }]);
+      if (changed) {
+        const n = versionCountRef.current + 1;
+        const version = { n, text: docText, instructions: lastUserText, kind: 'draft' };
+        try {
+          await writeDoc(docText, 'draft', { versions: [...versionsRef.current, version], active: n });
+          versionCountRef.current = n;
+          setVersions((v) => [...v, version]);
+          setActiveVersion(n);
+          setMessages((m) => [...m, { role: 'artifact', version: n, instructions: lastUserText, at: Date.now() }]);
+          void checkAgainstSources(version);
+        } catch {
+          setError('Couldn’t save the draft.');
+        }
+      }
+      setDraftLive(path, null);
+      return;
+    }
     if (genMode) {
       // CREATE FILES: the model has write_document + ask_user and decides for
       // itself (AI_PROMPTS.drafting says when each is for). The rendered text
@@ -4151,7 +4265,8 @@ function MultitoolAdvisorProvider({ file, footSlot = null, quickSlot = null, gen
       if (!versions.length) {
         try { readText = String(docApiRef.current?.documentText?.() || ''); } catch { /* not rendered */ }
       }
-      const baseMsgs = buildGenMessages(convo, file, versions, activeVersion, readText);
+      const draftText = isDraftName(file?.name) ? (peekDraft(file.path)?.text ?? null) : null;
+      const baseMsgs = buildGenMessages(convo, file, versions, activeVersion, readText, draftText);
       const k = docKindFromName(file?.name || '') || '';
       const askMsgs = baseMsgs.map((m, i) => (
         i === baseMsgs.length - 1 && m.role === 'user' && typeof m.content === 'string'
@@ -4162,7 +4277,7 @@ function MultitoolAdvisorProvider({ file, footSlot = null, quickSlot = null, gen
       // turn); the user's writing voice (lib/writingStyle) rides on a draft;
       // the edit rule lets it change other files.
       const sentMsgs = withEditRule(await withVoice(withTurnData(askMsgs)));
-      const res = await askAi({ surface: 'viewer', messages: sentMsgs, model: prep.run, context: prep.context, docTools: true, docKind: k || undefined });
+      const res = await askAi({ surface: 'viewer', messages: sentMsgs, model: prep.run, context: prep.context, docTools: true, docKind: k || undefined, effort: turnOpts.effort });
       if (stopped()) return;
       if (res.error) {
         setError(res.error === 'ai_not_configured' ? 'The AI isn’t configured to generate documents.' : res.error);
@@ -4185,7 +4300,7 @@ function MultitoolAdvisorProvider({ file, footSlot = null, quickSlot = null, gen
     setStreamWeb(null);
     const res = await askAi({
       surface: 'viewer', messages: apiMsgs, fileNames: [file?.name], model: prep.run, context: prep.context,
-      signal: ctl.signal,
+      signal: ctl.signal, effort: turnOpts.effort,
       onSearch: (q) => { if (!stopped()) setStreamWeb((w) => ({ ...(w || {}), search: q })); },
       onSources: (list) => { if (!stopped()) setStreamWeb((w) => ({ ...(w || {}), search: null, sources: list })); },
       onText: (_d, all) => {
@@ -4207,7 +4322,7 @@ function MultitoolAdvisorProvider({ file, footSlot = null, quickSlot = null, gen
     try { edits = await proposeReplyEdits(res.text, (await listProjectFiles()).files); } catch { edits = []; }
     if (stopped()) return;
     setMessages((m) => [...m, { role: 'assistant', content: res.text, at: Date.now(), usage: res.usage, ...meta, ...(edits.length ? { edits } : null), ...(res.sources?.length ? { sources: res.sources } : null) }]);
-  }, [genMode, file, versions, activeVersion, addUsage, applyGenResult, buildProjectFilesNote, prepare, listProjectFiles, aiSettings.style]);
+  }, [genMode, file, versions, activeVersion, addUsage, applyGenResult, buildProjectFilesNote, prepare, listProjectFiles, aiSettings.style, writeDoc, checkAgainstSources, setMessages]);
 
   // Stop the in-flight turn: invalidate its result (so nothing lands in the
   // thread when the request returns) and drop the thinking state immediately.
@@ -4216,6 +4331,8 @@ function MultitoolAdvisorProvider({ file, footSlot = null, quickSlot = null, gen
     abortRef.current?.abort();
     abortRef.current = null;
     setStreamText('');
+    // A draft's document half-written on the page goes back to what was there.
+    if (file?.path) setDraftLive(file.path, null);
     // Say so IN the thread. Stopping used to leave the question sitting there
     // with no answer under it and nothing to explain why, which reads as the
     // app having lost the reply rather than as the reader having stopped it.
@@ -4230,7 +4347,7 @@ function MultitoolAdvisorProvider({ file, footSlot = null, quickSlot = null, gen
       return out;
     });
     setBusy(false);
-  }, [setMessages]);
+  }, [setMessages, file?.path]);
 
   // Resolve a pending ask_user question. The non-generate advisor just continues
   // the conversation; in generate mode (pa.gen) the answers feed back with the doc
@@ -4337,7 +4454,7 @@ function MultitoolAdvisorProvider({ file, footSlot = null, quickSlot = null, gen
     setError(null);
     setOptions([]);
     try {
-      await runTurn(next, explicitApi || q);
+      await runTurn(next, explicitApi || q, { model: opts.model, effort: opts.effort });
     } finally {
       setBusy(false);
     }
@@ -4365,43 +4482,6 @@ function MultitoolAdvisorProvider({ file, footSlot = null, quickSlot = null, gen
     await runTurn(convo, lastUser?.content || '');
     setBusy(false);
   }, [busy, messages, runTurn]);
-
-  // Branch a new conversation from a given message: keep the history up to (and
-  // including) that message and drop everything after, so the thread continues
-  // in a new direction from that point. Clears any pending question/options.
-  const branchFrom = useCallback((index) => {
-    if (busy) return;
-    setOptions([]);
-    setPendingAsk(null);
-    // Snapshot the current (original) branch so it stays navigable via its pill,
-    // then start a NEW branch with the thread sliced up to `index`.
-    branchStoreRef.current[activeBranchId] = messages;
-    const sliced = messages.slice(0, index + 1);
-    const n = (branchSeqRef.current += 1);
-    const newId = `b${n}`;
-    const label = `Split ${n}`;
-    branchStoreRef.current[newId] = sliced;
-    setBranches((bs) => [
-      // Record the split on the PARENT branch so a marker shows at that point.
-      ...bs.map((b) => (b.id === activeBranchId
-        ? { ...b, splits: [...(b.splits || []), { afterIndex: index, branchId: newId, label }] }
-        : b)),
-      { id: newId, label },
-    ]);
-    setActiveBranchId(newId);
-    setMessages(sliced);
-  }, [busy, messages, activeBranchId]);
-
-  // Switch the visible thread to another branch (nav pills). Saves the current
-  // branch first so nothing is lost.
-  const switchBranch = useCallback((id) => {
-    if (busy || id === activeBranchId) return;
-    branchStoreRef.current[activeBranchId] = messages;
-    setOptions([]);
-    setPendingAsk(null);
-    setActiveBranchId(id);
-    setMessages(branchStoreRef.current[id] || []);
-  }, [busy, activeBranchId, messages]);
 
   // Re-select a past iteration: rewrite the file to that version's text + kind
   // (which may re-extension the file) and reload.
@@ -4475,8 +4555,8 @@ function MultitoolAdvisorProvider({ file, footSlot = null, quickSlot = null, gen
 
 
   const value = useMemo(
-    () => ({ messages, setInput, busy, switching, error, setError, send, stop, regenerate, branchFrom, branches, activeBranchId, switchBranch, fileName: file?.name, footSlot, quickSlot, genMode, versions, activeVersion, selectVersion, openVersion, questions, submitQuestions, skipQuestions, options, chooseOption, engine, setEngine, model, setModel, aiSettings, projectName: selectedProject?.name || '', tokens, showTokenUsage: appPrefs.showTokenUsage, pendingAsk, resolveAsk, debugAsk, setDebugAsk, focusMode, toggleFocus, docTools, setDocTools, registerDocApi, runAttack, attackBusy }),
-    [messages, busy, switching, error, send, stop, regenerate, branchFrom, branches, activeBranchId, switchBranch, file?.name, footSlot, quickSlot, genMode, versions, activeVersion, selectVersion, openVersion, questions, submitQuestions, skipQuestions, options, chooseOption, engine, setEngine, model, setModel, aiSettings, selectedProject?.name, tokens, appPrefs.showTokenUsage, pendingAsk, resolveAsk, debugAsk, focusMode, toggleFocus, docTools, registerDocApi, runAttack, attackBusy],
+    () => ({ messages, setInput, busy, switching, error, setError, send, stop, regenerate, fileName: file?.name, footSlot, quickSlot, genMode, versions, activeVersion, selectVersion, openVersion, questions, submitQuestions, skipQuestions, options, chooseOption, engine, setEngine, model, setModel, aiSettings, projectName: selectedProject?.name || '', tokens, showTokenUsage: appPrefs.showTokenUsage, pendingAsk, resolveAsk, debugAsk, setDebugAsk, focusMode, toggleFocus, docTools, setDocTools, registerDocApi, runAttack, attackBusy, draftBrief, setDraftBrief }),
+    [messages, busy, switching, error, send, stop, regenerate, file?.name, footSlot, quickSlot, genMode, versions, activeVersion, selectVersion, openVersion, questions, submitQuestions, skipQuestions, options, chooseOption, engine, setEngine, model, setModel, aiSettings, selectedProject?.name, tokens, appPrefs.showTokenUsage, pendingAsk, resolveAsk, debugAsk, focusMode, toggleFocus, docTools, registerDocApi, runAttack, attackBusy, draftBrief],
   );
   const live = useMemo(
     () => ({ input, setInput, streamText, streamWeb }),
@@ -5004,9 +5084,6 @@ function AdvisorPanel({ file }) {
   const error = adv?.error || null;
   const genMode = adv?.genMode || false;
   const showTokenUsage = !!adv?.showTokenUsage;
-  const branches = adv?.branches || [];
-  const activeBranchId = adv?.activeBranchId;
-  const activeSplits = branches.find((b) => b.id === activeBranchId)?.splits || [];
   // The model is waiting on an interactive answer — blur the thread behind the
   // ask_user panel so focus lands on the question.
   const asking = !!adv?.pendingAsk || (genMode && (adv?.questions?.length > 0));
@@ -5070,54 +5147,6 @@ function AdvisorPanel({ file }) {
   const [typing, setTyping] = useState(null);   // index of the AI msg being revealed
   const [copiedIdx, setCopiedIdx] = useState(null);
 
-  // The "Split from here" pill is rendered OUTSIDE the scroll (portalled to
-  // <body>) so it can overflow past the sidebar's right edge into the gutter —
-  // a child of the scroll would be clipped by overflow:auto. We track which seam
-  // is hovered + where to place the floating pill (viewport coords; left edge at
-  // the scrollbar's right edge). A short hide-delay bridges the gap between the
-  // in-scroll hover strip and the pill that sits just outside it.
-  // Two stages, so sweeping the pointer through the thread doesn't fling panels
-  // open behind it:
-  //   1. HOVER  — the seam under the pointer draws its divider, nothing else.
-  //               Moving on (or moving within the seam) just moves the line.
-  //   2. DWELL  — hold still for DWELL_MS and the seam opens: the gap above and
-  //               below the divider grows, and a Split button fades in centred
-  //               on the line, ready to click.
-  // Any movement inside the seam re-arms the dwell timer, so "holding still" is
-  // what opens it, not merely "being there".
-  const [branchHover, setBranchHover] = useState(null); // index whose divider is drawn
-  const [branchOpen, setBranchOpen] = useState(null);   // index that has opened up
-  const branchClearRef = useRef(null);
-  const branchDwellRef = useRef(null);
-  const DWELL_MS = 360;
-  const cancelBranchHide = () => { if (branchClearRef.current) { clearTimeout(branchClearRef.current); branchClearRef.current = null; } };
-  const cancelDwell = () => { if (branchDwellRef.current) { clearTimeout(branchDwellRef.current); branchDwellRef.current = null; } };
-  // Re-armed on every mousemove over the seam: the callback only runs once the
-  // pointer has been still for the whole delay.
-  const armDwell = (index) => {
-    cancelDwell();
-    branchDwellRef.current = window.setTimeout(() => setBranchOpen(index), DWELL_MS);
-  };
-  const enterBranch = (index) => {
-    cancelBranchHide();
-    setBranchHover(index);
-    armDwell(index);
-  };
-  const moveBranch = (index) => {
-    cancelBranchHide();
-    // Already open: leave it be. Re-arming here would make the panel flicker
-    // shut and back open as the pointer travels toward the button.
-    if (branchOpen === index) return;
-    armDwell(index);
-  };
-  const hideBranchSoon = () => {
-    cancelDwell();
-    cancelBranchHide();
-    branchClearRef.current = window.setTimeout(() => { setBranchHover(null); setBranchOpen(null); }, 150);
-  };
-  // Timers must not outlive the panel.
-  useEffect(() => () => { cancelDwell(); cancelBranchHide(); }, []);
-
   const scrollToBottom = useCallback((force) => {
     const el = scrollRef.current;
     if (!el) return;
@@ -5130,7 +5159,6 @@ function AdvisorPanel({ file }) {
     stickRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 32;
     // Remember the position so a remount (version select) can restore it.
     if (file?.path) advisorScrollPos.set(file.path, { top: el.scrollTop, atBottom: stickRef.current });
-    setBranchHover(null); // a seam pill's position would be stale after scrolling
     syncScrollbar();
   };
   // On (re)mount, restore the remembered scroll position when the user was NOT
@@ -5174,6 +5202,30 @@ function AdvisorPanel({ file }) {
 
   const lastUserText = [...messages].reverse().find((m) => m.role === 'user')?.content || '';
 
+  if (adv?.draftBrief) {
+    const b = adv.draftBrief;
+    return (
+      <div className="dv-advisor dv-advisor-brief">
+        <DocBrief
+          panel
+          key={b.template?.id || `custom:${b.custom || ''}`}
+          template={b.template || null}
+          custom={b.custom || ''}
+          hint={b.hint || ''}
+          busy={busy}
+          onBack={() => {
+            adv.setDraftBrief(null);
+            try { window.dispatchEvent(new CustomEvent('docvex:dv-template-back')); } catch { /* no window */ }
+          }}
+          onGenerate={(shown, prompt) => {
+            adv.setDraftBrief(null);
+            adv.send?.(shown, undefined, { apiText: prompt });
+          }}
+        />
+      </div>
+    );
+  }
+
   return (
     <div className="dv-advisor">
       {/* No masthead and no compact-on-scroll bar: the side panel's tab strip
@@ -5184,26 +5236,6 @@ function AdvisorPanel({ file }) {
           picked, and back to the document's when the pick is dropped (see the
           paraScope effect in the provider). */}
       <div className={`dv-advisor-scroll${asking ? ' is-asking' : ''}`} ref={scrollRef} onScroll={onScroll}>
-        {/* Branch nav — one pill per split conversation. The original ("Main")
-            stays so you can navigate back after splitting. Only shown once at
-            least one split exists. */}
-        {branches.length > 1 && (
-          <div className="dv-branch-nav" role="tablist" aria-label="Conversations">
-            {branches.map((b) => (
-              <button
-                key={b.id}
-                type="button"
-                role="tab"
-                aria-selected={b.id === activeBranchId}
-                className={`dv-branch-nav-pill${b.id === activeBranchId ? ' is-active' : ''}`}
-                onClick={() => adv?.switchBranch?.(b.id)}
-                disabled={busy}
-              >
-                {b.label}
-              </button>
-            ))}
-          </div>
-        )}
         {/* .ai-hub / .ai-chat-page scope the main app's bubble + markdown styles
             so this thread reads identically (width neutralised in DocViewer.css). */}
         {/* A direct child of the SCROLLER, not of the chat block — it centres
@@ -5256,7 +5288,6 @@ function AdvisorPanel({ file }) {
                               revealKey={i === messages.length - 1 ? `dv:${file?.path || ''}` : undefined}
                               onTick={() => scrollToBottom(false)}
                               onTyped={() => setTyping((t) => (t === i ? null : t))}
-                              onRef={openAnswerRef}
                             />
                           )}
                       </div>
@@ -5293,15 +5324,8 @@ function AdvisorPanel({ file }) {
                     </div>
                   </div>
                 );
-                // A hover control to the right of an AI turn (except the last)
-                // splits a new conversation from that point. It shows after an AI
-                // text reply, or — when that reply produced a file — after the
-                // generated file card, never between the note and its document.
-                const aiText = m.role === 'assistant' && messages[i + 1]?.role !== 'artifact';
                 const fileCard = m.role === 'artifact';
-                const canBranch = (aiText || fileCard) && i < messages.length - 1 && !busy;
                 // Persistent marker(s) for any branches split off at this point.
-                const splitsHere = activeSplits.filter((s) => s.afterIndex === i);
                 // The cost of the turn that WROTE this version: the note above
                 // it carries the usage, since that is the message the model's
                 // reply came back on.
@@ -5343,45 +5367,6 @@ function AdvisorPanel({ file }) {
                         <time dateTime={new Date(cardTime).toISOString()}>{formatClock(cardTime)}</time>
                       </div>
                     )}
-                    {splitsHere.map((s) => (
-                      <Tooltip key={s.branchId} content={`You split a new conversation (${s.label}) from here — click to open it`}>
-                        <button
-                          type="button"
-                          className="dv-split-marker"
-                          onClick={() => adv?.switchBranch?.(s.branchId)}
-                        >
-                          <span className="dv-split-marker-line" />
-                          <span className="dv-split-marker-tag">{AdvBranchGlyph}Split from here → {s.label}</span>
-                        </button>
-                      </Tooltip>
-                    ))}
-                    {canBranch && (
-                      <div
-                        className={`dv-branch-anchor${branchHover === i ? ' is-active' : ''}${branchOpen === i ? ' is-open' : ''}`}
-                        onMouseEnter={() => enterBranch(i)}
-                        onMouseMove={() => moveBranch(i)}
-                        onMouseLeave={hideBranchSoon}
-                      >
-                        <span className="dv-branch-line" />
-                        {/* Only mounted once the seam has opened, so a fast
-                            sweep never leaves buttons in its wake. */}
-                        {branchOpen === i && (
-                          <Tooltip content="Split a new conversation from here — keeps everything up to this message">
-                            <button
-                              type="button"
-                              className="dv-branch-split"
-                              onClick={() => {
-                                adv?.branchFrom?.(i);
-                                setBranchHover(null);
-                                setBranchOpen(null);
-                              }}
-                            >
-                              {AdvBranchGlyph}<span>Split from here</span>
-                            </button>
-                          </Tooltip>
-                        )}
-                      </div>
-                    )}
                   </React.Fragment>
                 );
               })}
@@ -5390,10 +5375,13 @@ function AdvisorPanel({ file }) {
                   <div className="bubble-c">
                     <div className="bubble-msg">
                       {streamText
-                        ? <AiAnswer text={streamText} sources={streamWeb?.sources} streaming revealKey={`dv:${file?.path || ''}`} onTick={() => scrollToBottom(false)} onRef={openAnswerRef} />
-                        : (streamWeb?.search != null ? <AdvThinkingStatus query={lastUserText} label={searchLabel(streamWeb.search)} /> : <AdvThinkingStatus query={lastUserText} />)}
+                        ? <AiAnswer text={streamText} sources={streamWeb?.sources} streaming revealKey={`dv:${file?.path || ''}`} onTick={() => scrollToBottom(false)} />
+                        : (streamWeb?.writing ? <AdvThinkingStatus query={lastUserText} label="Writing on the page…" />
+                          : streamWeb?.search != null ? <AdvThinkingStatus query={lastUserText} label={searchLabel(streamWeb.search)} /> : <AdvThinkingStatus query={lastUserText} />)}
                       {/* A search started mid-answer says so under what is written. */}
                       {streamText && streamWeb?.search != null ? <AdvThinkingStatus query={lastUserText} label={searchLabel(streamWeb.search)} /> : null}
+                      {/* A draft's document streaming onto the page. */}
+                      {streamText && streamWeb?.writing ? <AdvThinkingStatus query={lastUserText} label="Writing on the page…" /> : null}
                     </div>
                   </div>
                 </div>
@@ -5509,11 +5497,8 @@ function follows(a, b) {
   return !!next && next.firstElementChild === b;
 }
 
-function TextRegionsLayer({ mediaRef, stageRef, reading, transform, transition, bare = false, laws = false }) {
+function TextRegionsLayer({ mediaRef, stageRef, reading, transform, transition, bare = false }) {
   const [box, setBox] = useState(null);
-  // Prefix for this layer's citation ids (refTextOf reads a citation's words
-  // back by its id, across the word cells it spans).
-  const refPrefix = useMemo(() => `img${Math.random().toString(36).slice(2, 7)}`, []);
   useLayoutEffect(() => {
     const el = mediaRef.current;
     const stage = stageRef.current;
@@ -5521,7 +5506,7 @@ function TextRegionsLayer({ mediaRef, stageRef, reading, transform, transition, 
     // offset* ignore transforms — this is the untransformed box, which is what
     // the shared transform is then applied to.
     // A box that came out the same keeps its object: a new one would rebuild
-    // every line (and re-scan them for citations) for nothing.
+    // every line for nothing.
     const measure = () => {
       const next = { left: el.offsetLeft, top: el.offsetTop, width: el.offsetWidth, height: el.offsetHeight };
       setBox((b) => (b && b.left === next.left && b.top === next.top && b.width === next.width && b.height === next.height ? b : next));
@@ -5535,7 +5520,7 @@ function TextRegionsLayer({ mediaRef, stageRef, reading, transform, transition, 
   // THE TEXT IS BUILT ONCE, at the picture's size when the reading arrived
   // (`rbox`), and SCALED to the size on show — the picture changes size while
   // the side panel is dragged, and rebuilding every letter cell per frame (the
-  // lines, their citations, thousands of spans) was what made that drag lag.
+  // lines, thousands of spans) was what made that drag lag.
   // A uniform scale is exact: the picture keeps its proportions.
   const refRef = useRef({ reading: null, box: null });
   if (box?.width && (refRef.current.reading !== reading || !refRef.current.box)) refRef.current = { reading, box };
@@ -5543,9 +5528,6 @@ function TextRegionsLayer({ mediaRef, stageRef, reading, transform, transition, 
   const regions = reading?.regions || [];
   const turns = reading?.turns || 0;
   const side = turns % 2 === 1;   // the text runs up/down the picture
-  // A trade-register extract's one-per-line CAEN list is only read as one in a
-  // text that names CAEN at all — judged on the whole picture's text.
-  const caenContext = useMemo(() => caenContextOf(regions.map((r) => r.text || '').join('\n')), [regions]);
   // The layer itself and the selection painter's host (see below).
   const layerRef = useRef(null);
   const selRef = useRef(null);
@@ -5592,23 +5574,6 @@ function TextRegionsLayer({ mediaRef, stageRef, reading, transform, transition, 
         }
         return { text, room, glyphs };
       });
-      // CITATIONS in the picture's text, as the Word preview marks them: each
-      // word cell a reference touches takes that reference's mark — every kind,
-      // while the Highlights action is on (`laws`), none while it is off. The
-      // cells are whole words, so a mark runs word by word rather than
-      // letter-exact. With Extract text OFF (`bare`) they are painted on a
-      // layer of text with no dimming.
-      if (laws) {
-        let at = 0;
-        const spans = cells.map((c) => { const s = { from: at, to: at + c.text.length }; at += c.text.length; return s; });
-        const joined = cells.map((c) => c.text).join('');
-        const hits = dropOverlaps([...findLawRefs(joined, { caenContext }), ...findCuiRefs(joined)])
-          .filter((h) => h.kind !== 'element');
-        hits.forEach((h, hi) => {
-          const attrs = { ...refAttrsFor(h), 'data-ref-id': `${refPrefix}-${li}-${hi}` };
-          spans.forEach((s, k) => { if (s.from < h.end && s.to > h.start) { cells[k].mark = `dv-ref ${refClassFor(h)}`; cells[k].attrs = attrs; } });
-        });
-      }
       return {
         cx: (r.x + r.w / 2) * rbox.width,
         cy: (r.y + r.h / 2) * rbox.height,
@@ -5623,7 +5588,7 @@ function TextRegionsLayer({ mediaRef, stageRef, reading, transform, transition, 
         edge: Array.isArray(r.edge) && r.edge.length === 4 ? r.edge : null,
       };
     });
-  }, [regions, rbox, side, bare, laws, caenContext, refPrefix]);
+  }, [regions, rbox, side, bare]);
   const shapePath = useMemo(() => {
     if (!rbox?.width) return '';
     // A reading with no shapes of its own (an older one): its line boxes.
@@ -5652,8 +5617,7 @@ function TextRegionsLayer({ mediaRef, stageRef, reading, transform, transition, 
         </svg>
       )}
       {/* The text is there to SELECT whether or not Extract text is on — off,
-          it is just invisible (no dimming, no rim), its citation marks painted
-          when Highlights is on. */}
+          it is just invisible (no dimming, no rim). */}
       {/* The text itself, in reading order (so a drag across lines copies them in
           order, one per line). mousedown stops here: on the stage it starts a pan.
           A line is one block for the find bar (`data-find-block`): its letters
@@ -5681,7 +5645,7 @@ function TextRegionsLayer({ mediaRef, stageRef, reading, transform, transition, 
           >
             {l.cells.map((c, k) => (
               // eslint-disable-next-line react/no-array-index-key
-              <span className={`dv-textword${c.mark ? ` ${c.mark}` : ''}`} key={k} {...(c.attrs || {})} style={{ width: `${c.room}px`, marginLeft: k === 0 && l.lead ? `${l.lead}px` : undefined }}>
+              <span className="dv-textword" key={k} style={{ width: `${c.room}px`, marginLeft: k === 0 && l.lead ? `${l.lead}px` : undefined }}>
                 {c.glyphs.map((g, gi) => (
                   // eslint-disable-next-line react/no-array-index-key
                   <span className={`dv-textchar${g.space ? ' is-space' : ''}`} key={gi} style={{ width: `${g.w}px` }}>
@@ -5992,7 +5956,7 @@ function CodePolygon({ points, label, link, onAct }) {
 // its layout box and the same pan / zoom transform, as LivePhotoLayer does.
 // A press does what the code is for: a link opens, anything else is copied
 // (`onAct`).
-function CodeRegionsLayer({ codes, imgRef, transform, transition, onAct, actLabel, linkOf, quiet = false }) {
+function CodeRegionsLayer({ codes, imgRef, transform, transition, onAct, actLabel, linkOf }) {
   const [box, setBox] = useState(null);
   useLayoutEffect(() => {
     const img = imgRef.current;
@@ -6012,7 +5976,7 @@ function CodeRegionsLayer({ codes, imgRef, transform, transition, onAct, actLabe
   }, [imgRef]);
   if (!box || !codes?.length) return null;
   return (
-    <div className={`dv-code-regions${quiet ? ' is-quiet' : ''}`} data-pan-layer="" style={{ ...box, transform, transition }}>
+    <div className="dv-code-regions" data-pan-layer="" style={{ ...box, transform, transition }}>
       {/* One SVG over the whole picture (0…1 units, stretched to it): each
           code's OUTLINE as traced in the picture (lib/barcodes `shape`), its
           upright box when it could not be traced. The stroke keeps its width
@@ -6102,9 +6066,6 @@ function MediaOcrPane({ file, url, kind, sidePanelSlot = null, sideTabsSlot = nu
   const { selectedProjectId: textProjectId } = useSelectedProject();
   const [textMode, setTextMode] = useState('off');     // 'off' | 'loading' | 'on'
   const [textReading, setTextReading] = useState(null);   // { regions, shapes, turns }
-  // The Laws action, for a picture whose text has been read: the same device
-  // preference as a Word file's.
-  const [lawRefs, setLawRefs] = useState(loadLawRefsPref);
   // BARCODES AND QR CODES read off the picture (lib/barcodes — locally):
   // null | 'loading' | { codes }, each drawn as an outline over the picture
   // (no card and no hover pill since 2026-10-03 — a press opens / copies).
@@ -6204,22 +6165,6 @@ function MediaOcrPane({ file, url, kind, sidePanelSlot = null, sideTabsSlot = nu
     pressed: textMode !== 'off',
     onClick: toggleTextRegions,
   }, {
-    // HIGHLIGHTS on a picture: the laws, CAEN codes and CUIs in its extracted
-    // text, AND its barcodes and QR codes (read on this computer, outlined
-    // where they are, listed in the card at the foot — see the effect by
-    // `mediaUrl`). Barcode and QR code were tiles of their own.
-    id: 'law-refs',
-    label: 'Highlights',
-    tooltip: lawRefs
-      ? 'Hide the highlights — the barcodes and QR codes (they stay clickable), and the laws, CAEN codes and CUIs in this picture’s text'
-      : 'Show the highlights — every barcode and QR code in this picture, and the laws, CAEN codes and CUIs its text cites',
-    icon: lawRefs ? EyeOpenGlyph : EyeClosedGlyph,
-    pressed: lawRefs,
-    onClick: () => {
-      const on = !lawRefs;
-      saveLawRefsPref(on); setLawRefs(on);
-    },
-  }, {
     id: 'scan-doc',
     label: 'Scan',
     tooltip: 'A photographed page as a scan: its edges found, flattened, shadows evened out — saved as a PDF or a picture',
@@ -6250,7 +6195,7 @@ function MediaOcrPane({ file, url, kind, sidePanelSlot = null, sideTabsSlot = nu
     icon: LivePhotoGlyph,
     pressed: liveMode === 'frame',
     onClick: () => (liveMode === 'frame' ? closeLiveBar() : openLiveBar()),
-  }] : [])] : []), [kind, editingPhoto, textMode, toggleTextRegions, live, liveMode, playLive, imgAsk, imgJob, textReading, lawRefs, codes]); // eslint-disable-line react-hooks/exhaustive-deps
+  }] : [])] : []), [kind, editingPhoto, textMode, toggleTextRegions, live, liveMode, playLive, imgAsk, imgJob, textReading, codes]); // eslint-disable-line react-hooks/exhaustive-deps
   const saveEditedPhoto = useCallback(async ({ blob, ext, replace, suffix = 'edited', reading = null }) => {
     const full = file.path || file.storage_path || '';
     const sep = full.includes('\\') ? '\\' : '/';
@@ -7601,7 +7546,6 @@ function MediaOcrPane({ file, url, kind, sidePanelSlot = null, sideTabsSlot = nu
           onAct={actOnCode}
           actLabel={codeActLabel}
           linkOf={codeLink}
-          quiet={!lawRefs}
         />
       )}
 
@@ -7681,7 +7625,6 @@ function MediaOcrPane({ file, url, kind, sidePanelSlot = null, sideTabsSlot = nu
       {kind === 'image' && textReading && (
         <TextRegionsLayer
           bare={textMode !== 'on'}
-          laws={lawRefs}
           mediaRef={mediaRef}
           stageRef={stageRef}
           reading={textReading}
@@ -7689,7 +7632,6 @@ function MediaOcrPane({ file, url, kind, sidePanelSlot = null, sideTabsSlot = nu
           transition="transform 120ms ease"
         />
       )}
-      {kind === 'image' && textReading && lawRefs && <RefCardPill hostRef={stageRef} />}
 
       {frameSnapOverlay && (
         <img
@@ -9554,14 +9496,6 @@ const FOREIGN_DOC_CHARS = 40000;
 // start at the same spot (e.g. "{{x}}" beats the inner "{x}").
 
 
-// The element a mark or a blank is wrapped in. docx-preview writes the
-// document's run formatting as rules on SPANS (`.docx span { … }` for the
-// defaults, `p.docx_<style> span { … }` per paragraph style), so a span added
-// inside a run matched them and replaced what it should inherit: a bold, 14pt
-// citation drew as the paragraph's plain 11pt. An element of our own is reached
-// by none of those rules, inherits everything from the run it sits in, and is
-// inline like a span.
-const DOC_MARK_TAG = 'dv-mark';
 
 // EMPTY-FIELD DETECTION WAS REMOVED (2026-10-02, at the user's request): the
 // Word preview no longer finds or marks blanks (`_____`, `[[name]]`, `[Client
@@ -10160,266 +10094,6 @@ function applyDocFolds(host, folded, { shrinkPages = false } = {}) {
   });
 }
 
-// ── The paragraphs' hover pill ───────────────────────────────────────────
-// ── The acts a picked paragraph cites ────────────────────────────────
-
-// What the hover pill says over a HIGHLIGHT in the Word preview: the platform
-// it belongs to (in that platform's colour), what the document cites, what the
-// app knows about it, and what a click does. Read off the mark's own data
-// (wrapLawRange). `onLoaded` is called once a CAEN code's name can be given.
-function refPill(x, onLoaded, { full = false } = {}) {
-  const d = x.dataset;
-  let tone = 'var(--cat-update)';
-  let kind = 'legislatie.just.ro · Act';
-  let head = d.refHead || x.textContent || '';
-  const lines = [];
-  let action = '';
-  // Expanded: the citation exactly as the document writes it — every run of
-  // it, since Word cuts one reference into several spans.
-  const cited = full ? refTextOf(x) : '';
-  if (x.classList.contains('dv-cuiref')) {
-    tone = 'var(--success)';
-    kind = 'anaf.ro · Fiscal code';
-    head = `CUI ${d.cui}`;
-    if (full) lines.push('A valid fiscal code — its check digit is correct');
-    action = full ? 'Search looks the company up at ANAF, in a new tab' : 'Click for more — and to search it';
-  } else if (x.classList.contains('dv-caenref')) {
-    tone = 'var(--warning)';
-    const codes = (d.caen || '').split(',').filter(Boolean);
-    kind = `insse.ro · CAEN code${d.caenRev ? ` · Rev. ${d.caenRev}` : ''}`;
-    head = codes.map((c) => `CAEN ${c}`).join(', ') || x.textContent || '';
-    const data = peekCaenRev(3);
-    if (data) {
-      for (const c of (full ? codes : codes.slice(0, 3))) {
-        const r = resolveCaen(data, c, d.caenRev ? Number(d.caenRev) : undefined);
-        const old = r.rev === 2 && r.rev2;
-        const name = old ? r.rev2.name : r.entry?.name;
-        lines.push(name ? `${c} — ${name}` : `${c} — not in the CAEN nomenclature`);
-        if (old && full) lines.push(`Rev. 2 — now ${r.rev2.to.map((t) => t.code).join(', ') || 'no direct successor'}`);
-        if (!old && r.changed) lines.push(`Before 2025 (Rev. 2): ${r.rev2.name}`);
-      }
-    } else {
-      lines.push('Reading the nomenclature…');
-      loadCaen().then(() => onLoaded?.()).catch(() => {});
-    }
-    action = full ? 'Search opens it in CAEN codes, in a new tab' : 'Click for more — and to search it';
-  } else {
-    if (d.lawKind === 'code') kind = 'legislatie.just.ro · Code';
-    if (d.refElement) lines.push(d.refElement);
-    if (d.refTitle) lines.push(d.refTitle);
-    if (d.refNotes) lines.push(d.refNotes);
-    action = full
-      ? (d.href ? 'Search finds it on legislatie.just.ro, in a new tab' : 'Search looks for it by its words, in a new tab')
-      : 'Click for more — and to search it';
-  }
-  return (
-    <span className={`dv-refpill${full ? ' is-full' : ''}`} style={{ '--refpill-tone': tone }}>
-      <span className="dv-refpill-kind">{kind}</span>
-      <span className="dv-refpill-head">{head}</span>
-      {lines.map((l) => <span key={l} className="dv-refpill-line">{l}</span>)}
-      {cited && cited !== head && <span className="dv-refpill-quote">“{cited}”</span>}
-      <span className="dv-refpill-act">{action}</span>
-    </span>
-  );
-}
-// A reference's whole text: every span sharing its id, in document order.
-// A mark pressed in a document (Word, a picture's text, a PDF) opens the
-// APP-WIDE drawer (lib/lawDrawer) — the same as a reference pressed anywhere:
-// its hit is read back off the mark's own text and attributes.
-function openMarkRef(x) {
-  const d = x.dataset || {};
-  const kind = d.lawKind || (d.cui ? 'cui' : d.caen ? 'caen' : 'act');
-  let hit = null;
-  if (kind === 'cui' && d.cui) hit = { kind: 'cui', cui: d.cui, raw: refTextOf(x) };
-  else if (kind === 'caen' && d.caen) hit = { kind: 'caen', codes: d.caen.split(','), rev: d.caenRev ? Number(d.caenRev) : undefined, raw: refTextOf(x) };
-  else {
-    const text = refTextOf(x);
-    let found = [];
-    try { found = findFollowableRefs(text); } catch { found = []; }
-    hit = found.find((h) => h.kind === kind) || found[0] || null;
-  }
-  if (hit) openLawRef(hit);
-  else { navigateMainWindow(refSearchHref(x)); focusMainWindow(); }
-}
-
-function refTextOf(x) {
-  const id = x.dataset.refId;
-  const host = x.closest('.dv-docx') || x.ownerDocument;
-  const parts = id ? Array.from(host.querySelectorAll(`.dv-ref[data-ref-id="${id}"]`)) : [x];
-  return parts.map((el) => el.textContent).join('').replace(/\s+/g, ' ').trim();
-}
-// Where Search sends a mark: its own link (an act / a CAEN code), the company
-// at ANAF, or — an act too general to open — a words search of the portal;
-// always into a NEW tab of the Legislation browser (`newtab=1`).
-function refSearchHref(x) {
-  const d = x.dataset;
-  let href = d.href || '';
-  if (!href && d.cui) href = `/anaf?cui=${encodeURIComponent(d.cui)}`;
-  if (!href) href = `/legislation?titlu=${encodeURIComponent(d.refHead || refTextOf(x))}`;
-  return `${href}${href.includes('?') ? '&' : '?'}newtab=1&_=${Date.now()}`;
-}
-
-// What a mark carries — what `refPill` and `refSearchHref` read off it — as
-// attributes. ONE recipe for every kind of file: the Word preview's marks
-// (wrapLawRange), a picture's word cells (TextRegionsLayer) and a PDF's text
-// layer (markPdfTextLayer), so a highlight clicked anywhere opens the same card.
-function refAttrsFor(hit) {
-  const a = { 'data-law-kind': hit.kind };
-  if (hit.kind === 'cui') {
-    a['data-cui'] = hit.cui;
-    a.role = 'link';
-  } else if (hit.kind === 'caen' && hit.codes?.length) {
-    a['data-href'] = caenHref(hit.codes[0], hit.rev === 2 ? 2 : 3);
-    a['data-caen'] = hit.codes.join(',');
-    if (hit.rev) a['data-caen-rev'] = String(hit.rev);
-    a.role = 'link';
-  } else if (hit.kind !== 'element' && hit.kind !== 'case') {
-    const d = lawRefDetails(hit);
-    const href = legislationHref(d);
-    if (href) { a['data-href'] = href; a.role = 'link'; }
-    a['data-ref-head'] = d.heading || d.raw || '';
-    if (d.title) a['data-ref-title'] = d.title;
-    if (d.element) a['data-ref-element'] = d.element;
-    if (d.notes?.length) a['data-ref-notes'] = d.notes.join(' \u00b7 ');
-  }
-  return a;
-}
-
-// THE HIGHLIGHT CARD over a PICTURE's or a PDF's text — the Word preview's
-// behaviour (DocParaPill's `card`), for layers that have no paragraphs: hovering
-// a mark shows its pill (`refPill`), a CLICK expands the pill into the card —
-// everything known, the citation as written, Search (a new tab of the
-// Legislation browser in the main window) and Close. A click that ends a drag
-// selecting text is a selection, not a press on the mark.
-function RefCardPill({ hostRef }) {
-  const [label, setLabel] = useState('');
-  const [card, setCard] = useState(null);
-  const [, setCardTick] = useState(0);
-  const markRef = useRef(null);
-  const morph = useMorphPill({
-    hoverContent: label,
-    stickyMenu: !!card,
-    menuHeader: card
-      ? <div className="dv-refcard">{refPill(card, () => setCardTick((n) => n + 1), { full: true })}</div>
-      : undefined,
-    menuItems: card ? [
-      {
-        key: 'search',
-        label: 'Search',
-        className: 'dv-refcard-search',
-        onClick: () => {
-          if (!card.isConnected) return;
-          navigateMainWindow(refSearchHref(card));
-          focusMainWindow();
-        },
-      },
-      { key: 'close', label: 'Close', onClick: () => {} },
-    ] : [],
-  });
-  const morphRef = useRef(morph);
-  morphRef.current = morph;
-  useEffect(() => { if (card && !morph.isMenuOpen) setCard(null); }, [card, morph.isMenuOpen]);
-  useEffect(() => {
-    const host = hostRef.current;
-    if (!host) return undefined;
-    const markUnder = (e) => {
-      const x = e.target?.closest?.('.dv-ref');
-      return x && host.contains(x) ? x : null;
-    };
-    const hide = () => {
-      if (!markRef.current) return;
-      markRef.current = null;
-      morphRef.current.handleMouseLeave();
-    };
-    const onMove = (e) => {
-      const m = morphRef.current;
-      if (m.isMenuOpen) return;
-      const x = e.buttons ? null : markUnder(e);   // a held button = a drag-select
-      if (!x) { hide(); return; }
-      if (markRef.current !== x) {
-        markRef.current = x;
-        setLabel(refPill(x, () => { if (markRef.current === x) setLabel(refPill(x)); }));
-      }
-      m.handleMouseMove(e);
-    };
-    const onClick = (e) => {
-      if (e.button !== 0 || morphRef.current.isMenuOpen) return;
-      const x = markUnder(e);
-      if (!x) return;
-      const sel = window.getSelection?.();
-      if (sel && !sel.isCollapsed && String(sel).trim()) return;
-      e.stopPropagation();
-      markRef.current = null;
-      morphRef.current.handleMouseLeave();
-      openMarkRef(x);
-    };
-    host.addEventListener('mousemove', onMove);
-    host.addEventListener('mouseleave', hide);
-    host.addEventListener('click', onClick);
-    return () => {
-      host.removeEventListener('mousemove', onMove);
-      host.removeEventListener('mouseleave', hide);
-      host.removeEventListener('click', onClick);
-    };
-  }, [hostRef]);
-  return morph.node;
-}
-
-// A PDF's TEXT LAYER (pdf.js, components/FilePreview) marked as the Word
-// preview is: every act, code, CAEN code and CUI found in the page's text is
-// wrapped where it lies (wrapLawRange — one mark per text node it covers, so
-// pdf.js's positioned runs are left exactly as they were). Cross-references
-// and court files are left alone (there is nowhere in a PDF to jump to).
-function markPdfTextLayer(layer, laws, prefix) {
-  layer.querySelectorAll('.dv-ref').forEach((el) => el.replaceWith(...Array.from(el.childNodes)));
-  try { layer.normalize(); } catch { /* detached */ }
-  if (!laws) return;
-  const segs = [];
-  let text = '';
-  const walk = (el) => {
-    for (const n of Array.from(el.childNodes)) {
-      if (n.nodeType === 3) {
-        if (n.nodeValue) { segs.push({ node: n, start: text.length, end: text.length + n.nodeValue.length }); text += n.nodeValue; }
-      } else if (n.nodeName === 'BR') text += '\n';
-      else if (n.nodeType === 1 && n.getAttribute('role') !== 'img') walk(n);
-    }
-  };
-  walk(layer);
-  if (!text.trim()) return;
-  const hits = dropOverlaps([...findLawRefs(text, { caenContext: caenContextOf(text) }), ...findCuiRefs(text)])
-    .filter((h) => h.kind !== 'element' && h.kind !== 'case')
-    .sort((a, b) => b.start - a.start);   // back to front: earlier offsets stay valid
-  hits.forEach((h, i) => wrapLawRange(segs, h, `${prefix}-${i}`));
-}
-
-// Keeps every text layer under `hostRef` marked while pdf.js lays pages in and
-// out; a layer is marked again only when its text or the Highlights switch
-// changes (the marks themselves change neither).
-function PdfRefMarks({ hostRef, laws }) {
-  useEffect(() => {
-    const host = hostRef.current;
-    if (!host) return undefined;
-    const prefix = `pdf${Math.random().toString(36).slice(2, 7)}`;
-    let n = 0;
-    let raf = 0;
-    const run = () => {
-      raf = 0;
-      host.querySelectorAll('.file-preview-pdf-text').forEach((layer) => {
-        const sig = `${laws ? 1 : 0}:${layer.childElementCount}:${(layer.textContent || '').length}`;
-        if (layer.dataset.refsSig === sig) return;
-        n += 1;
-        markPdfTextLayer(layer, laws, `${prefix}-${n}`);
-        layer.dataset.refsSig = sig;
-      });
-    };
-    run();
-    const mo = new MutationObserver(() => { if (!raf) raf = requestAnimationFrame(run); });
-    mo.observe(host, { childList: true, subtree: true });
-    return () => { mo.disconnect(); if (raf) cancelAnimationFrame(raf); };
-  }, [hostRef, laws]);
-  return null;
-}
-
 // Icons for the Word ribbon's quick actions (components/DocRibbon). Authored at 20px like
 // the sidebar's; the ribbon sets them at 18.
 const PageNumbersGlyph = (
@@ -10565,21 +10239,6 @@ const PagesRailGlyph = (
 // they are hidden.
 // ONE drawing for both states, so switching animates (the lid blinks — the
 // `.dv-eye` rules at the foot of DocViewer.css) instead of swapping pictures.
-function EyeGlyph({ open }) {
-  return (
-    <svg className={`dv-eye${open ? ' is-open' : ''}`} viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <g className="dv-eye-open">
-        <path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12Z" />
-        <circle className="dv-eye-pupil" cx="12" cy="12" r="3" />
-      </g>
-      <g className="dv-eye-shut">
-        <path d="M3 10.5c2.2 3 5.3 4.8 9 4.8s6.8-1.8 9-4.8" /><path d="m5.6 13.6-1.8 2.3M9.4 15.1l-.7 2.7M14.6 15.1l.7 2.7M18.4 13.6l1.8 2.3" />
-      </g>
-    </svg>
-  );
-}
-const EyeOpenGlyph = <EyeGlyph open />;
-const EyeClosedGlyph = <EyeGlyph open={false} />;
 // The image pane's zoom pill (− 100% +), for documents: it stands at the top of
 // the document area, just right of the page list (`left` = the list's footprint,
 // 0 when the list is off), level with the side panel like the list is. The
@@ -10715,171 +10374,13 @@ function usePeek(value) {
 const PAGE_RAIL_PREF = 'docvex:doc-viewer:page-rail';
 const loadPageRailPref = () => { try { return localStorage.getItem(PAGE_RAIL_PREF) !== '0'; } catch { return true; } };
 const savePageRailPref = (on) => { try { localStorage.setItem(PAGE_RAIL_PREF, on ? '1' : '0'); } catch { /* unavailable */ } };
-// ── References in the rendered document ─────────────────────────────────
-// `lib/lawRefs` finds a citation in TEXT; this is what puts it on the page.
-// An act (a law, an ordinance, a code), a CAEN code, a CUI and an INTERNAL
-// cross-reference, each in its own look — and ONE preference over all of them
-// and the empty fields: the Highlights quick action (the eye). Off, the
-// document reads exactly as it was written (at the user's request, replacing
-// the Laws action, which switched the acts alone).
-const LAW_REFS_PREF = 'docvex:doc-viewer:law-refs';
-const loadLawRefsPref = () => { try { return localStorage.getItem(LAW_REFS_PREF) !== '0'; } catch { return true; } };
-const saveLawRefsPref = (on) => { try { localStorage.setItem(LAW_REFS_PREF, on ? '1' : '0'); } catch { /* unavailable */ } };
-const LAW_BLOCK_SEL = '.dv-docx-para, p, h1, h2, h3, h4, h5, h6, li, td, th';
-// How long the clause a jump landed on keeps pulsing when nobody goes near
-// it. Long enough to read the page down to it, short enough that a document
-// left open is not a document with something blinking in it.
-const XREF_LIT_MS = 12000;
-// The highlights' fade in / out (DocViewer.css `.dv-ref`'s transition).
-const REF_FADE_MS = 280;
-
-// One reference, wrapped WHERE IT LIES: a span per text node it covers, never
-// one span across several. Word splits a run at every formatting change (and
-// often at nothing at all), so a citation regularly straddles two or three
-// nodes — wrapping the whole range in one element would pull that text out of
-// its own `<b>`/`<i>` and flatten formatting the save path serialises back
-// into the file. Per-node spans leave the document's markup exactly as it was
-// and only add a class, so `serializeParagraphMarkdown` sees the same runs.
-// Which mark a hit gets. The three are deliberately unlike each other: the
-// act's travelling gradient says "an authority outside this document", the
-// code's flat stamp says "a classification", and the cross-reference's dashed
-// underline and hand say "press me".
-function refClassFor(hit) {
-  if (hit.kind === 'caen') return 'dv-caenref';
-  if (hit.kind === 'cui') return 'dv-cuiref';
-  if (hit.kind === 'element' && hit.target) return 'dv-xref';
-  return 'dv-lawref';
-}
-
-function wrapLawRange(segs, hit, refId) {
-  const made = [];
-  // Back to front: splitting a node only ever affects text AFTER the cut, so
-  // the offsets of everything earlier stay valid.
-  for (let i = segs.length - 1; i >= 0; i -= 1) {
-    const seg = segs[i];
-    const from = Math.max(hit.start, seg.start);
-    const to = Math.min(hit.end, seg.end);
-    if (to <= from) continue;
-    const node = seg.node;
-    if (!node.parentNode) continue;
-    try {
-      const localStart = from - seg.start;
-      const localEnd = to - seg.start;
-      if (localEnd < node.nodeValue.length) node.splitText(localEnd);
-      const target = localStart > 0 ? node.splitText(localStart) : node;
-      // A tag docx-preview's span rules cannot reach (DOC_MARK_TAG), so the
-      // text keeps its own run's font, size, bold and italics.
-      const span = node.ownerDocument.createElement(DOC_MARK_TAG);
-      // `dv-ref` is what every mark shares — it is what the clean-up removes
-      // and what carries the rounded outer ends — and the second class is what
-      // the kind looks like.
-      span.className = `dv-ref ${refClassFor(hit)}`;
-      for (const [k, v] of Object.entries(refAttrsFor(hit))) span.setAttribute(k, v);
-      // Word splits a citation across runs, so one reference is several spans.
-      // They share an id, which is what lets the whole mark light up together
-      // rather than the one piece under the pointer.
-      span.dataset.refId = refId;
-      // An internal cross-reference carries what it points at, so a click can
-      // be taken there (see the jump handler in DocxRenderPane).
-      // A company's fiscal code: a click opens it in the ANAF tab.
-      // An act, a code, a CAEN code or a CUI is a LINK too (refAttrsFor): a
-      // click expands its card, whose Search opens it in the main window.
-      if (hit.kind === 'cui') span.setAttribute('aria-label', `${span.textContent || 'CUI'} — look the company up at ANAF`);
-      if (hit.kind === 'element' && hit.target) {
-        span.dataset.xref = hit.target;
-        if (hit.letter) span.dataset.xrefLetter = hit.letter;
-        // Not a native `title` (the app's hover hints are the Tooltip
-        // component, and these nodes are docx-preview's, not React's) — the
-        // dashed underline and the hand say it is pressable, and the label is
-        // there for anything reading the document aloud.
-        span.setAttribute('role', 'link');
-        span.setAttribute('aria-label', `${span.textContent || 'Reference'} — go to ${hit.target}`);
-      }
-      target.parentNode.insertBefore(span, target);
-      span.appendChild(target);
-      made.push(span);
-    } catch { /* a node detached mid-walk costs one reference, not the scan */ }
-  }
-  // The pieces of one citation read as a single mark: only the outer ends are
-  // rounded and lit, the seams in between run straight through.
-  if (made.length) {
-    made[made.length - 1].classList.add('is-head');
-    made[0].classList.add('is-tail');
-  }
-  return made.length;
-}
-
-function clearLawRefs(host) {
-  if (!host) return;
-  host.querySelectorAll('.dv-ref').forEach((el) => {
-    el.replaceWith(...Array.from(el.childNodes));
-  });
-  // The split text nodes are joined back up, or the markdown serializer the
-  // save path runs would see a paragraph cut into pieces.
-  try { host.normalize(); } catch { /* detached — nothing to clean up */ }
-}
-
-// `laws` is the Highlights quick action (the eye). It governs EVERY mark —
-// acts, codes, CAEN codes, CUIs and internal cross-references — and, through
-// `.dv-docx.is-plain`, the empty fields' look: off, the document reads as it
-// was written.
-function markLawRefs(host, { laws = true } = {}) {
-  if (!host) return 0;
-  clearLawRefs(host);
-  host.classList.toggle('is-plain', !laws);
-  if (!laws) return 0;
-  let count = 0;
-  let seq = 0;
-  // A CAEN list ("6210 - Activități …", one per paragraph) is only a CAEN list
-  // in a document that names the nomenclature — read ONCE, for the whole file.
-  const caenContext = caenContextOf(host.textContent || '');
-  host.querySelectorAll(LAW_BLOCK_SEL).forEach((block) => {
-    // Leaf blocks only — an <li> wrapping a <p> would otherwise be scanned
-    // twice and the inner pass would find the marks of the outer one.
-    if (block.querySelector(LAW_BLOCK_SEL)) return;
-    const walker = document.createTreeWalker(block, NodeFilter.SHOW_TEXT, {
-      acceptNode: (n) => (
-        n.nodeValue && !n.parentElement?.closest('style, script, template')
-          ? NodeFilter.FILTER_ACCEPT
-          : NodeFilter.FILTER_REJECT
-      ),
-    });
-    // The block's text as the reader sees it, scanned in one piece: a citation
-    // Word happened to split across runs is still one string here.
-    const segs = [];
-    let joined = '';
-    for (let n = walker.nextNode(); n; n = walker.nextNode()) {
-      segs.push({ node: n, start: joined.length, end: joined.length + n.nodeValue.length });
-      joined += n.nodeValue;
-    }
-    if (joined.length < 6) return;
-    // A block that OPENS with a structural element is naming ITSELF, not
-    // pointing anywhere: "Art. 2 OBIECTUL DE ACTIVITATE", "Cap. III …",
-    // "Secțiunea 1 …" are the document's own numbering, and marking them turned
-    // every article heading in the file into a button that goes to itself. A
-    // real cross-reference is always mid-sentence — "…indicată la pct. 6.1",
-    // "…prevederile clauzei 4.3" — because it is something the sentence SAYS.
-    // Only `element` hits are judged this way: a paragraph may perfectly well
-    // begin by citing an act ("Legea nr. 24/2000 prevede …").
-    const opensTheBlock = (h) => h.kind === 'element' && !joined.slice(0, h.start).trim();
-    // CUIs are marked whatever the Laws switch says, as CAEN codes are: a
-    // party's fiscal code is who the party IS.
-    const hits = dropOverlaps([...findLawRefs(joined, { caenContext }), ...findCuiRefs(joined)])
-      .filter((h) => !opensTheBlock(h))
-      .filter(Boolean);
-    for (let i = hits.length - 1; i >= 0; i -= 1) {
-      count += wrapLawRange(segs, hits[i], `r${seq}_${i}`) ? 1 : 0;
-    }
-    seq += 1;
-  });
-  return count;
-}
 
 // Document zoom steps like the image pane's (× ZOOM_STEP), between these.
 const DOC_ZOOM_MIN = 0.15;   // 15% of the fit — every kind of file's floor
 const DOC_ZOOM_MAX = 5;
 // `req` is 'in' / 'out' from a button, or `{ by: factor }` from the wheel.
 const stepDocZoom = (z, req) => Math.max(DOC_ZOOM_MIN, Math.min(DOC_ZOOM_MAX, +(z * zoomFactorOf(req, ZOOM_STEP)).toFixed(3)));
+
 function DocPageRail({ hostRef, tick, locked, hidden = false }) {
   const railRef = useRef(null);
   const [count, setCount] = useState(0);
@@ -10999,15 +10500,11 @@ function DocxRenderPane({ url, regenTick = 0, docName = '', onExportPdf, onOpenN
   // PARAGRAPHS ARE NOT PICKED, HOVERED OR EDITED HERE ANY MORE (2026-10-02, at
   // the user's request): the pick, its zoom, the panel docked under it, typing
   // into a paragraph, its versions and its AI prompt were all removed. The
-  // preview is read-only; its highlights keep their own hover and click
-  // (RefCardPill, the cross-reference jump).
+  // preview is read-only.
   // Why the last render attempt failed, as { title, detail } — or null.
   const [renderErr, setRenderErr] = useState(null);
   // Bumped once every time the document finishes rendering.
   const [renderTick, setRenderTick] = useState(0);
-  // Whether the highlights are shown (the Highlights quick action). Declared
-  // HERE, with the render state: the effect that paints them reads it.
-  const [lawRefs, setLawRefs] = useState(loadLawRefsPref);
   // Bumped to re-run the render effect: by the automatic retry below and by the
   // user's "Try again". `attemptRef` counts retries PER URL.
   const [reloadKey, setReloadKey] = useState(0);
@@ -11083,221 +10580,6 @@ function DocxRenderPane({ url, regenTick = 0, docName = '', onExportPdf, onOpenN
     host.addEventListener('click', onFoldClick, true);
     return () => host.removeEventListener('click', onFoldClick, true);
   }, [toggleFold, focusOn]);
-
-  // The references this document makes. Marked after the render has settled
-  // (so the walk sees the paginated DOM) and again
-  // whenever the Laws preference is switched — which re-marks rather than
-  // clears, since CAEN codes and cross-references are not the preference's to
-  // take away. Nothing here changes a text metric — no padding, no font — so
-  // marking cannot re-wrap a line, which is why it needs no re-pagination
-  // afterwards.
-  // Switching the eye FADES them (`--dv-ref-a`, DocViewer.css): on, the marks
-  // are made at nothing and brought up; off, they go down first and are only
-  // unwrapped once they have. A re-render marks without a fade.
-  const lawRefsWas = useRef(lawRefs);
-  useEffect(() => {
-    const host = hostRef.current;
-    if (!host || !renderTick) return undefined;
-    const toggled = lawRefsWas.current !== lawRefs;
-    lawRefsWas.current = lawRefs;
-    let later = 0;
-    let frame = 0;
-    const id = window.setTimeout(() => {
-      if (!toggled) { markLawRefs(host, { laws: lawRefs }); return; }
-      if (lawRefs) {
-        host.classList.add('is-refs-hidden');
-        markLawRefs(host, { laws: true });
-        void host.offsetWidth; // the marks take their faded state first…
-        frame = window.requestAnimationFrame(() => host.classList.remove('is-refs-hidden')); // …then fade up
-      } else {
-        host.classList.add('is-refs-hidden', 'is-plain');
-        later = window.setTimeout(() => {
-          markLawRefs(host, { laws: false });
-          host.classList.remove('is-refs-hidden');
-        }, REF_FADE_MS);
-      }
-    }, 0);
-    return () => {
-      window.clearTimeout(id); window.clearTimeout(later); window.cancelAnimationFrame(frame);
-      host.classList.remove('is-refs-hidden');
-    };
-  }, [renderTick, lawRefs]);
-  // ── Going to the clause a reference points at ──────────────────────────
-  // "…indicată la pct. 6.1. lit. d)" is a pointer INSIDE the document, and the
-  // reader's next move is always the same: find 6.1. The mark is a button, in
-  // effect — one delegated listener on the host (docx-preview's nodes are not
-  // React's), a paragraph found by its own number, and the page taken there and
-  // set pulsing until the reader's eye lands on it.
-  useEffect(() => {
-    const host = hostRef.current;
-    if (!host || !renderTick) return undefined;
-    // The clause number a block OPENS with: "6.1." / "6.1)" / "6.1" alone on
-    // its line, and the same behind the word that introduces it ("Art. 6",
-    // "pct. 2.1"), since a document may number its own paragraphs either way.
-    const NUM_RE = /^\s*(?:(?:art|pct|punctul|alin|paragr)\.?\s*)?(\d+(?:\.\d+)*)\s*[.)]?(?=\s|$)/i;
-    // …and the letter an ENUMERATED item opens with: "d)", "d.", "(d)".
-    const LETTER_RE = /^\s*\(?([a-zșşțţăâî])\s*[).](?=\s|$)/i;
-    const opener = (re, el) => {
-      const m = re.exec((el.textContent || '').slice(0, 40));
-      return m ? m[1].toLowerCase() : '';
-    };
-    const numberOf = (el) => opener(NUM_RE, el);
-    const letterOf = (el) => opener(LETTER_RE, el);
-    const go = (e) => {
-      // An act / code, a CAEN code or a CUI: a click opens its record in the
-      // side drawer, as everywhere (lib/lawDrawer).
-      const linkMark = e.target?.closest?.('.dv-cuiref[data-cui], .dv-lawref, .dv-caenref[data-href]');
-      if (linkMark) {
-        e.preventDefault();
-        e.stopPropagation();
-        // As everywhere (lib/lawDrawer): the side drawer with the record.
-        openMarkRef(linkMark);
-        return;
-      }
-      const mark = e.target?.closest?.('.dv-xref[data-xref]');
-      if (!mark) return;
-      const want = mark.dataset.xref;
-      if (!want) return;
-      const letter = (mark.dataset.xrefLetter || '').toLowerCase();
-      // LEAF blocks only. A wrapper's `textContent` begins with the text of its
-      // first child, so a container holding clause 6.1 answers to "6.1" as
-      // readily as the clause itself does — and, standing earlier in document
-      // order, wins. Then the whole of it lights up instead of the one
-      // paragraph, which is not an answer to "where is 6.1".
-      const blocks = Array.from(host.querySelectorAll(LAW_BLOCK_SEL))
-        .filter((el) => !el.querySelector(LAW_BLOCK_SEL));
-      const at = blocks.findIndex((el) => numberOf(el) === want);
-      const clause = at === -1 ? null : blocks[at];
-      let dest = clause;
-      // "pct. 6.1. lit. d)" names an ITEM, not a clause: the reader wants the
-      // line beginning "d)", not the seven-line clause that contains it. It is
-      // looked for BELOW the clause and only as far as the next numbered one,
-      // so a "d)" belonging to some later clause can never be mistaken for this
-      // one. A document that runs its items inside the clause's own paragraph
-      // has no such line, and the clause itself stays the answer.
-      if (dest && letter) {
-        for (let i = at + 1; i < blocks.length; i += 1) {
-          if (numberOf(blocks[i])) break;
-          if (letterOf(blocks[i]) === letter) { dest = blocks[i]; break; }
-        }
-      }
-      // Failing all that, the paragraph that OPENS the section it belongs to
-      // ("6.1" → "6"), which is where a reader would look next when the clause
-      // itself is numbered differently.
-      if (!dest && want.includes('.')) {
-        const top = want.split('.')[0];
-        dest = blocks.find((el) => numberOf(el) === top) || null;
-      }
-      if (!dest) return;
-      e.preventDefault();
-      e.stopPropagation();
-      // BOTH are lit: the clause, which is what "6.1" means, and the item, which
-      // is what "lit. d)" means. One without the other is half the reference —
-      // the item alone is a line reading "d) Email general: …" with nothing
-      // saying what it is an item OF, and the clause alone is the seven lines
-      // the reader was trying to avoid reading. The one the reference actually
-      // NAMED burns brighter (`is-xref-exact`), so which is which is never a
-      // guess. The view is centred on that one; the clause sits a few lines
-      // above it and comes along.
-      dest.scrollIntoView({ block: 'center', behavior: 'smooth' });
-      light(clause && clause !== dest ? [clause, dest] : [dest], dest);
-    };
-    // A mark is a BUTTON, so it answers the pointer like one: the whole
-    // reference lights on hover and darkens while it is held down, however many
-    // runs Word cut it into. Done in JS rather than `:hover` because CSS can
-    // only reach the piece under the pointer, and a reference lighting up by
-    // halves reads as two references.
-    //
-    // Arriving somewhere is the other half of pressing it. Everything but the
-    // clause (and the item named) FADES BACK (`.has-xref-focus` on the host,
-    // `.is-xref-target` on what stays — DocViewer.css), because a page of legal
-    // prose gives the eye nothing to land on and a smooth scroll ends without
-    // saying where. It is answered by the reader, not by a timer: being over
-    // the clause and moving away again puts the page back as it was — they
-    // have found it. A reader who never goes near it is not left with a faded
-    // document for ever either; `XREF_LIT_MS` gives up.
-    const paint = (from, cls, on) => {
-      const id = from?.dataset?.refId;
-      if (!id) return;
-      host.querySelectorAll(`.dv-xref[data-ref-id="${id}"]`).forEach((el) => el.classList.toggle(cls, on));
-    };
-    let hot = null;
-    let held = null;
-    let lit = [];        // what a jump landed on — the clause and its item
-    let litSeen = false; // …and whether the reader has been over any of it since
-    let litTimer = 0;
-    let leaveTimer = 0;
-    const unlight = () => {
-      if (litTimer) { window.clearTimeout(litTimer); litTimer = 0; }
-      for (const el of lit) el.classList.remove('is-xref-target', 'is-xref-exact');
-      if (host.classList.contains('has-xref-focus')) {
-        // Keep the opacity transition for the fade back, then drop it.
-        host.classList.add('is-xref-leaving');
-        window.clearTimeout(leaveTimer);
-        leaveTimer = window.setTimeout(() => host.classList.remove('is-xref-leaving'), 300);
-      }
-      host.classList.remove('has-xref-focus');
-      lit = [];
-      litSeen = false;
-    };
-    host.__dismissXref = unlight;
-    const light = (els, exact) => {
-      unlight();
-      lit = els;
-      // Everything else fades back (DocViewer.css .has-xref-focus); the clause
-      // and its item stand at full strength.
-      host.classList.add('has-xref-focus');
-      for (const el of els) {
-        el.classList.add('is-xref-target');
-        if (el === exact) el.classList.add('is-xref-exact');
-      }
-      litTimer = window.setTimeout(unlight, XREF_LIT_MS);
-    };
-    const over = (e) => {
-      // Over the clause that was jumped to, then away from it: found, and done.
-      if (lit.length) {
-        if (lit.some((el) => el.contains(e.target))) litSeen = true;
-        else if (litSeen) unlight();
-      }
-      const mark = e.target?.closest?.('.dv-xref[data-xref]') || null;
-      if (mark === hot) return;
-      paint(hot, 'is-hot', false);
-      hot = mark;
-      paint(hot, 'is-hot', true);
-    };
-    const out = () => { paint(hot, 'is-hot', false); hot = null; };
-    const down = (e) => {
-      if (e.button !== 0) return;
-      held = e.target?.closest?.('.dv-xref[data-xref]') || null;
-      paint(held, 'is-press', true);
-    };
-    const up = () => { paint(held, 'is-press', false); held = null; };
-    host.addEventListener('click', go, true);
-    host.addEventListener('mousemove', over);
-    host.addEventListener('mouseleave', out);
-    host.addEventListener('mousedown', down, true);
-    window.addEventListener('mouseup', up, true);
-    return () => {
-      host.removeEventListener('click', go, true);
-      host.removeEventListener('mousemove', over);
-      host.removeEventListener('mouseleave', out);
-      host.removeEventListener('mousedown', down, true);
-      window.removeEventListener('mouseup', up, true);
-      paint(hot, 'is-hot', false);
-      paint(held, 'is-press', false);
-      unlight();
-      window.clearTimeout(leaveTimer);
-      host.classList.remove('is-xref-leaving');
-      if (host.__dismissXref === unlight) delete host.__dismissXref;
-    };
-  }, [renderTick]);
-
-  // The marks belong to one rendered document — and a paragraph is saved from
-  // the DOM, so they must not be in it when this pane goes away mid-edit.
-  useEffect(() => {
-    const host = hostRef.current;
-    return () => { if (host) clearLawRefs(host); };
-  }, [renderTick]);
 
   // …and again as the late arrivals land: docx-preview positions its tab stops
   // on a timer, and a web font can finish loading after `fonts.ready` resolved
@@ -11620,7 +10902,6 @@ function DocxRenderPane({ url, regenTick = 0, docName = '', onExportPdf, onOpenN
     return () => scroller.removeEventListener('wheel', onWheel);
   }, []);
   const toggleRail = useCallback(() => setShowRail((on) => { savePageRailPref(!on); return !on; }), []);
-  const toggleLawRefs = useCallback(() => setLawRefs((on) => { saveLawRefsPref(!on); return !on; }), []);
   // FIT: a whole page inside the window's height (never wider than the pane).
   // Worked out from the page as it is on screen now: its height at zoom 1 is
   // what it measures ÷ the zoom it is under.
@@ -11691,16 +10972,6 @@ function DocxRenderPane({ url, regenTick = 0, docName = '', onExportPdf, onOpenN
         onClick: toggleRail,
       },
       {
-        id: 'law-refs',
-        label: 'Highlights',
-        tooltip: lawRefs
-          ? 'Hide the highlights — the laws, CAEN codes, CUIs, cross-references and empty fields marked in this document'
-          : 'Show the highlights — every law, CAEN code, CUI and cross-reference this document cites, and its empty fields',
-        icon: lawRefs ? EyeOpenGlyph : EyeClosedGlyph,
-        pressed: lawRefs,
-        onClick: toggleLawRefs,
-      },
-      {
         // Both counters, not just the page one: they are a matched pair of
         // pills along the foot of the same document, and having the word count
         // stay behind when the page counter was switched off left a reader
@@ -11738,7 +11009,7 @@ function DocxRenderPane({ url, regenTick = 0, docName = '', onExportPdf, onOpenN
         onClick: () => setPdfAsk(true),
       } : null,
     ].filter(Boolean),
-  }), [showPageNumbers, canOpenNative, showRail, toggleRail, lawRefs, toggleLawRefs, fitPage, onExportPdf, pdfBusy, adv?.focusMode, adv?.toggleFocus]);
+  }), [showPageNumbers, canOpenNative, showRail, toggleRail, fitPage, onExportPdf, pdfBusy, adv?.focusMode, adv?.toggleFocus]);
   useEffect(() => { setDocTools?.(docTools); }, [docTools, setDocTools]);
   useEffect(() => () => setDocTools?.(null), [setDocTools]);
 
@@ -11752,10 +11023,6 @@ function DocxRenderPane({ url, regenTick = 0, docName = '', onExportPdf, onOpenN
         onConfirm={toPdf}
         onCancel={() => setPdfAsk(false)}
       />
-      {/* Every highlight's hover pill and click (the record in the side drawer)
-          — the same component pictures and PDFs use. A cross-reference's click
-          is the pane's own jump (above), taken in the capture phase first. */}
-      {lawRefs && !renderErr && <RefCardPill hostRef={hostRef} />}
       {/* Focus counts as "the list is off". It is hidden rather than
           display:none'd, because `is-hidden` is what the rest of the layout
           reads (the CSS reserving the document's left inset). */}
@@ -11957,7 +11224,7 @@ const BLANK_PROBE_MAX_BYTES = 256 * 1024;
 // steps every Romanian legal document is built on, asked one step at a time,
 // tied to the project's Data collections and the Playbook presets. Its
 // Generate is what starts the draft.
-function DocTemplateChooser({ onChosen }) {
+function DocTemplateChooser({ onChosen, isDraft = false }) {
   const adv = useMultitoolAdvisor();
   const [brief, setBrief] = useState(null);   // { template, hint } | { custom, hint }
   const [query, setQuery] = useState('');
@@ -11976,10 +11243,20 @@ function DocTemplateChooser({ onChosen }) {
     adv?.send?.(shown, undefined, { apiText: prompt });
   }, [adv, busy, onChosen]);
 
+  // On a DRAFT the brief is answered in the advisor's side panel, beside the
+  // (empty) page — the workspace opens at once.
+  const toPanel = useCallback((b) => {
+    if (!isDraft || !adv?.setDraftBrief) return false;
+    adv.setDraftBrief(b);
+    try { window.dispatchEvent(new CustomEvent('docvex:dv-side-tab', { detail: 'advisor' })); } catch { /* no window */ }
+    onChosen?.();
+    return true;
+  }, [isDraft, adv, onChosen]);
   const pick = useCallback((tpl) => {
     if (busy) return;
+    if (toPanel({ template: tpl })) return;
     setBrief({ template: tpl });
-  }, [busy]);
+  }, [busy, toPanel]);
 
   // Typing searches the WHOLE catalogue: someone who types "apel" wants the
   // appeal, not to be told it isn't among the most-used ones. The chip only
@@ -11991,7 +11268,7 @@ function DocTemplateChooser({ onChosen }) {
     () => Object.fromEntries(TEMPLATE_CATEGORIES.map((c) => [c.id, c.label])),
     [],
   );
-  const describe = () => { if (q) setBrief({ custom: q }); };
+  const describe = () => { if (q && !toPanel({ custom: q })) setBrief({ custom: q }); };
 
   // ⌘/Ctrl+F lands in the search field, as it does everywhere else in the app.
   useEffect(() => {
@@ -13277,6 +12554,212 @@ const WordFormatGlyph = PdfToWordGlyph;
 const PdfFormatGlyph = ToPdfGlyph;
 const PDF_CONVERT_FROM = { label: 'PDF', icon: PdfFormatGlyph };
 
+// To Word's builder, per device: 'local' (default) or 'office'.
+const DRAFT_WORD_ENGINE_KEY = 'docvex:draft:word-engine:v1';
+// Why the Office service did not build a file, in words.
+function officeReason(code) {
+  const c = String(code || '');
+  if (c === 'office_unavailable') return 'it is switched off on the server';
+  if (c === 'masked_local') return 'this project masks what is sent to the AI';
+  if (c === 'invalid_file') return 'it returned a damaged file';
+  return c ? c.replace(/_/g, ' ') : 'no answer';
+}
+
+// ── A DRAFT (.dvdraft, lib/draftFile) ────────────────────────────────────
+// DocVex's own document file: the text the AI writes and the user edits, on a
+// page — typed into directly, saved into the file as it is typed (a patch, so
+// the advisor's writes of versions and the conversation into the same file are
+// never overwritten). The AI's versions land here too (the advisor's writeDoc
+// writes the draft's text; `regenTick` / the draft store bring it on screen).
+// The quick action TO WORD builds a .docx from the text beside the draft, under
+// a free name — as often as wanted.
+function DraftPane({ file, regenTick = 0, freeName, dir }) {
+  const adv = useMultitoolAdvisor();
+  const { notify } = useNotify();
+  const [text, setText] = useState(() => peekDraft(file.path)?.text ?? null);
+  const textRef = useRef(text);
+  textRef.current = text;
+  const areaRef = useRef(null);
+  const [wordBusy, setWordBusy] = useState(false);
+  // Which builder To Word uses (one choice per device): the built-in one
+  // (lib/documentGen's local docx builder — instant, offline, nothing sent) or
+  // Anthropic's Office service (project-ai `office` — the draft's text goes
+  // to Anthropic, which builds the file; falls back to the built-in builder
+  // when the service is off or fails, and the toast says so).
+  const [useOffice, setUseOffice] = useState(() => {
+    try { return localStorage.getItem(DRAFT_WORD_ENGINE_KEY) === 'office'; } catch { return false; }
+  });
+  const pickOffice = useCallback((on) => {
+    setUseOffice(on);
+    try { localStorage.setItem(DRAFT_WORD_ENGINE_KEY, on ? 'office' : 'local'); } catch { /* kept for this session only */ }
+  }, []);
+
+  // The file's text: read on open and after every AI write.
+  useEffect(() => {
+    let alive = true;
+    readDraft(file.path).then((d) => { if (alive) setText(d.text || ''); }).catch(() => { if (alive) setText(''); });
+    return () => { alive = false; };
+  }, [file.path, regenTick]);
+  // A change made elsewhere in this window (the advisor writing a version).
+  useEffect(() => subscribeDrafts((p, d) => {
+    if (String(p).replace(/\\/g, '/').toLowerCase() !== String(file.path).replace(/\\/g, '/').toLowerCase()) return;
+    if (typeof d.text === 'string' && d.text !== textRef.current) setText(d.text);
+  }), [file.path]);
+
+  // The document AS THE AI WRITES IT (a reply streaming in the advisor's
+  // dialog): shown on the page as it arrives, read-only, the rest of the
+  // earlier text faded after it; the written version replaces it on landing.
+  const [live, setLive] = useState(() => peekDraftLive(file.path));
+  useEffect(() => {
+    setLive(peekDraftLive(file.path));
+    return subscribeDraftLive((p, t) => {
+      if (String(p).replace(/\\/g, '/').toLowerCase() !== String(file.path).replace(/\\/g, '/').toLowerCase()) return;
+      setLive(t);
+    });
+  }, [file.path]);
+  const caretRef = useRef(null);
+  // Keep the line being written in view (once a frame at most).
+  useEffect(() => {
+    if (live == null) return undefined;
+    const id = requestAnimationFrame(() => {
+      try { caretRef.current?.scrollIntoView({ block: 'nearest' }); } catch { /* detached */ }
+    });
+    return () => cancelAnimationFrame(id);
+  }, [live]);
+  // What of the earlier text is still ahead of the pen: matched line by line
+  // (the AI writes the WHOLE document again on a change).
+  const liveRest = useMemo(() => {
+    if (live == null) return '';
+    const old = String(text || '').split('\n');
+    const lines = live.split('\n').length;
+    const rest = old.slice(lines);
+    return rest.length ? `\n${rest.join('\n')}` : '';
+  }, [live, text]);
+
+  // The page grows with its text (no scroller inside a scroller).
+  useLayoutEffect(() => {
+    const el = areaRef.current;
+    if (!el) return;
+    el.style.height = 'auto';
+    el.style.height = `${el.scrollHeight}px`;
+  }, [text, live]);
+  // …and again when its width changes (the window or the side panel resized):
+  // the lines re-wrap, and a height measured at the old width would cut the
+  // text off or leave a gap.
+  useEffect(() => {
+    const el = areaRef.current;
+    if (!el || typeof ResizeObserver === 'undefined') return undefined;
+    let w = el.clientWidth;
+    const ro = new ResizeObserver(() => {
+      if (el.clientWidth === w) return;
+      w = el.clientWidth;
+      el.style.height = 'auto';
+      el.style.height = `${el.scrollHeight}px`;
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [text == null, live == null]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Typing keeps the draft: a new file closed before anything was asked of the
+  // AI is deleted by main (doc-viewer:prompted) unless it was used.
+  const keptRef = useRef(false);
+  const onEdit = (e) => {
+    const v = e.target.value;
+    setText(v);
+    if (!keptRef.current) { keptRef.current = true; try { docViewerPrompted(); } catch { /* not in Electron */ } }
+    void writeDraft(file.path, { text: v }, { delay: 500 });
+  };
+
+  // The advisor's tools (a draft, the Attack scan) read the page's text.
+  const registerDocApi = adv?.registerDocApi;
+  useEffect(() => {
+    if (!registerDocApi) return undefined;
+    registerDocApi({ documentText: () => String(textRef.current || '').trim() });
+    return () => registerDocApi(null);
+  }, [registerDocApi]);
+
+  const toWord = useCallback(async () => {
+    const body = String(textRef.current || '').trim();
+    if (wordBusy) return;
+    if (!body) {
+      notify({ category: 'file', variant: 'info', title: 'The draft is empty', body: 'Write something first — or ask the advisor to draft it.', dedupeKey: `draft-word-empty:${file.path}` });
+      return;
+    }
+    setWordBusy(true);
+    try {
+      const stem = String(file.name || 'Draft').replace(/\.dvdraft$/i, '') || 'Draft';
+      let used = 'local';
+      let why = '';
+      const blob = useOffice
+        ? await buildDocumentBlobSmart('docx', body, { engine: 'skills', instructions: 'A legal document drafted in DocVex: keep its words, headings and numbering exactly.', onEngine: (u, r) => { used = u; why = r || ''; } })
+        : await buildDocumentBlob('docx', body);
+      const target = await freeName(stem, 'docx');
+      const wr = await localFolderApi.writeFiles({ dir, files: [{ filename: target, blob }] });
+      const res = wr?.results?.[0];
+      if (wr?.error || !res?.ok) throw new Error(wr?.error || res?.error || 'write_failed');
+      notifyFilesChanged();
+      notify({
+        category: 'file', variant: 'success', icon: 'sparkles',
+        title: 'Word document created',
+        body: useOffice && used !== 'skills'
+          ? `“${target}” was made from this draft, beside it, by the built-in builder — Anthropic’s Office service was not available (${officeReason(why)}).`
+          : `“${target}” was made from this draft, beside it${useOffice ? ', by Anthropic’s Office service' : ''}.`,
+        dedupeKey: `draft-word:${file.path}`,
+        payload: { activity: { action: 'create', fileName: target, filePath: res.path || (dir ? `${dir}/${target}` : target) } },
+      });
+    } catch (e) {
+      notify({ category: 'file', variant: 'error', title: 'Couldn’t create the Word document', body: String(e?.message || e), dedupeKey: `draft-word-err:${file.path}` });
+    } finally {
+      setWordBusy(false);
+    }
+  }, [wordBusy, file.path, file.name, freeName, dir, notify, useOffice]);
+
+  const actions = useMemo(() => [{
+    id: 'to-word',
+    label: wordBusy ? 'Making…' : 'To Word',
+    tooltip: 'Make a Word document from this draft, beside it — as often as you like; the draft stays as it is',
+    icon: WordFormatGlyph,
+    pressed: wordBusy,
+    onClick: toWord,
+  }], [wordBusy, toWord]);
+
+  return (
+    <div className="dv-draft">
+      {adv?.quickSlot && createPortal(<DocQuickActions actions={actions} catalogue={QUICK_ACTIONS_ALL} />, adv.quickSlot)}
+      <div className="dv-draft-bar">
+        <Toggle
+          on={useOffice}
+          onChange={pickOffice}
+          label="Office service for To Word"
+          tip={useOffice
+            ? 'To Word: Anthropic’s Office service builds the Word file — the draft’s text is sent to Anthropic. Off: the built-in builder, on this computer.'
+            : 'To Word: the built-in builder makes the Word file on this computer, nothing sent. On: Anthropic’s Office service builds it (the draft’s text is sent to Anthropic).'}
+        />
+      </div>
+      <div className="dv-draft-page">
+        {live != null ? (
+          <div className="dv-draft-text is-live" data-no-i18n="" aria-live="off" aria-label="Draft — being written">
+            {live}<span ref={caretRef} className="dv-draft-caret" aria-hidden="true" /><span className="dv-draft-rest">{liveRest}</span>
+          </div>
+        ) : text == null ? (
+          <span className="dv-boot-spinner" aria-label="Opening the draft" />
+        ) : (
+          <textarea
+            ref={areaRef}
+            className="dv-draft-text"
+            value={text}
+            onChange={onEdit}
+            placeholder="Write here — or tell the advisor what to draft."
+            spellCheck={false}
+            data-no-i18n=""
+            aria-label="Draft"
+          />
+        )}
+      </div>
+    </div>
+  );
+}
+
 function DocPane({ file, onWhatsAppDetected, onRenamed, sidePanelSlot = null, sideTabsSlot = null, regenTick = 0, startInBuilder = false }) {
   const { notify } = useNotify();
   const { kind: baseKind, mime } = useMemo(
@@ -13522,11 +13005,6 @@ function DocPane({ file, onWhatsAppDetected, onRenamed, sidePanelSlot = null, si
     () => ({ zoom: pdfZoom, rail: pdfRail && !adv?.focusMode, fitTick: pdfFitTick, pageNums: pdfPageNums }),
     [pdfZoom, pdfRail, pdfFitTick, pdfPageNums, adv?.focusMode],
   );
-  // HIGHLIGHTS on a PDF's text (the eye) — the same device preference as a
-  // Word file's and a picture's; `pdfRefsHost` holds the preview, whose text
-  // layers PdfRefMarks marks and whose marks RefCardPill answers.
-  const [pdfLawRefs, setPdfLawRefs] = useState(loadLawRefsPref);
-  const pdfRefsHost = useRef(null);
   const pdfActions = useMemo(() => (kind === 'pdf' ? [{
     id: 'page-rail',
     label: 'Pages',
@@ -13541,15 +13019,6 @@ function DocPane({ file, onWhatsAppDetected, onRenamed, sidePanelSlot = null, si
     icon: PageNumbersGlyph,
     pressed: pdfPageNums,
     onClick: () => setPdfPageNums((v) => !v),
-  }, {
-    id: 'law-refs',
-    label: 'Highlights',
-    tooltip: pdfLawRefs
-      ? 'Hide the highlights — the laws, CAEN codes and CUIs marked in this PDF'
-      : 'Show the highlights — every law, CAEN code and CUI this PDF cites',
-    icon: pdfLawRefs ? EyeOpenGlyph : EyeClosedGlyph,
-    pressed: pdfLawRefs,
-    onClick: () => setPdfLawRefs((on) => { saveLawRefsPref(!on); return !on; }),
   }, {
     // The same mode as a Word file's, driven from the same shell state — a
     // reader stepping between a contract and the PDF it was exported to should
@@ -13567,7 +13036,7 @@ function DocPane({ file, onWhatsAppDetected, onRenamed, sidePanelSlot = null, si
     icon: ToPdfGlyph,
     pressed: !!pdfJob,
     onClick: () => setPdfAsk('word'),
-  }] : []), [kind, pdfJob, pdfRail, pdfZoom, stepPdfZoom, pdfPageCount, pdfPageNums, pdfLawRefs, adv?.focusMode, adv?.toggleFocus]);
+  }] : []), [kind, pdfJob, pdfRail, pdfZoom, stepPdfZoom, pdfPageCount, pdfPageNums, adv?.focusMode, adv?.toggleFocus]);
 
   // Extract text from a legacy .doc (binary parsed in the main process).
   useEffect(() => {
@@ -13603,7 +13072,9 @@ function DocPane({ file, onWhatsAppDetected, onRenamed, sidePanelSlot = null, si
   }, [file.path]);
 
   let content;
-  if (kind === 'docx') {
+  if (kind === 'draft') {
+    content = <DraftPane file={file} regenTick={regenTick} freeName={freeName} dir={dir} />;
+  } else if (kind === 'docx') {
     content = <DocxWorkspace file={file} url={url} regenTick={regenTick} onExportPdf={exportPdfNextTo} onOpenNative={openNative} />;
   } else if (kind === 'pptx') {
     content = <PptxRenderPane url={url} onExportPdf={exportPdfNextTo} onOpenNative={openNative} />;
@@ -13678,15 +13149,6 @@ function DocPane({ file, onWhatsAppDetected, onRenamed, sidePanelSlot = null, si
   // draft and the chosen view, so it stays mounted and re-keys only the preview
   // inside it.
   if (content && kind !== 'docx') content = React.cloneElement(content, { key: `pv-${regenTick}` });
-  if (content && kind === 'pdf') {
-    content = (
-      <div ref={pdfRefsHost} className="dv-pdf-refs" key={`pr-${regenTick}`}>
-        {content}
-        <PdfRefMarks hostRef={pdfRefsHost} laws={pdfLawRefs} />
-        {pdfLawRefs && <RefCardPill hostRef={pdfRefsHost} />}
-      </div>
-    );
-  }
   // The side panel and quick actions are drawn by this pane (portalled), and
   // the preview beside them is the heavy part. Mounting both in one commit
   // made the panels wait for the document; the preview now mounts a couple of
@@ -14041,6 +13503,12 @@ export default function DocViewer() {
   // the document stays blank for the seconds it takes the AI to write it, and
   // the chooser must not come back in the meantime.
   const [templateChosen, setTemplateChosen] = useState(false);
+  // A draft's brief (in the side panel) going back to "All templates".
+  useEffect(() => {
+    const back = () => setTemplateChosen(false);
+    window.addEventListener('docvex:dv-template-back', back);
+    return () => window.removeEventListener('docvex:dv-template-back', back);
+  }, []);
 
   // Animate the preview's shift only while the mode is actually toggling —
   // otherwise dragging the advisor's resize gutter would fight a 340ms
@@ -14659,6 +14127,12 @@ export default function DocViewer() {
     let cancelled = false;
     (async () => {
       try {
+        // A draft is blank while it holds no text and no version.
+        if (kind === 'draft') {
+          const d = await readDraft(path);
+          if (!cancelled) setDocIsBlank(!String(d.text || '').trim() && !(d.versions || []).length);
+          return;
+        }
         const blob = await readLocalBlob(path);
         if (cancelled) return;
         if (!blob || blob.size === 0) { setDocIsBlank(true); return; }
@@ -14718,7 +14192,7 @@ export default function DocViewer() {
   // decided by which version you pick in the chat), OR when the file is a document
   // the generator can (re)build — Word / PowerPoint / Excel / PDF / text — so the
   // Generate sidebar (engine toggle + version cards) shows for those too.
-  const GENERATABLE_DOC_KINDS = new Set(['docx', 'doc', 'pptx', 'sheet', 'pdf', 'text']);
+  const GENERATABLE_DOC_KINDS = new Set(['draft', 'docx', 'doc', 'pptx', 'sheet', 'pdf', 'text']);
   // The third case is the same wildcard after the user named it something with
   // a dot in it ("Contract v1.2 draft"): the tail reads as an extension, but an
   // EMPTY file of no type we know is a document waiting to be written.
@@ -14736,6 +14210,8 @@ export default function DocViewer() {
   // A blank PDF is the exception: it is made FROM a document rather than
   // written, so it asks which one instead (the Create menu's "PDF").
   const showPdfChooser = docIsBlank === true && extOf(shown.name) === 'pdf';
+  // A DRAFT has no chooser: it is written in a dialog, so a new one opens on
+  // its empty page and the advisor's chat.
   const showTemplateChooser = !showPdfChooser && generateArmed && docIsBlank === true && !templateChosen;
 
   // Audio drops the document card's rounded-corner frame so the player +
@@ -14777,7 +14253,7 @@ export default function DocViewer() {
           onConverted={() => { setDocIsBlank(false); setRegenTick((t) => t + 1); }}
         />
       ) : showTemplateChooser ? (
-        <DocTemplateChooser onChosen={() => setTemplateChosen(true)} />
+        <DocTemplateChooser isDraft={activeClass === 'draft'} onChosen={() => setTemplateChosen(true)} />
       ) : (
       <>
       {/* Body: a column holding the Documents + Multitool cards. */}
@@ -14904,7 +14380,6 @@ export default function DocViewer() {
     </AttackQuickAction>
     </QuickExtrasContext.Provider>
     {/* Legislation detected in every text of the window, clicked into the side drawer (app-wide). */}
-    <LawDetect />
     {/* The selected text, in the custom tooltip (components/SelectionTooltip). */}
     <SelectionTooltip />
     </MultitoolAdvisorProvider>
@@ -15136,18 +14611,114 @@ function AttackReportCard({ msg }) {
     );
   }
   const tone = r.score >= 80 ? 'is-good' : r.score >= 50 ? 'is-fair' : 'is-poor';
+  // A CARD in the thread — the score and the counts — that opens the whole
+  // report in the shared side drawer (components/SideDrawer) from the right.
+  return <AttackReportOpener msg={msg} r={r} tone={tone} />;
+}
+// APPLY FIXES: the report goes to the advisor as a request to make its
+// fixes. A draft gets the corrected document written onto its page (the
+// dialog), a document DocVex wrote gets a new version, any other file gets
+// the changes as PROPOSALS under the reply (lib/aiFileEdits — Apply / Discard;
+// nothing is written unapproved).
+// The model Apply fixes runs on when the picker is on Auto.
+const ATTACK_FIX_MODEL = 'claude-opus-5-5';
+// The fallback request (lib/complianceScan fixRequest is the real one).
+function attackFixRequest(r, fileName) {
+  return [
+    `Apply the fixes from this Attack report to "${fileName || 'the document'}". Make every change the report proposes — its diff blocks: lines starting with "-" are the text as it is now, lines starting with "+" the replacement — and nothing else. Keep everything the report does not mention exactly as it is.`,
+    'If you cannot write the whole document again here, propose each paragraph change for this file as a docvex-edit block.',
+    `<attack_report>\n${String(r.markdown || '').trim()}\n</attack_report>`,
+  ].join('\n\n');
+}
+function AttackReportOpener({ msg, r, tone }) {
+  const [open, setOpen] = useState(false);
+  const adv = useMultitoolAdvisor();
+  const [sent, setSent] = useState(false);
+  const hasFixes = (r.findings?.length || 0) > 0 || /```diff\n/.test(String(r.markdown || ''));
+  const canApply = hasFixes && !!adv?.send && !adv?.busy && !sent;
+  const applyFixes = (e) => {
+    e?.stopPropagation?.();
+    if (!canApply) return;
+    setSent(true);
+    setOpen(false);
+    try { window.dispatchEvent(new CustomEvent('docvex:dv-side-tab', { detail: 'advisor' })); } catch { /* no window */ }
+    void (async () => {
+      let apiText;
+      try {
+        const { fixRequest } = await import('../lib/complianceScan');
+        apiText = fixRequest({ fileName: msg.file, findings: r.findings || [], markdown: r.markdown });
+      } catch { apiText = attackFixRequest(r, msg.file); }
+      // Under Auto the fixing turn runs on the strongest model: a legal rewrite
+      // that must clear a re-audit is not a question for the router to cheapen.
+      const choice = adv.aiSettings?.model;
+      await adv.send('Apply the fixes from the Attack report.', undefined, {
+        apiText,
+        model: !choice || choice === 'auto' ? ATTACK_FIX_MODEL : choice,
+        effort: 'high',
+      });
+    })();
+  };
+  const applyTip = !hasFixes ? 'The report proposes no fixes'
+    : sent ? 'Already sent to the advisor'
+      : adv?.busy ? 'The advisor is busy — wait for it to finish'
+        : 'Have the advisor make every fix in the report';
+  const applyButton = (cls) => (
+    <Tooltip content={applyTip}>
+      <span
+        role="button"
+        tabIndex={canApply ? 0 : -1}
+        aria-disabled={!canApply || undefined}
+        className={`dv-attack-apply ${cls}${canApply ? '' : ' is-disabled'}`}
+        onClick={applyFixes}
+        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); applyFixes(e); } }}
+      >
+        {sent ? 'Fixes sent' : 'Apply fixes'}
+      </span>
+    </Tooltip>
+  );
+  const meta = (
+    <>
+      {r.verified} verified on the official sources
+      {r.unverified ? ` · ${r.unverified} not verified` : ''}
+      {r.rejected ? ` · ${r.rejected} dropped (the law they cited doesn’t say so)` : ''}
+    </>
+  );
+  return (
+    <>
+      <button type="button" className={`dv-attack is-card${open ? ' is-open' : ''}`} onClick={() => setOpen(true)} aria-haspopup="dialog" aria-expanded={open}>
+        <span className="dv-attack-head">
+          <span className="dv-attack-title">{AttackGlyph}Attack · {msg.file}</span>
+          <span className={`dv-attack-score ${tone}`}>{r.score}<small>/100</small></span>
+        </span>
+        <span className="dv-attack-meta">{meta}</span>
+        <span className="dv-attack-foot">
+          <span className="dv-attack-open">Open the report<span aria-hidden="true">→</span></span>
+          {applyButton('is-inline')}
+        </span>
+      </button>
+      <SideDrawer
+        open={open}
+        onClose={() => setOpen(false)}
+        title="Attack report"
+        subtitle={msg.file}
+        headerExtra={<span className={`dv-attack-score ${tone}`}>{r.score}<small>/100</small></span>}
+        widthKey="docvex:doc-viewer:attack-drawer-w"
+        defaultWidth={720}
+        ariaLabel="Attack report"
+      >
+        <AttackReportBody r={r} meta={meta} />
+        <div className="dv-attack-drawer-foot">{applyButton('is-primary')}</div>
+      </SideDrawer>
+    </>
+  );
+}
+// The report itself (in the drawer): what was verified, then the report's
+// markdown — its ```diff blocks drawn as diffs, the rest through AiAnswer.
+function AttackReportBody({ r, meta }) {
   const parts = String(r.markdown || '').split(/(```diff\n[\s\S]*?```)/g);
   return (
-    <section className="dv-attack">
-      <header className="dv-attack-head">
-        <span className="dv-attack-title">{AttackGlyph}Attack · {msg.file}</span>
-        <span className={`dv-attack-score ${tone}`}>{r.score}<small>/100</small></span>
-      </header>
-      <p className="dv-attack-meta">
-        {r.verified} verified on the official sources
-        {r.unverified ? ` · ${r.unverified} not verified` : ''}
-        {r.rejected ? ` · ${r.rejected} dropped (the law they cited doesn’t say so)` : ''}
-      </p>
+    <div className="dv-attack-report">
+      <p className="dv-attack-meta">{meta}</p>
       <div className="dv-attack-body">
         {parts.map((part, i) => (part.startsWith('```diff')
           ? (
@@ -15162,7 +14733,7 @@ function AttackReportCard({ msg }) {
           // eslint-disable-next-line react/no-array-index-key
           : (part.trim() ? <AiAnswer key={i} text={part} /> : null)))}
       </div>
-    </section>
+    </div>
   );
 }
 // Quick action: a row of tiles along a frame's foot (the files strip).
@@ -15367,11 +14938,11 @@ const ProjectFileStrip = memo(function ProjectFileStrip({ activePath, onPick, hi
 // Order here is the order on the card, so a tile doesn't move between files.
 export const QUICK_ACTIONS_ALL = [
   { id: 'page-rail', label: 'Pages', icon: PagesRailGlyph, why: 'Only for documents with pages — a Word file or a PDF' },
-  { id: 'law-refs', label: 'Highlights', icon: EyeOpenGlyph, why: 'For Word files, PDFs and pictures' },
   { id: 'scan-doc', label: 'Scan', icon: ScanDocGlyph, why: 'Only for pictures' },
   { id: 'extract-text', label: 'Extract text', icon: ExtractTextGlyph, why: 'Only for pictures' },
   { id: 'live-play', label: 'Live', icon: LivePhotoGlyph, why: 'Only for Live Photos and motion photos' },
   { id: 'pagenums', label: 'Counters', icon: PageNumbersGlyph, why: 'Only for documents with pages — a Word file or a PDF' },
+  { id: 'to-word', label: 'To Word', icon: WordFormatGlyph, why: 'Only for drafts — makes a Word document from the draft' },
   { id: 'open-word', label: 'Open in Word', icon: OpenExternalGlyph, why: 'Only for Word files, on a computer with Word installed' },
   { id: 'focus', label: 'Focus', icon: FocusModeGlyph, why: 'Only for documents with pages — a Word file or a PDF' },
   // ONE tile, whatever the file can become: the target is picked in the dialog
