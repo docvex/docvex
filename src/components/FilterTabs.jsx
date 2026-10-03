@@ -120,7 +120,7 @@ export default function FilterTabs({ tabs, active, onSelect, className = '', und
             aria-disabled={off || undefined}
             data-cat={tab.id}
             data-tab-id={tab.id}
-            className={`activity-filter${isActive ? ' is-active' : ''}${off ? ' is-unavailable' : ''}`}
+            className={`activity-filter${isActive ? ' is-active' : ''}${off ? ' is-unavailable' : ''}${tab.className ? ` ${tab.className}` : ''}`}
             onClick={() => { if (!off) onSelect(tab.id); }}
           >
             <span className="activity-filter-label">{tab.label}</span>

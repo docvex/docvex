@@ -33,10 +33,10 @@ import './TitleBar.css';
 // The sidebar tab a route belongs to, by the sidebar's own labels — the bar
 // reads "DOCVEX | <project> - <tab>".
 const TAB_LABELS = [
-  ['/research', 'Research'], ['/files', 'Files'], ['/chat', 'Chat'], ['/network', 'Neural network'],
-  ['/roadmap', 'Roadmap'], ['/newsletter', 'Newsletter'], ['/mail', 'Mail'],
-  ['/playbook', 'Playbook'], ['/versions', 'Versions'], ['/settings', 'Settings'],
-  ['/design', 'Design system'], ['/admin', 'Admin'], ['/debug', 'Debug'],
+  ['/research', 'Research'], ['/files', 'Files'],
+  ['/newsletter', 'Newsletter'],
+  ['/playbook', 'Playbook'], ['/versions', 'Updates'], ['/settings', 'Settings'],
+  ['/design', 'Design system'], ['/debug', 'Debug'],
   ['/account', 'Account'],
 ];
 function tabLabelFor(pathname) {
@@ -202,19 +202,10 @@ export default function TitleBar() {
   // file viewer, so it hides the project chrome and shows the open file's name
   // (carried in the boot query string) in its place.
   const onDocViewer = pathname === '/doc-viewer';
-  // Closing a Doc Viewer while the AI is mid-answer THROWS THAT WORK AWAY —
-  // the turn lives in this window's renderer, so the window going is the end of
-  // it. The viewer says when it is working (the global + event below, the same
-  // channel shape the side panel and focus use); this asks it to confirm rather
-  // than closing, and the viewer puts the question to the reader. If nothing is
-  // running — or this is any other window — the button closes as it always did.
-  const requestClose = useCallback(() => {
-    if (onDocViewer && window.__docvexDocViewerAiBusy) {
-      window.dispatchEvent(new CustomEvent('docvex:doc-viewer-close-request'));
-      return;
-    }
-    windowClose();
-  }, [onDocViewer]);
+  // Closing a Doc Viewer while the AI is working no longer loses the work:
+  // main hides the window instead and closes it once the AI is done (the
+  // file's icon in the Files tab spins meanwhile). So the button just closes.
+  const requestClose = useCallback(() => { windowClose(); }, []);
   // The boot query string only knows the file a COLD window was opened with. A
   // pre-warmed window boots empty and is handed its file later, and a generated
   // document is renamed when it gets its real extension — so the viewer
@@ -477,7 +468,7 @@ export default function TitleBar() {
 
       {signedIn && (
         <>
-          {/* Report / Split / Theme share ONE actions cluster so the buttons
+          {/* Report / Theme share ONE actions cluster so the buttons
               sit tightly together (the container's small gap is the only
               spacing between them). */}
           <div className="tb-actions">

@@ -146,7 +146,7 @@ async function generatePdfThumbnail(file) {
   try {
     const pdfjs = await loadPdfModule();
     const buffer = await file.arrayBuffer();
-    const pdf = await pdfjs.getDocument({ data: buffer }).promise;
+    const pdf = await pdfjs.getDocument({ data: buffer, isEvalSupported: false }).promise;
     const page = await pdf.getPage(1);
 
     // pdf.js's getViewport works in PDF units (72/inch). Scale the
@@ -1215,15 +1215,74 @@ async function generateTextThumbnail(file) {
   return canvasToJpegBlob(canvas);
 }
 
-// Thumbnails cover image / video / PDF / PPTX / plain-text. Other types
-// (DOCX, generic binaries) get a MIME glyph in the UI instead —
-// rasterized "previews" of rich document formats were misleading (font
-// fallbacks, broken layout) and the rich DOCX renderer in particular was
-// a maintenance tax for a fundamentally approximate rendering. Plain text
-// is the exception: its first lines render faithfully (see
-// generateTextThumbnail). The DOCX generator is still exported below for
-// callers that explicitly opt in (none today); the dispatcher won't route
-// to it.
+// A spreadsheet's first rows as a page: the grid a sheet opens on — header
+// row shaded, cells clipped to their column. Drawn from SheetJS (lazy — the
+// Doc Viewer's sheet pane loads the same module), so it works on any machine,
+// with or without Excel's shell thumbnailer.
+const SHEET_EXT_RE = /\.(xlsx|xlsm|xls|ods)$/i;
+export function isSheetFile(mimeType, fileName) {
+  const m = (mimeType || '').toLowerCase();
+  return SHEET_EXT_RE.test(fileName || '') || m.includes('spreadsheetml') || m === 'application/vnd.ms-excel'
+    || m === 'application/vnd.oasis.opendocument.spreadsheet';
+}
+async function generateSheetThumbnail(file) {
+  let rows;
+  try {
+    const XLSX = await import('xlsx');
+    const wb = XLSX.read(await file.arrayBuffer(), { type: 'array', sheetRows: 24 });
+    const ws = wb.Sheets[wb.SheetNames[0]];
+    if (!ws) return null;
+    rows = XLSX.utils.sheet_to_json(ws, { header: 1, blankrows: false, defval: '' });
+  } catch {
+    return null;
+  }
+  rows = (rows || []).filter((r) => Array.isArray(r) && r.some((c) => String(c).trim()));
+  if (!rows.length) return null;
+  const W = 320;
+  const H = 414;
+  const canvas = document.createElement('canvas');
+  canvas.width = W;
+  canvas.height = H;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return null;
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(0, 0, W, H);
+  const cols = Math.min(5, Math.max(...rows.map((r) => r.length)));
+  const rowH = 22;
+  const colW = Math.floor((W - 16) / Math.max(1, cols));
+  const x0 = 8;
+  const y0 = 10;
+  const maxRows = Math.floor((H - y0 * 2) / rowH);
+  ctx.font = '12px Inter, "Segoe UI", system-ui, sans-serif';
+  ctx.textBaseline = 'middle';
+  rows.slice(0, maxRows).forEach((row, ri) => {
+    const y = y0 + ri * rowH;
+    if (ri === 0) {
+      ctx.fillStyle = '#e8f0e8';
+      ctx.fillRect(x0, y, colW * cols, rowH);
+    }
+    for (let ci = 0; ci < cols; ci += 1) {
+      const x = x0 + ci * colW;
+      ctx.strokeStyle = '#d4d7da';
+      ctx.lineWidth = 1;
+      ctx.strokeRect(x + 0.5, y + 0.5, colW, rowH);
+      let text = String(row[ci] ?? '');
+      if (!text) continue;
+      ctx.fillStyle = ri === 0 ? '#1d6b3a' : '#222629';
+      ctx.font = `${ri === 0 ? '600 ' : ''}12px Inter, "Segoe UI", system-ui, sans-serif`;
+      while (text.length > 1 && ctx.measureText(text).width > colW - 8) text = text.slice(0, -1);
+      ctx.fillText(text, x + 4, y + rowH / 2);
+    }
+  });
+  return canvasToJpegBlob(canvas);
+}
+
+// Thumbnails cover image / video / PDF / PPTX / DOCX / spreadsheets / plain
+// text. The OS thumbnailer is asked first (lib/thumbnailEngine); these are the
+// fallback that makes every machine show the same thumbnails — on Windows the
+// shell has no provider for Word or Excel files unless Office installed one,
+// where macOS's Quick Look always has. Other types (archives, audio, generic
+// binaries) keep their type glyph.
 export async function generateThumbnail(file) {
   if (!file) return null;
   const t = file.type || '';
@@ -1232,6 +1291,8 @@ export async function generateThumbnail(file) {
   else if (t === 'application/pdf') generator = generatePdfThumbnail(file);
   else if (t.startsWith('video/'))  generator = generateVideoThumbnail(file);
   else if (isPptxFile(t, file.name)) generator = generatePptxThumbnail(file);
+  else if (isDocxFile(t, file.name)) generator = generateDocxThumbnail(file);
+  else if (isSheetFile(t, file.name)) generator = generateSheetThumbnail(file);
   else if (isTextThumbable(t, file.name)) generator = generateTextThumbnail(file);
   else return null;
   return withTimeout(generator, GENERATE_TIMEOUT_MS);

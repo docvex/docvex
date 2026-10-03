@@ -673,17 +673,7 @@
    Each row is the focus button (full .nav-item) with an absolutely-positioned
    close (×) overlaid on the right that reveals on row hover. */
 .doc-tab-row { position: relative; }
-.doc-tab-main {
-  /* Reserve room on the right so a long filename never slides under the × */
-  padding-right: 24px;
-  min-width: 0;
-}
-.doc-tab-name {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
+
 .doc-tab-close {
   position: absolute;
   right: 5.6px;
@@ -983,85 +973,8 @@
   border-color: var(--color-cognac);
 }
 
-/* ── AI-working marker (set when a viewer's advisor is busy) ──────────
-   A pulsing purple/blue dot on the file icon (visible even when the rail
-   is collapsed) plus a small shimmering "AI" pill when expanded. */
-.doc-tab-icon { position: relative; overflow: visible; }
-/* The open-file rows show a real thumbnail tile (like the Files page), so the
-   icon slot is a touch larger than the 19.2px nav-icon column. More specific
-   than the base `.icon` rule (which sets 19.2px) so this width wins. */
-.doc-tab-main .doc-tab-icon { width: 24px; height: 24px; }
 
-/* Thumbnail tile — a small rounded preview that mirrors the Files page tiles at
-   sidebar scale. FileThumbnail paints an <img> (image/video/PDF/DOCX/PPTX
-   preview) into it, or falls back to the centered MIME glyph (a
-   <span class="project-files-icon">) when no preview resolves / thumbnails are
-   off. The WhatsApp brand glyph (a bare <svg>) is centered the same way. */
-.doc-tab-thumb {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 24px;
-  height: 24px;
-  /* No boxed tile behind the icon — the rounded bg/border chip was removed so
-     the file glyph / thumbnail sits bare in the row like the other nav icons.
-     Images keep a small radius of their own so photo previews aren't sharp
-     rectangles against the rail. */
-  border-radius: 0;
-  overflow: hidden;
-  background: transparent;
-  border: none;
-  box-sizing: border-box;
-  flex-shrink: 0;
-}
-.doc-tab-thumb img { border-radius: 4px; }
-.doc-tab-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
-.doc-tab-thumb .project-files-icon {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 17px;
-  height: 17px;
-}
-.doc-tab-thumb .project-files-icon svg,
-.doc-tab-thumb > svg { width: 17px; height: 17px; }
-/* The file glyph is now the Files-tab <ExtGlyph/> (a sized .fx-glyph box with
-   the artwork filling it), so the row's icon size is set on the box. */
-.doc-tab-thumb .project-files-icon .fx-glyph { width: 17px; height: 17px; }
-/* WhatsApp conversation — brand green. */
-.doc-tab-thumb.is-wa { color: #25D366; }
-.doc-tab-ai-dot {
-  position: absolute;
-  top: -2px;
-  right: -2px;
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: linear-gradient(135deg, #3b82f6, #a855f7);
-  box-shadow: 0 0 0 2px var(--bg-sidebar), 0 0 6px rgba(139, 92, 246, 0.7);
-  animation: doc-tab-ai-pulse 1.2s ease-in-out infinite;
-  pointer-events: none;
-}
-.doc-tab-ai-tag {
-  flex: 0 0 auto;
-  padding: 1.6px 5.6px;
-  border-radius: 999px;
-  font-size: 8.8px;
-  font-weight: 700;
-  letter-spacing: 0.06em;
-  color: #fff;
-  background: linear-gradient(115deg, #3b82f6, #8b5cf6, #a855f7);
-  background-size: 200% 100%;
-  animation: doc-tab-ai-shimmer 3s linear infinite;
-}
-@keyframes doc-tab-ai-pulse {
-  0%, 100% { transform: scale(1); opacity: 1; }
-  50% { transform: scale(1.4); opacity: 0.6; }
-}
-@keyframes doc-tab-ai-shimmer { to { background-position: 200% 50%; } }
-@media (prefers-reduced-motion: reduce) {
-  .doc-tab-ai-dot, .doc-tab-ai-tag { animation: none; }
-}
+
 
 /* Icon wrapper â€” fixed size so it stays centered when sidebar is narrow */
 .icon {
@@ -2128,7 +2041,7 @@
 /* Open-file rows: hide the hover × (no room for it in the strip; the row still
    refocuses its window on click). */
 .sidebar.is-collapsed .doc-tab-close { display: none; }
-.sidebar.is-collapsed .doc-tab-main { padding-right: 0; }
+
 
 /* Footer account row: the avatar stays locked at its inset (same principle as
    the nav icons); the name/email block and sign-out button fold away to its
@@ -2353,19 +2266,3 @@
    first line. */
 .nav-cat-spin.nav-dot.is-spin { width: 9px; height: 9px; margin-right: 5px; align-self: center; }
 
-/* ── RESEARCH, APART (2026-09-28): its own card above the rail — a gap
-   between them and its own ground, so the two never read as one surface.
-   The rail starts under it (--research-card-h, measured by Sidebar.jsx on
-   the slot). An open chat list grows the card up to a cap, then scrolls. */
-.sidebar.sidebar-research {
-  /* Drawn as the main app sidebar (the .sidebar rule: its frosted ground,
-     border, corners, shadow and padding) — only its height is its own. */
-  bottom: auto;
-  max-height: 42vh;
-}
-.sidebar.sidebar-research .sidebar-nav { overflow-y: auto; }
-.sidebar:not(.sidebar-research) { top: calc(var(--research-card-h, 0px) + var(--rail-gap, 6.4px)); }
-/* No ground around the Research row and its open chat list (the faint box
-   .nav-fold.is-cat draws elsewhere) — in the Research card the list simply
-   hangs under the row. */
-.sidebar.sidebar-research .nav-fold.is-cat { padding: 0; background: none; border-color: transparent; }

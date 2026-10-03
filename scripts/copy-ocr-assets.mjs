@@ -37,6 +37,10 @@ const files = [
   // Romanian + English, the integerised "best" models (smaller, LSTM).
   [nm('@tesseract.js-data', 'ron', '4.0.0_best_int', 'ron.traineddata.gz'), 'ron.traineddata.gz'],
   [nm('@tesseract.js-data', 'eng', '4.0.0_best_int', 'eng.traineddata.gz'), 'eng.traineddata.gz'],
+  // The font a scan's PDF writes its invisible text in (lib/docScan scanToPdf):
+  // Liberation Sans, SIL Open Font License, shipped with pdfjs-dist — every
+  // Romanian letter, which a PDF's own fonts lack.
+  [nm('pdfjs-dist', 'standard_fonts', 'LiberationSans-Regular.ttf'), 'LiberationSans-Regular.ttf'],
 ];
 
 let copied = 0;

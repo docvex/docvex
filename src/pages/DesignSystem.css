@@ -523,9 +523,6 @@
 .dsg-refdoc .dv-ref.is-head { border-top-left-radius: 3px; border-bottom-left-radius: 3px; }
 .dsg-refdoc .dv-ref.is-tail { border-top-right-radius: 3px; border-bottom-right-radius: 3px; }
 /* Mirrors DocViewer.css: room around every mark that takes no width. */
-.dsg-refdoc .dv-ref { padding-top: 2.4px; padding-bottom: 2.4px; }
-.dsg-refdoc .dv-ref.is-head { padding-left: 3.2px; margin-left: -3.2px; }
-.dsg-refdoc .dv-ref.is-tail { padding-right: 3.2px; margin-right: -3.2px; }
 
 .dsg-refdoc .dv-caenref {
   --caenref: var(--warning); --caenref-wash: 18%;
@@ -688,12 +685,6 @@
 .dsg-fieldsdoc.is-plain .dv-field.is-chip:not(.is-filled):not(.is-preview):not(.is-active)::before {
   background: transparent !important; border-bottom: 0 !important; color: currentColor !important;
 }
-/* The autofill, on the ground it has in the viewer (.dv-docx-liftpanel.is-docked). */
-.dsg-autofill {
-  max-width: 760px; padding: 10px;
-  border: 1px solid var(--border); border-radius: 10px;
-  background: var(--bg-sidebar); box-shadow: var(--shadow-elev);
-}
 
 /* Mirrors DocViewer.css's "EMPTY FIELDS, NOT PICKED" (keep in step): the
    picked slot's shape, desaturated to faded black. */
@@ -765,3 +756,88 @@
 .dsg-scroll-row:last-child { border-bottom: 0; }
 .dsg-scroll-strip { display: flex; gap: 6px; padding: 10px; width: max-content; }
 .dsg-scroll-chip { padding: 3px 9px; border-radius: 999px; font-size: 11px; color: var(--text-secondary); background: color-mix(in srgb, var(--text-primary) 5%, transparent); }
+
+/* File pills: each file's own type icon (ExtGlyph), sized to the pill. */
+.dsg-pill-ext { display: inline-flex; width: 13px; height: 13px; flex: none; }
+
+/* ── Spinners & loaders (LoadersSample) ────────────────────────────────────
+   The layout of the gallery's loader samples, then the loaders whose own
+   stylesheets the gallery cannot load (the Doc Viewer's is bound to its
+   window; the Playbook's, Settings' and the Files tab's to their pages),
+   MIRRORED under .dsg-ld — keep them in step with pages/DocViewer.css,
+   pages/Playbook.css, pages/Settings.css, components/FilesWorkspace.css.
+   One shared turn keyframe for them all. */
+@keyframes dsg-ld-turn { to { transform: rotate(360deg); } }
+.dsg-ld { display: contents; }
+.dsg-ld-item { display: flex; flex-direction: column; align-items: center; gap: 4px; width: 132px; text-align: center; }
+.dsg-ld-stage { height: 44px; display: grid; place-items: center; }
+.dsg-ld-name { margin: 0; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 10px; color: var(--text-primary); word-break: break-all; }
+.dsg-ld-where { margin: 0; font-size: 10.4px; line-height: 1.35; color: var(--text-muted); }
+.dsg-ld-dark { display: grid; place-items: center; width: 44px; height: 44px; border-radius: 10px; background: #1b1b1f; }
+.dsg-ld-plain.ai-chat-page { display: block; height: auto; min-height: 0; padding: 0; background: none; }
+.dsg-ld-box {
+  position: relative; width: 180px; height: 110px; overflow: hidden;
+  border-radius: var(--ds-row-radius, 8px); border: 1px solid var(--ds-hairline, var(--border));
+  background: repeating-linear-gradient(0deg, transparent 0 10px, color-mix(in srgb, var(--text-primary) 5%, transparent) 10px 11px);
+}
+.dsg-ld-thumb { position: relative; width: 64px; height: 64px; display: grid; place-items: center; }
+.dsg-ld-thumb > .fx-glyph { width: 52px; height: 52px; }
+.dsg-ld-para { flex: 1 1 320px; padding-left: 14px; }
+.dsg-ld-para .dv-docx-para { margin: 0; font-family: 'Times New Roman', serif; font-size: 14px; line-height: 1.5; color: var(--text-primary); }
+.dsg-ld-bar { display: flex; align-items: center; gap: 12px; width: 100%; }
+.dsg-ld-bar .update-progress-track { flex: 0 1 320px; }
+.dsg-ld .lgb-switching-spin { margin-top: 0; }
+
+/* Mirrored — pages/DocViewer.css */
+.dsg-ld .dv-boot-spinner { display: block; width: 30px; height: 30px; border-radius: 50%; border: 2.4px solid rgba(255, 255, 255, 0.14); border-top-color: var(--accent); animation: dsg-ld-turn 720ms linear infinite; }
+.dsg-ld .dv-preview-loading { position: absolute; inset: 0; z-index: 2; display: flex; align-items: center; justify-content: center; background: color-mix(in srgb, var(--bg-page) 55%, transparent); backdrop-filter: blur(1.2px); -webkit-backdrop-filter: blur(1.2px); }
+.dsg-ld .dv-preview-spinner { display: block; width: 27.2px; height: 27.2px; border-radius: 50%; border: 2.4px solid var(--border); border-top-color: var(--accent); animation: dsg-ld-turn 0.7s linear infinite; }
+.dsg-ld .dv-audio-captions-status { display: flex; align-items: center; gap: 6.4px; font-size: 10px; color: var(--text-muted); }
+.dsg-ld .dv-audio-captions-spinner { display: block; flex: none; width: 11.2px; height: 11.2px; border-radius: 50%; border: 1.6px solid var(--accent-soft); border-top-color: var(--accent); animation: dsg-ld-turn 0.8s linear infinite; }
+.dsg-ld .dv-seek-loading { position: absolute; inset: 0; background: rgba(0, 0, 0, 0.55); display: flex; align-items: center; justify-content: center; }
+.dsg-ld .dv-seek-loading-dots { display: flex; gap: 5.6px; }
+.dsg-ld .dv-seek-loading-dots span { width: 5.6px; height: 5.6px; border-radius: 50%; background: rgba(255, 255, 255, 0.75); animation: dsg-ld-seek-dot 0.9s ease-in-out infinite; }
+.dsg-ld .dv-seek-loading-dots span:nth-child(2) { animation-delay: 0.15s; }
+.dsg-ld .dv-seek-loading-dots span:nth-child(3) { animation-delay: 0.3s; }
+@keyframes dsg-ld-seek-dot { 0%, 80%, 100% { transform: scale(0.6); opacity: 0.4; } 40% { transform: scale(1); opacity: 1; } }
+.dsg-ld .dv-ocr-loading {
+  position: absolute; inset: 0;
+  background: linear-gradient(115deg,
+    color-mix(in srgb, var(--accent) 72%, transparent) 0%,
+    color-mix(in srgb, #8ab4ff 72%, transparent) 25%,
+    color-mix(in srgb, var(--accent) 72%, transparent) 50%,
+    color-mix(in srgb, #ff9f6b 72%, transparent) 75%,
+    color-mix(in srgb, var(--accent) 72%, transparent) 100%);
+  background-size: 260% 260%;
+  animation: dsg-ld-ocr 2.4s ease-in-out infinite;
+}
+@keyframes dsg-ld-ocr { 0% { background-position: 0% 50%; } 50% { background-position: 100% 50%; } 100% { background-position: 0% 50%; } }
+.dsg-ld .dv-ai-refresh { display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 10px; border-radius: 8px; border: 1px solid var(--border); background: transparent; color: var(--text-secondary); font: inherit; font-size: 12px; font-weight: 600; }
+.dsg-ld .dv-ai-refresh.is-busy svg { animation: dsg-ld-turn 900ms linear infinite; }
+.dsg-ld .dvi-modal-scan-spin { display: block; width: 13px; height: 13px; border-radius: 50%; border: 2px solid color-mix(in srgb, currentColor 30%, transparent); border-top-color: currentColor; animation: dsg-ld-turn 700ms linear infinite; }
+.dsg-ld .dv-docx-para.is-ai-busy { position: relative; background: color-mix(in srgb, var(--accent) 7%, transparent); border-radius: 3px; }
+.dsg-ld .dv-docx-para.is-ai-busy::after { content: ''; position: absolute; left: -10px; top: 0; bottom: 0; width: 3px; border-radius: 999px; background: var(--accent); animation: dsg-ld-breathe 1400ms ease-in-out infinite; }
+@keyframes dsg-ld-breathe { 0%, 100% { opacity: 0.25; transform: scaleY(0.72); } 50% { opacity: 1; transform: scaleY(1); } }
+
+/* Mirrored — pages/Playbook.css (the pill stands in place here; it is fixed
+   over the drawer there) */
+.dsg-ld .pbk-word-updating { display: inline-flex; align-items: center; gap: 7px; height: var(--ds-pill-h, 22px); padding: 0 10px; border: 1px solid var(--ds-hairline, var(--border)); border-radius: 999px; background: color-mix(in srgb, var(--bg-page) 90%, transparent); box-shadow: var(--shadow-card); font-size: 11px; font-weight: 600; color: var(--text-secondary); }
+.dsg-ld .pbk-word-spin { display: block; width: 10px; height: 10px; border-radius: 50%; border: 1.5px solid color-mix(in srgb, var(--accent) 30%, transparent); border-top-color: var(--accent); animation: dsg-ld-turn 700ms linear infinite; }
+
+/* Mirrored — pages/Settings.css */
+.dsg-ld .set-mm-spinner-wrap { display: flex; align-items: center; gap: 6.4px; }
+.dsg-ld .set-mm-spinner { display: block; width: 14.4px; height: 14.4px; border-radius: 50%; border: 2px solid var(--border); border-top-color: var(--accent); animation: dsg-ld-turn 0.8s linear infinite; }
+.dsg-ld .set-mm-spin-cap { font-size: 8.8px; color: var(--text-muted); font-weight: 600; }
+.dsg-ld .set-mm-skel { width: 220px; background: var(--bg-card); border: 1px solid var(--border); border-radius: 8px; padding: 9.6px; }
+.dsg-ld .set-mm-skel-thumb,
+.dsg-ld .set-mm-skel-lines span { background: linear-gradient(90deg, var(--bg-elevated) 25%, var(--border) 37%, var(--bg-elevated) 63%); background-size: 400% 100%; animation: dsg-ld-shimmer 1.4s ease infinite; }
+.dsg-ld .set-mm-skel-thumb { height: 36.8px; border-radius: 6.4px; }
+.dsg-ld .set-mm-skel-lines { display: flex; flex-direction: column; gap: 4.8px; margin-top: 8px; }
+.dsg-ld .set-mm-skel-lines span { display: block; height: 7.2px; border-radius: 3.2px; }
+.dsg-ld .set-mm-skel-lines span:last-child { width: 65%; }
+@keyframes dsg-ld-shimmer { 0% { background-position: 100% 0; } 100% { background-position: 0 0; } }
+
+/* Mirrored — components/FilesWorkspace.css */
+.dsg-ld .fx-cat-head-spinner { display: block; width: 11.2px; height: 11.2px; border-radius: 50%; border: 1.6px solid color-mix(in srgb, var(--text-primary) 14%, transparent); border-top-color: var(--accent); animation: dsg-ld-turn 700ms linear infinite; }
+.dsg-ld .fx-ai-busy { position: absolute; right: 4px; bottom: 4px; z-index: 2; display: grid; place-items: center; width: 18px; height: 18px; border-radius: 50%; background: var(--bg-page); box-shadow: 0 0 0 1.5px var(--bg-page), var(--ds-card-shadow, none); }
+.dsg-ld .fx-ai-busy-spin { display: block; width: 12px; height: 12px; border-radius: 50%; border: 2px solid color-mix(in srgb, var(--accent) 25%, transparent); border-top-color: var(--accent); animation: dsg-ld-turn 0.8s linear infinite; }

@@ -53,6 +53,7 @@ import {
 } from './e2e/syncCrypto';
 import { syncProjectData, removeProjectData } from './projectSyncData';
 import { currentAppVersion, compareVersions, isKnownVersion } from './appVersion';
+import { rememberVersion, rememberedProjectVersion, versionBlocks } from './projectVersion';
 import { ipc, hydrateProject } from './projectIndexClient';
 
 export const PROJECT_SYNC_BUCKET = 'project-sync';
@@ -642,23 +643,10 @@ export async function syncProject({ projectId, dir, onProgress = () => {}, enabl
 //
 // The last stamp seen is remembered per project, so the gate still holds with
 // no connection, and answers at once while a fresh read is on its way.
-const versionKey = (projectId) => `docvex:sync:app-version:${projectId}`;
-// Stored as the version, or '-' for "checked: no version to honour".
-function rememberVersion(projectId, version) {
-  try { localStorage.setItem(versionKey(projectId), version || '-'); } catch { /* full or blocked */ }
-}
-// { checked, required } — what this device last learned, without asking.
-export function rememberedProjectVersion(projectId) {
-  let raw = null;
-  try { raw = localStorage.getItem(versionKey(projectId)); } catch { /* unavailable */ }
-  return { checked: raw != null, required: raw && raw !== '-' ? raw : null };
-}
+// The remembered stamp and the comparison live in lib/projectVersion (small,
+// synchronous — what the version gate needs without loading this module).
+export { rememberedProjectVersion, versionBlocks } from './projectVersion';
 const knownProjectVersion = (projectId) => rememberedProjectVersion(projectId).required;
-// Whether `required` shuts out an app at `current`.
-export function versionBlocks(required, current) {
-  return !!(required && isKnownVersion(required) && isKnownVersion(current)
-    && compareVersions(required, current) > 0);
-}
 
 // { required, current, blocked, fresh } — `required` is the version the
 // project was last synced with (null when it isn't synced, or was synced before

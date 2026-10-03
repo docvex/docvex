@@ -273,6 +273,10 @@ module.exports = {
       [FuseV1Options.EnableNodeCliInspectArguments]: false,
       [FuseV1Options.EnableEmbeddedAsarIntegrityValidation]: true,
       [FuseV1Options.OnlyLoadAppFromAsar]: true,
+      // file:// pages get no privileges beyond a browser's (security audit
+      // 2026-10-01). The app loads from docvex-app:// only (main.js
+      // loadRendererBundle has no file:// fallback any more).
+      [FuseV1Options.GrantFileProtocolExtraPrivileges]: false,
     }),
   ],
 };

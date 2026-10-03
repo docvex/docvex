@@ -37,8 +37,40 @@ export async function fetchRecent(userId, limit = HISTORY_CAP) {
 // used as the primary key). `ignoreDuplicates` flips on the upsert path so a
 // coalesce-strategy notify() can be issued concurrently from two devices
 // without one of them failing on the unique (user_id, dedupe_key) index.
-export async function insertOne(notification, { ignoreDuplicates = false } = {}) {
+// What leaves this computer (security audit 2026-10-01): no local file paths
+// or localfile:// URLs anywhere in the payload (a thumbnail, an activity's
+// filePath), and the dedupe key — which callers build from paths and names —
+// only as a hash. The local history keeps the full notification.
+const LOCAL_PATH = /^(?:[A-Za-z]:[\\/]|\\\\|\/(?:Users|home|Volumes|private|tmp|var)\/|localfile:|file:)/;
+function scrubPaths(v, depth = 0) {
+  if (depth > 6) return null;
+  if (typeof v === 'string') return LOCAL_PATH.test(v) ? null : v;
+  if (Array.isArray(v)) return v.map((x) => scrubPaths(x, depth + 1)).filter((x) => x != null);
+  if (v && typeof v === 'object') {
+    const out = {};
+    for (const [k, x] of Object.entries(v)) {
+      if (/^(thumb|thumbUrl|path|filePath|dir|folderPath|localPath)$/i.test(k)) continue;
+      const y = scrubPaths(x, depth + 1);
+      if (y != null) out[k] = y;
+    }
+    return out;
+  }
+  return v;
+}
+export async function hashDedupeKey(key) {
+  if (!key) return null;
+  try {
+    const d = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(String(key)));
+    return `h:${[...new Uint8Array(d)].map((b) => b.toString(16).padStart(2, '0')).join('')}`;
+  } catch { return null; }
+}
+async function serverRow(notification) {
   const row = toPersistent(notification);
+  return { ...row, payload: scrubPaths(row.payload || {}) || {}, dedupe_key: await hashDedupeKey(row.dedupe_key) };
+}
+
+export async function insertOne(notification, { ignoreDuplicates = false } = {}) {
+  const row = await serverRow(notification);
   if (ignoreDuplicates) {
     const { error } = await supabase
       .from(TABLE)
@@ -55,11 +87,13 @@ export async function insertOne(notification, { ignoreDuplicates = false } = {})
 // stale rows that the UI no longer shows.
 export async function deleteByDedupeKey(userId, dedupeKey) {
   if (!dedupeKey) return { error: null };
+  // Rows are keyed by the HASH now; a row written before that by the key itself.
+  const hashed = await hashDedupeKey(dedupeKey);
   const { error } = await supabase
     .from(TABLE)
     .delete()
     .eq('user_id', userId)
-    .eq('dedupe_key', dedupeKey);
+    .in('dedupe_key', hashed ? [hashed, dedupeKey] : [dedupeKey]);
   return { error };
 }
 

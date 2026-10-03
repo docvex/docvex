@@ -68,9 +68,7 @@ const Research = page(() => import('./pages/Research'), { warm: 1 });
 const PortalJust = page(() => import('./pages/PortalJust'), { warm: 1 });
 const Anaf = page(() => import('./pages/Anaf'), { warm: 1 });
 const LegalSourceStub = page(() => import('./pages/LegalSourceStub'), { warm: 1 });
-const Roadmap = page(() => import('./pages/Roadmap'));
 const Playbook = page(() => import('./pages/Playbook'));
-const Admin = page(() => import('./pages/Admin'));
 const Debug = page(() => import('./pages/Debug'));
 // The Hub is the one lazy route we deliberately pre-warm: it's reached by a
 // single sidebar click that also plays a rail-slide animation, and a Suspense
@@ -84,24 +82,13 @@ export function preloadProjectList() {
 }
 const ProjectCreate = page(() => import('./pages/Projects/ProjectCreate'));
 const ProjectOverview = page(() => import('./pages/Projects/ProjectOverview'));
-const ProjectDashboard = page(() => import('./pages/Projects/ProjectDashboard'));
 const ProjectFiles = page(() => import('./pages/Projects/ProjectFiles'));
 // The main window boots on /files: its chunk is fetched at once, alongside
 // sign-in, rather than after the auth → project → version-gate waterfall.
 export function preloadBootRoute() { ProjectFiles.preload(); }
-const ProjectClients = page(() => import('./pages/Projects/ProjectClients'));
-const ProjectTodos = page(() => import('./pages/Projects/ProjectTodos'));
-const ProjectChat = page(() => import('./pages/Projects/ProjectChat'));
-const ProjectNetwork = page(() => import('./pages/Projects/ProjectNetwork'));
-const ProjectGenerate = page(() => import('./pages/Projects/ProjectGenerate'));
-const ProjectAutomate = page(() => import('./pages/Projects/ProjectAutomate'));
-const Mail = page(() => import('./pages/Mail'));
 const InviteAccept = lazy(() => import('./pages/Projects/InviteAccept'));
 const DocViewer = lazy(() => import('./pages/DocViewer'));
-const SnipOverlay = lazy(() => import('./pages/SnipOverlay'));
-const SnipPanel = lazy(() => import('./pages/SnipPanel'));
-const SnipCountdown = lazy(() => import('./pages/SnipCountdown'));
-const TrayMenu = lazy(() => import('./pages/TrayMenu'));
+const TrayDrop = lazy(() => import('./pages/TrayDrop'));
 
 // Shared full-screen spinner — reuses the `.spinner` class from Sidebar.css.
 export function RouteFallback() {
@@ -130,19 +117,9 @@ export default function AppRoutes({ Shell, ProjectShell }) {
         {/* Full-screen document viewer window (file preview + Legal AI panel),
             opened from the Files page. Sits outside the sidebar shell. */}
         <Route path="/doc-viewer" element={<DocViewer />} />
-        {/* Full-screen "extract text from screen" overlay — opened from the
-            system tray over a frozen screenshot of the desktop. */}
-        <Route path="/snip" element={<SnipOverlay />} />
-        {/* Snipping-Tool-style launcher bar (tray → "Extract text") — small
-            transparent always-on-top window; "New" starts the /snip capture. */}
-        <Route path="/snip-panel" element={<SnipPanel />} />
-        {/* Delayed-capture countdown badge — click-through transparent window
-            centred on each target display while the snip delay ticks down. */}
-        <Route path="/snip-countdown" element={<SnipCountdown />} />
-        {/* The app-drawn system-tray menu — a transparent always-on-top
-            window main.js anchors to the tray icon (see main.js's tray
-            section) and hides on blur. */}
-        <Route path="/tray-menu" element={<TrayMenu />} />
+        {/* The system tray's drop window: files dropped here go into the
+            selected project's folder. */}
+        <Route path="/tray-drop" element={<TrayDrop />} />
         <Route path="/" element={<Shell />}>
           <Route index element={<Activity />} />
           <Route path="versions" element={<Updates />} />
@@ -184,7 +161,6 @@ export default function AppRoutes({ Shell, ProjectShell }) {
             <Route path="account" element={<Account />} />
             <Route path="settings" element={<Settings />} />
             <Route path="design" element={<DesignSystem />} />
-            <Route path="admin" element={<Admin />} />
             <Route path="projects" element={<ProjectList />} />
             <Route path="projects/new" element={<ProjectCreate />} />
             {/* Everything that opens ONE project: shut to an app older than the
@@ -192,21 +168,12 @@ export default function AppRoutes({ Shell, ProjectShell }) {
             <Route element={<ProjectVersionGate />}>
               <Route path="projects/:projectId" element={<ProjectShell />}>
                 <Route index element={<ProjectOverview />} />
-                <Route path="dashboard" element={<ProjectDashboard />} />
               </Route>
               <Route path="files" element={<ProjectFiles />} />
-              <Route path="clients" element={<ProjectClients />} />
-              <Route path="todos" element={<ProjectTodos />} />
-              <Route path="chat" element={<ProjectChat />} />
-              <Route path="network" element={<ProjectNetwork />} />
-              {/* The Timeline and the Advisor tabs were removed (2026-09-28). */}
-              <Route path="events" element={<Navigate to="/network" replace />} />
-              <Route path="generate" element={<ProjectGenerate />} />
-              <Route path="automate" element={<ProjectAutomate />} />
+              {/* The Timeline, Advisor, Chat and Neural network tabs were removed. */}
+              <Route path="events" element={<Navigate to="/files" replace />} />
               <Route path="ai" element={<Navigate to="/research" replace />} />
             </Route>
-            <Route path="roadmap" element={<Roadmap />} />
-            <Route path="mail" element={<Mail />} />
           </Route>
         </Route>
       </Routes>

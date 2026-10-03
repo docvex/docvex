@@ -78,7 +78,7 @@ export default function MapDrawer({ address, title = 'Map', onClose }) {
         <p className="mapd-address">{address}</p>
         <div className="mapd-frame">
           {allowed ? (
-            <iframe title={`Map of ${address}`} src={mapsEmbedUrl(address)} loading="lazy" referrerPolicy="no-referrer" allowFullScreen />
+            <iframe title={`Map of ${address}`} src={mapsEmbedUrl(address)} loading="lazy" referrerPolicy="no-referrer" sandbox="allow-scripts allow-same-origin allow-popups allow-popups-to-escape-sandbox" allowFullScreen />
           ) : (
             <div className="mapd-consent">
               <p>The map is provided by Google. Showing it sends this address and your IP address to Google LLC (United States).</p>

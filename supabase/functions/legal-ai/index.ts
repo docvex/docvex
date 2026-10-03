@@ -30,6 +30,8 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { callClaude as claudeTransport, claudeConfigured } from "../_shared/claude.ts";
+import { WEB_SEARCH_TOOL, WEB_SEARCH_RULE, makeCiter, citeMessage } from "../_shared/webSearch.ts";
+import { guardAiCall } from "../_shared/guard.ts";
 
 const corsHeaders: Record<string, string> = {
   "Access-Control-Allow-Origin": "*",
@@ -77,6 +79,10 @@ async function callClaude(opts: {
   user: string;
   maxTokens: number;
   jsonSchema?: Record<string, unknown>;
+  // Web search (the digest): the text comes back with its [n](url) links and
+  // the sources through `onSources`.
+  webSearch?: boolean;
+  onSources?: (list: unknown[]) => void;
 }): Promise<string> {
   const body: Record<string, unknown> = {
     model: MODEL,
@@ -91,6 +97,7 @@ async function callClaude(opts: {
       format: { type: "json_schema", schema: opts.jsonSchema },
     };
   }
+  if (opts.webSearch) body.tools = [{ ...WEB_SEARCH_TOOL, max_uses: 3 }];
 
   const resp = await claudeTransport(body);
 
@@ -99,6 +106,11 @@ async function callClaude(opts: {
     throw new Error(`anthropic_${resp.status}: ${detail}`);
   }
   const data = await resp.json();
+  if (opts.webSearch) {
+    const cite = makeCiter();
+    citeMessage(data, cite);
+    opts.onSources?.(cite.list());
+  }
   const text = (data?.content ?? [])
     .filter((b: { type?: string }) => b?.type === "text")
     .map((b: { text?: string }) => b.text ?? "")
@@ -149,17 +161,21 @@ async function handleDigest(): Promise<Response> {
     "recent Romanian legislative and regulatory changes. Be specific, neutral, and practical. " +
     "Write 2-3 sentences as a single paragraph: lead with the count and the dominant practice areas, " +
     "then call out the single most time-sensitive change and its effective date. " +
-    "No preamble, no markdown, no bullet points, no headings — just the paragraph.";
+    "No preamble, no markdown, no bullet points, no headings — just the paragraph. " +
+    "You may search the web to confirm an effective date or what changed (official sources first: legislatie.just.ro, " +
+    "monitoruloficial.ro, the ministries) — " + WEB_SEARCH_RULE;
 
   const user =
     `Here are the most recent legal updates (newest first):\n\n${list}\n\n` +
     `Write the weekly briefing paragraph now.`;
 
   try {
-    const summary = await callClaude({ system, user, maxTokens: 400 });
+    let sources: unknown[] = [];
+    const summary = await callClaude({ system, user, maxTokens: 1200, webSearch: true, onSources: (l) => { sources = l; } });
     return jsonResponse({
       ok: true,
       summary,
+      sources,
       highImpactCount,
       total: updates.length,
       generatedAt: new Date().toISOString(),
@@ -205,12 +221,27 @@ type IngestItem = {
   slug?: string;
 };
 
+// Constant-time comparison: both sides hashed, then every byte compared, so
+// the time taken says nothing about how much of a guess was right.
+async function sameSecret(a: string, b: string): Promise<boolean> {
+  const enc = new TextEncoder();
+  const [x, y] = await Promise.all([
+    crypto.subtle.digest("SHA-256", enc.encode(a)),
+    crypto.subtle.digest("SHA-256", enc.encode(b)),
+  ]);
+  const u = new Uint8Array(x);
+  const v = new Uint8Array(y);
+  let diff = 0;
+  for (let i = 0; i < u.length; i++) diff |= u[i] ^ v[i];
+  return diff === 0 && a.length > 0;
+}
+
 async function handleIngest(req: Request, items: IngestItem[]): Promise<Response> {
   // Gate: secret must be configured AND match. Without it, ingest is off.
   if (!LEGAL_INGEST_SECRET) {
     return jsonResponse({ ok: false, error: "ingest_disabled" }, 403);
   }
-  if (req.headers.get("x-ingest-secret") !== LEGAL_INGEST_SECRET) {
+  if (!(await sameSecret(req.headers.get("x-ingest-secret") ?? "", LEGAL_INGEST_SECRET))) {
     return jsonResponse({ ok: false, error: "forbidden" }, 403);
   }
   if (!claudeConfigured()) {
@@ -315,8 +346,12 @@ Deno.serve(async (req: Request) => {
   }
 
   switch (body.action) {
-    case "digest":
+    case "digest": {
+      // A signed-in user within the rate limit (ingest has its own secret).
+      const guard = await guardAiCall(req, body as Record<string, unknown>, "legal-ai", corsHeaders);
+      if (guard instanceof Response) return guard;
       return handleDigest();
+    }
     case "ingest":
       return handleIngest(req, body.items ?? []);
     default:

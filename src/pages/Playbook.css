@@ -876,3 +876,6 @@ html[data-reduce-motion="true"] .pbk-word-stage.is-enter-left { animation: none;
   transition: opacity 160ms ease, color 160ms ease;
 }
 .pbk-rule:hover .pbk-rule-cycle { opacity: 0.9; color: var(--text-secondary); }
+
+/* The drawer title's Word icon — the Files tab's own glyph (ExtGlyph), sized. */
+.pbk-drawer-ext { display: inline-flex; width: 14px; height: 14px; flex: none; }

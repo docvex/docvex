@@ -28,8 +28,11 @@ const vaultError = () => ({ error: new Error('vault_unavailable') });
 // The body as it will go out — masked when the call is — and a record of it in
 // the "What was sent" log (lib/pseudonymize/sentLog: the masked text only;
 // nothing for a call sent as it is).
+// It also names the project the call is made in (`projectId`), which the
+// function checks the caller belongs to (supabase/functions/_shared/guard.ts).
 const masked = (guard, body, usageAction, { log = true } = {}) => {
-  const out = guard.vault ? guard.wire.maskBody(body, guard.vault, guard.maskOpts) : body;
+  const maskedBody = guard.vault ? guard.wire.maskBody(body, guard.vault, guard.maskOpts) : body;
+  const out = guard.projectId ? { ...maskedBody, projectId: guard.projectId } : maskedBody;
   if (log) {
     recordSent({
       usageAction, projectId: guard.projectId, masked: !!guard.vault,
@@ -39,6 +42,21 @@ const masked = (guard, body, usageAction, { log = true } = {}) => {
   }
   return out;
 };
+// A body whose pictures are redacted too (lib/pseudonymize/imageRedact) when
+// the call is masked: identifiers in a picture painted over with their tokens.
+// Fails closed — a picture that cannot be read here is not sent.
+async function maskedWithImages(guard, body, usageAction) {
+  if (guard.vault) {
+    const { redactImagesInBody } = await import('./pseudonymize/imageRedact');
+    try {
+      body = await redactImagesInBody(body, guard.vault, guard.maskOpts);
+    } catch (err) {
+      recordSent({ usageAction, projectId: guard.projectId, masked: false, sent: false, reason: 'not sent: a picture could not be redacted on this computer' });
+      throw err;
+    }
+  }
+  return masked(guard, body, usageAction);
+}
 const restored = (guard, answer) => (guard.vault ? guard.vault.reidentify(answer) : answer);
 
 // Every request carries the open project's jurisdiction so the Edge Function
@@ -116,7 +134,10 @@ function unwrap(data, error) {
 //     sent apart so the server caches it as its own block (prompt caching).
 //   • `effort` — 'low' | 'medium' | 'high' (output_config.effort; ignored on
 //     Haiku). Keep it constant within a conversation: a change drops the cache.
-function askBody({ messages, projectName, fileNames, model, tools, docTools, forceDocument, docKind, jurisdiction, context, effort }) {
+//   • `webSearch` — let Claude search the web (Anthropic's own server-side
+//     search); the answer then carries `sources` (numbered as the [n](url)
+//     links the server writes into its text) and `searches` (the queries).
+function askBody({ messages, projectName, fileNames, model, tools, docTools, forceDocument, docKind, jurisdiction, context, effort, webSearch, searchAlways }) {
   const body = withJurisdiction({ action: 'ask', messages, projectName, fileNames, model }, jurisdiction);
   if (tools === false) body.tools = false;
   if (docTools) body.docTools = true;
@@ -124,6 +145,8 @@ function askBody({ messages, projectName, fileNames, model, tools, docTools, for
   if (docKind) body.docKind = docKind;
   if (context) body.context = context;
   if (effort) body.effort = effort;
+  if (webSearch) body.webSearch = true;
+  if (webSearch && searchAlways) body.searchAlways = true;
   return body;
 }
 // The server reports cached input apart (cache reads / writes); the meter
@@ -152,6 +175,10 @@ function answerFrom(data, { usageProject, usageAction, model }) {
     askUser: data.askUser || null,
     assistantContent: data.assistantContent || null,
     features: Array.isArray(data.features) ? data.features : [],
+    // The web sources the answer cites ([{ index, title, url, snippet, cited }])
+    // and the searches made — empty when it didn't search.
+    sources: Array.isArray(data.sources) ? data.sources : [],
+    searches: Array.isArray(data.searches) ? data.searches : [],
   };
 }
 
@@ -159,7 +186,9 @@ export async function askProjectAi(opts) {
   const { usageProject, usageAction = 'chat', model } = opts;
   const guard = await vaultForCall(usageProject, usageAction);
   if (guard.error) return vaultError();
-  const { data, error } = await supabase.functions.invoke('project-ai', { body: masked(guard, askBody(opts), usageAction) });
+  let body;
+  try { body = await maskedWithImages(guard, askBody(opts), usageAction); } catch (err) { return { error: err }; }
+  const { data, error } = await supabase.functions.invoke('project-ai', { body });
   const res = unwrap(data, error);
   if (res.error) return res;
   return restored(guard, answerFrom(res.data, { usageProject, usageAction, model }));
@@ -170,7 +199,9 @@ export async function askProjectAi(opts) {
  * arrives, then the finished answer is returned exactly as askProjectAi returns
  * it. A server that does not stream yet (it answers JSON) is read as a plain
  * answer, so this is safe to call before the function is redeployed. `signal`
- * aborts the request (Stop).
+ * aborts the request (Stop). With `webSearch`, `onSearch(query)` is called as a
+ * search starts ('' while its query is still being written) and
+ * `onSources(list)` whenever the numbered sources change.
  */
 export async function askProjectAiStream(opts) {
   const { usageProject, usageAction = 'chat', model, signal } = opts;
@@ -179,15 +210,19 @@ export async function askProjectAiStream(opts) {
   // Re-identified as it arrives, a token never split across two pieces.
   const sink = guard.vault ? guard.wire.makeStreamReidentifier(guard.vault, opts.onText) : null;
   const onText = sink ? (piece) => sink.push(piece) : opts.onText;
+  let body;
+  try { body = await maskedWithImages(guard, askBody(opts), usageAction); } catch (err) { return { error: err }; }
   let token = '';
   try { token = (await supabase.auth.getSession())?.data?.session?.access_token || ''; } catch { token = ''; }
+  // Signed in or nothing: the function refuses the anon key, so don't send it.
+  if (!token) return { error: new Error('not_signed_in') };
   const anon = import.meta.env.VITE_SUPABASE_ANON_KEY;
   let resp;
   try {
     resp = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/project-ai`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', apikey: anon, Authorization: `Bearer ${token || anon}` },
-      body: JSON.stringify({ ...masked(guard, askBody(opts), usageAction), stream: true }),
+      headers: { 'Content-Type': 'application/json', apikey: anon, Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ ...body, stream: true }),
       signal,
     });
   } catch (e) {
@@ -220,6 +255,8 @@ export async function askProjectAiStream(opts) {
         let ev;
         try { ev = JSON.parse(line.slice(5).trim()); } catch { continue; }
         if (ev.t === 'text') { text += ev.d; onText?.(ev.d, text); } else if (ev.t === 'done') done = ev;
+        else if (ev.t === 'search') opts.onSearch?.(String(ev.q || ''));
+        else if (ev.t === 'sources' && Array.isArray(ev.d)) opts.onSources?.(restored(guard, ev.d));
         else if (ev.t === 'error') return { error: new Error(ev.detail || ev.error || 'ai_failed') };
       }
     }

@@ -1,6 +1,6 @@
 // Encryption of what DocVex writes INTO a case folder — the knowledge shards
 // (`.docvex/knowledge/…`: text read out of documents, identity readings,
-// captions, the AI scan's understanding) and the project settings
+// captions) and the project settings
 // (`.docvex/settings/…`: the scan's web index, the case timeline…). The case
 // folder travels: OneDrive / Dropbox, a USB stick, account sync. What the app
 // worked out about the people in it must not travel in clear (GDPR art. 25,

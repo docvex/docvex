@@ -14,12 +14,13 @@ import { isInside, readJson, writeJsonAtomic } from './atomic.js';
 import { findProjectFiles, linkProjectFile, readProjectFile } from './projectFile.js';
 import {
   LOCAL_KINDS, hashFile, hasShardFile, isShaHex, listShards, normalizeFacet, readShard, writeShardFacet,
+  shardPath, sealedShardPath,
 } from './knowledge.js';
 import {
   SEALED_EXT, folderKeyFromBase64, isFolderKey, isSealedFolderJson, openFromFolder, sealForFolder,
   makeFolderKeyRing, sameFolderKeys, folderRingToJson,
 } from './folderSeal.js';
-import { openJson, sealJson } from './seal.js';
+import { openJson, sealJson, hasIndexKey } from './seal.js';
 
 // Watchers are cheap on Windows / macOS (one handle per tree) but not free.
 // Projects opened this session stay watched, up to this many, least recently
@@ -235,6 +236,7 @@ export function createProjectIndexService({ userDataDir, broadcast = () => {}, o
     const p = loaded(projectId);
     if (!p) return { ok: false, error: 'not_found' };
     const res = await p.reconcileFull();
+    if (res?.ok !== false) maybeGc(p);
     // `.docvex/` too: account sync writes these through the ordinary folder
     // IPC, and a project that isn't being watched would never notice them.
     // ids.json and the settings are re-read here; knowledge shards are
@@ -366,6 +368,89 @@ export function createProjectIndexService({ userDataDir, broadcast = () => {}, o
     }
     service.broadcast('knowledge:changed', { path: ctx.abs, kind, projectId: ctx.project?.projectId || null });
     return { ok: true };
+  }
+
+  // ── The orphan sweep (security audit 2026-10-01, GDPR Art. 5(1)(e)) ─────
+  // Knowledge is kept by CONTENT hash and only ever found again through the
+  // current hash of some file, so a facet whose hash no file in the project
+  // has is unreachable — the reading of a deleted file, or of an old version.
+  // It is deleted, safely:
+  //   1. every file whose hash the index has forgotten (its modified time
+  //      moved) is hashed first; if any could not be (a budget, a locked
+  //      file) NOTHING is deleted this run — that file may be the owner;
+  //   2. a hash must have been an orphan continuously for GC_GRACE_MS (45
+  //      days: longer than the Trash keeps a file, so a restored file still
+  //      has its readings, and long enough for a synced folder to catch up);
+  //   3. its rows go from the index, its shard from `.docvex/knowledge`.
+  // Runs at most once a day per project, after a reconcile (projectReconcile).
+  const GC_GRACE_MS = 45 * 24 * 60 * 60 * 1000;
+  const GC_EVERY_MS = 24 * 60 * 60 * 1000;
+  const GC_HASH_BUDGET = { files: 400, bytes: 4 * 1024 ** 3 };
+  async function knowledgeGc({ projectId, now = Date.now(), graceMs = GC_GRACE_MS, budget = GC_HASH_BUDGET } = {}) {
+    const p = loaded(projectId);
+    if (!p) return { ok: false, error: 'not_found' };
+    if (p.gcRunning) return { ok: true, skipped: 'running' };
+    p.gcRunning = true;
+    try {
+      // 1. Every file hashed (within the budget).
+      let complete = true;
+      let files = 0;
+      let bytes = 0;
+      for (const r of p.db.allFiles()) {
+        if (r.hash) continue;
+        if (files >= budget.files || bytes + (Number(r.size) || 0) > budget.bytes) { complete = false; continue; }
+        files += 1; bytes += Number(r.size) || 0;
+        try { await p.hashFor(p.abs(r.rel)); } catch (err) {
+          // A file that is gone is the reconcile's to drop; anything else
+          // (locked, unreadable) leaves the run incomplete.
+          if (err?.code !== 'ENOENT') complete = false;
+        }
+      }
+      const known = new Set(p.db.allFiles().map((r) => r.hash).filter(Boolean));
+      const held = new Set(p.db.knowledgeHashes());
+      for (const { sha } of await listShards(p.dir)) held.add(sha);
+      const orphans = [...held].filter((h) => !known.has(h));
+      // 2. First-seen times, kept between runs.
+      let seen = {};
+      try { seen = JSON.parse(p.db.getMeta('gcOrphans') || '{}') || {}; } catch { seen = {}; }
+      const next = {};
+      for (const h of orphans) next[h] = Number(seen[h]) || now;
+      let removed = 0;
+      if (complete) {
+        for (const [h, first] of Object.entries(next)) {
+          if (now - first < graceMs) continue;
+          removed += p.db.clearKnowledgeHash(h);
+          for (const f of [shardPath(p.dir, h), sealedShardPath(p.dir, h)]) {
+            try { await fsp.rm(f, { force: true }); markOwnWrite(f); } catch { /* next run */ }
+          }
+          delete next[h];
+        }
+      }
+      p.db.setMeta('gcOrphans', JSON.stringify(next));
+      p.db.setMeta('gcAt', String(now));
+      return { ok: true, complete, orphans: Object.keys(next).length, removed };
+    } finally {
+      p.gcRunning = false;
+    }
+  }
+  function maybeGc(p) {
+    const last = Number(p.db.getMeta('gcAt')) || 0;
+    if (Date.now() - last < GC_EVERY_MS) return;
+    setTimeout(() => { knowledgeGc({ projectId: p.projectId }).catch(() => {}); }, 30_000);
+  }
+
+  // FORGET everything derived from the project's files (Settings → Clear file
+  // data, GDPR Art. 17): every knowledge row in this machine's index AND the
+  // project's `.docvex/knowledge` shards, which travel with the folder — so a
+  // re-sync cannot bring them back. The documents themselves are untouched.
+  async function knowledgeWipe({ projectId } = {}) {
+    const p = loaded(projectId);
+    if (!p) return { ok: false, error: 'not_found' };
+    const cleared = p.db.clearAllKnowledge();
+    try { await fsp.rm(path.join(p.dir, '.docvex', 'knowledge'), { recursive: true, force: true }); } catch { /* reported as cleared rows only */ }
+    p.shardMtimes?.clear?.();
+    service.broadcast('knowledge:changed', { path: null, kind: null, projectId, wiped: true });
+    return { ok: true, cleared };
   }
 
   // Everything known about the project's files. Shards that arrived with the
@@ -519,9 +604,13 @@ export function createProjectIndexService({ userDataDir, broadcast = () => {}, o
     ]);
     if (had && sameFolderKeys(had, merged)) return { ok: true, changed: false };
     p.folderKey = merged;
-    p.db.setMeta('folderKeys', sealJson(folderRingToJson(merged)));
-    // The newest key also under the old name, for a build that predates rings.
-    p.db.setMeta('folderKey', sealJson(merged.current.toString('base64')));
+    // Kept for offline use only when it can be kept SEALED: a folder key in
+    // the clear would open the whole case folder (security audit 2026-10-01).
+    if (hasIndexKey()) {
+      p.db.setMeta('folderKeys', sealJson(folderRingToJson(merged)));
+      // The newest key also under the old name, for a build that predates rings.
+      p.db.setMeta('folderKey', sealJson(merged.current.toString('base64')));
+    }
     p.sealing = (p.sealing || Promise.resolve()).then(() => sealFolder(p)).catch(() => {});
     return { ok: true, changed: true };
   }
@@ -625,6 +714,8 @@ export function createProjectIndexService({ userDataDir, broadcast = () => {}, o
     knowledgePut: safe(knowledgePut),
     knowledgeClear: safe(knowledgeClear),
     knowledgeList: safe(knowledgeList),
+    knowledgeWipe: safe(knowledgeWipe),
+    knowledgeGc: safe(knowledgeGc),
     settingsGet: safe(settingsGet),
     settingsPut: safe(settingsPut),
     projectFolderKey: safe(projectFolderKey),

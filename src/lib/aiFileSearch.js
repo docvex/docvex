@@ -22,7 +22,6 @@
 // So the three tiers of cost are: repeat search = free, new query in a known
 // folder = one small request, first search in a folder = the indexing pass.
 
-import { askProjectAi } from './projectAi';
 import { indexFiles, describedText, indexCoverage } from './aiFileIndex';
 import { folderSignature, normalizeQuery, readAnswer, writeAnswer } from './aiSearchCache';
 
@@ -117,13 +116,14 @@ export async function aiSearchFiles({ query, files, projectName, signal, onProgr
     .map(({ file, desc }, i) => `${i + 1}. ${file.name}${file.mimeType ? ` (${file.mimeType})` : ''}\n   ${desc.replace(/\s+/g, ' ')}`)
     .join('\n');
 
-  const res = await askProjectAi({
+  // The app's one AI engine (lib/aiEngine), as a utility call.
+  const askAi = (await import('./aiEngine')).askAi;
+  const res = await askAi({
+    surface: 'tool', usageAction: 'ai-search',
     messages: [{ role: 'user', content: `${SYSTEM}\n\nRequest: ${q}\n\nCatalogue:\n${listing}` }],
     projectName,
     model: MATCH_MODEL,
-    // No tools: this is a one-shot classification, and a tool call here would
-    // stall the search waiting for a turn that never comes.
-    tools: false,
+    signal,
   });
   if (signal?.aborted) return { matches: [] };
   if (res.error) return { matches: [], error: res.error, indexed };

@@ -30,7 +30,6 @@
 //     back empty and that piece is dropped.
 // The picture's strips do go to the Anthropic API for that (same endpoint and
 // terms as the rest of the app's AI), once per file, then cached.
-import { askProjectAi } from './projectAi';
 import { readLocalBlob } from './localFolder';
 import { getAiFacet, saveAiFacet, stampFor } from './aiData';
 import { isCloudMediaAllowed } from './cloudMedia';
@@ -406,7 +405,7 @@ function readingOrder(runs) {
 // shown) and the lit `shapes`.
 function composeReading(runs, turns, cw, ch) {
   const clamp = (v) => Math.min(1, Math.max(0, v));
-  const round = (v) => Math.round(v * 10000) / 10000;
+  const round = (v) => Math.round(v * 1e6) / 1e6;
   const toPicture = (px, py) => {
     const [nx, ny] = unturn(turns, px / cw, py / ch);
     return [round(clamp(nx)), round(clamp(ny))];
@@ -426,7 +425,14 @@ function composeReading(runs, turns, cw, ch) {
       if (!tokens.length) continue;
       const total = tokens.reduce((n, t) => n + t.length, 0) + tokens.length - 1;
       let at = 0;
-      const words = tokens.map((t) => { const a = at / total; at += t.length; const b = at / total; at += 1; return [t, round(a), round(b)]; });
+      // Fitted to the ink (fitRunsToInk) when the words are the ones measured;
+      // otherwise shared along it by their length.
+      const fitted = run.tilt.words;
+      const words = Array.isArray(fitted) && fitted.length === tokens.length
+        ? fitted.map(([w, a, b, cuts], k) => (w === tokens[k] && Array.isArray(cuts)
+          ? [tokens[k], round(a), round(b), cuts.map(round)]
+          : [tokens[k], round(a), round(b)]))
+        : tokens.map((t) => { const a = at / total; at += t.length; const b = at / total; at += 1; return [t, round(a), round(b)]; });
       const rad = (angle * Math.PI) / 180;
       const hx = (Math.abs(Math.cos(rad)) * len + Math.abs(Math.sin(rad)) * th) / 2;
       const hy = (Math.abs(Math.sin(rad)) * len + Math.abs(Math.cos(rad)) * th) / 2;
@@ -436,6 +442,7 @@ function composeReading(runs, turns, cw, ch) {
         text: tokens.join(' '),
         x: Math.min(a[0], b[0]), y: Math.min(a[1], b[1]), w: round(Math.abs(a[0] - b[0])), h: round(Math.abs(a[1] - b[1])),
         words, a: round(angle - 90 * turns), len: round(len / shownW), th: round(th / shownW),
+        ...(Array.isArray(run.edge) ? { edge: run.edge } : {}),
       });
       tilted.push(run);
       continue;
@@ -451,8 +458,14 @@ function composeReading(runs, turns, cw, ch) {
     // drifts, because words are not spaced in a photograph the way a font spaces
     // them ("11   03   2005").
     const span = Math.max(1, run.x1 - run.x0);
-    const words = run.boxes.filter((q) => q.t).map((q) => [q.t, round((q.x0 - run.x0) / span), round((q.x1 - run.x0) / span)]);
-    regions.push({ text: run.text, x, y, w: round(w), h: round(h), words });
+    // …and, when they were measured for these very letters, where its letters
+    // meet (the 4th entry, same fractions).
+    const words = run.boxes.filter((q) => q.t).map((q) => {
+      const w = [q.t, round((q.x0 - run.x0) / span), round((q.x1 - run.x0) / span)];
+      if (Array.isArray(q.cuts) && q.cuts.length === Array.from(q.t).length - 1) w.push(q.cuts.map((c) => round((c - run.x0) / span)));
+      return w;
+    });
+    regions.push({ text: run.text, x, y, w: round(w), h: round(h), words, ...(Array.isArray(run.edge) ? { edge: run.edge } : {}) });
     kept.push(run);
   }
   const heights = kept.concat(tilted).map((r) => r.letterH).sort((m, n) => m - n);
@@ -546,12 +559,513 @@ function runFromLine(line) {
     cx: Math.round(line.cx), cy: Math.round(line.cy), angle: Math.round(line.angle * 100) / 100,
     len: Math.max(1, Math.round(line.along - t * 0.1)), th: Math.max(1, Math.round(t * 0.8)),
   } : null;
+  // Every letter's centre as the recogniser saw it (lib/paddleCharPos) — kept
+  // only when there is one per letter of the text.
+  const letters = tokens.reduce((n, w) => n + Array.from(w).length, 0);
+  const charAt = Array.isArray(line.chars) && line.chars.length === letters ? line.chars : null;
   return {
     text: tokens.join(' '), conf: line.conf, ink: line.text.replace(/[^\p{L}\p{N}]/gu, '').length,
     letterH: Math.max(1, Math.round(t * 0.75)),
-    x0: Math.round(x0), y0: Math.round(y0), x1: Math.round(x1), y1: Math.round(y1), boxes, tilt,
+    x0: Math.round(x0), y0: Math.round(y0), x1: Math.round(x1), y1: Math.round(y1), boxes, tilt, charAt,
   };
 }
+// ── Fitting the words to the INK ────────────────────────────────────────
+// The detector gives a box per LINE only, and runFromLine shares it among the
+// words by their letter counts — a guess that drifts along the line (an "M" is
+// wider than an "i", a photograph spaces words as it likes). Here every line
+// is looked at in the picture itself: the band along it is sampled (along its
+// tilt for a tilted line), split into ink and ground (Otsu; the ink is the
+// smaller class, so light text on a dark ground works too), and
+//   · the line's START and END are moved onto its first and last ink,
+//   · its TOP and BOTTOM onto the rows its letters actually cover,
+//   · every word boundary onto a real blank gap between the letters — the
+//     gaps are matched to the words in order (dynamic programming: a wide gap
+//     near where the letter count put the boundary wins).
+// Anything that doesn't add up (no contrast, too few gaps, a height far from
+// the detector's) leaves that part as it was. Local and cheap: one
+// getImageData per reading.
+// Bump when the fitting changes: saved readings are refitted. 1 = first fit
+// (grew into neighbouring lines, kept no raw geometry); 2 = core + valley
+// vertical fit, raw geometry kept; 3 = each word's letters placed (charCuts);
+// 4 = measured at full resolution, sub-pixel, along each line's own slant;
+// 5 = letters from the recogniser's own columns, the line's edges along it.
+const INK_FIT = 5;
+function lumaOf(canvas) {
+  const ctx = canvas.getContext('2d', { willReadFrequently: true });
+  const { data, width, height } = ctx.getImageData(0, 0, canvas.width, canvas.height);
+  const lum = new Uint8Array(width * height);
+  for (let i = 0, p = 0; i < lum.length; i += 1, p += 4) lum[i] = (data[p] * 77 + data[p + 1] * 150 + data[p + 2] * 29) >> 8;
+  return { lum, width, height };
+}
+function otsu(hist, total) {
+  let sum = 0;
+  for (let i = 0; i < 256; i += 1) sum += i * hist[i];
+  let sumB = 0; let wB = 0; let best = -1; let level = 128; let mB = 0; let mF = 0;
+  for (let i = 0; i < 256; i += 1) {
+    wB += hist[i];
+    if (!wB) continue;
+    const wF = total - wB;
+    if (!wF) break;
+    sumB += i * hist[i];
+    const b = sumB / wB; const f = (sum - sumB) / wF;
+    const v = wB * wF * (b - f) * (b - f);
+    if (v > best) { best = v; level = i; mB = b; mF = f; }
+  }
+  return { level, contrast: mF - mB };
+}
+// One line, in its own frame: `s` along it (0 … len), `t` across it (−th/2 …
+// th/2), centred on (cx, cy) at `angle` degrees. → the fitted extents in that
+// frame, or null.
+// Bilinear sample of the luminance at a sub-pixel point (white off the picture).
+function lumAt(img, x, y) {
+  const x0 = Math.floor(x); const y0 = Math.floor(y);
+  if (x0 < 0 || y0 < 0 || x0 + 1 >= img.width || y0 + 1 >= img.height) {
+    const xi = Math.round(x); const yi = Math.round(y);
+    return xi >= 0 && yi >= 0 && xi < img.width && yi < img.height ? img.lum[yi * img.width + xi] : 255;
+  }
+  const fx = x - x0; const fy = y - y0;
+  const i = y0 * img.width + x0;
+  const a = img.lum[i] + (img.lum[i + 1] - img.lum[i]) * fx;
+  const b = img.lum[i + img.width] + (img.lum[i + img.width + 1] - img.lum[i + img.width]) * fx;
+  return Math.round(a + (b - a) * fy);
+}
+// `frame` = the line as the detector placed it. The line's real SLANT is
+// measured first (the letters' ink centre along it, a weighted straight-line
+// fit) and, when it differs, the line is sampled again along that slant from
+// its ink's own middle — a long line a fraction of a degree off level drifts
+// across several rows otherwise, and no box laid level can sit on it. The
+// answer carries the frame it was measured in (`frame`).
+function fitLineToInk(img, frame, tokens, { reslanted = false, centers = null } = {}) {
+  const { cx, cy, angle, len, th } = frame;
+  if (!(len > 4) || !(th > 3) || !tokens.length) return null;
+  const rad = (angle * Math.PI) / 180;
+  const ux = Math.cos(rad); const uy = Math.sin(rad);
+  const nx = -uy; const ny = ux;
+  const padS = Math.round(th * 0.5); const padT = Math.round(th * 0.25);
+  const S = Math.round(len) + 2 * padS; const T = Math.round(th) + 2 * padT;
+  if (S * T > 6e6) return null;
+  const grid = new Uint8Array(S * T);
+  const hist = new Uint32Array(256);
+  for (let j = 0; j < T; j += 1) {
+    const t = j - padT - th / 2;
+    for (let i = 0; i < S; i += 1) {
+      const s = i - padS - len / 2;
+      const v = lumAt(img, cx + ux * s + nx * t, cy + uy * s + ny * t);
+      grid[j * S + i] = v;
+      // The histogram is taken on the line's own band (not the margins, which
+      // may hold a neighbouring line).
+      if (j >= padT && j < T - padT) hist[v] += 1;
+    }
+  }
+  const { level, contrast } = otsu(hist, Math.round(th) * S);
+  if (contrast < 28) return null;   // no ink to speak of: keep the estimate
+  let dark = 0; let all = 0;
+  for (let v = 0; v < 256; v += 1) { all += hist[v]; if (v <= level) dark += hist[v]; }
+  const inkDark = dark <= all / 2;
+  const isInk = (v) => (inkDark ? v <= level : v > level);
+  // SLANT — the ink's centre row in short pieces along the line, fitted with a
+  // straight line (weighted by how much ink each piece holds).
+  if (!reslanted) {
+    const inner = S - 2 * padS;
+    const pieces = Math.max(3, Math.min(32, Math.round(inner / Math.max(4, th * 1.2))));
+    const step = inner / pieces;
+    let sw = 0; let sx = 0; let sy = 0; let sxx = 0; let sxy = 0; let used = 0;
+    for (let k = 0; k < pieces; k += 1) {
+      const i0 = Math.floor(padS + k * step); const i1 = Math.floor(padS + (k + 1) * step);
+      let w = 0; let m = 0;
+      for (let j = padT; j < T - padT; j += 1) {
+        let n = 0;
+        for (let i = i0; i < i1; i += 1) if (isInk(grid[j * S + i])) n += 1;
+        w += n; m += n * j;
+      }
+      if (w < (i1 - i0) * 0.5) continue;   // next to no ink: says nothing
+      const x = (i0 + i1) / 2 - (padS + len / 2); const y = m / w;
+      sw += w; sx += w * x; sy += w * y; sxx += w * x * x; sxy += w * x * y; used += 1;
+    }
+    const den = sw * sxx - sx * sx;
+    if (used >= 3 && den > 0) {
+      const slope = (sw * sxy - sx * sy) / den;
+      const mid = (sy - slope * sx) / sw;   // the fitted row at the line's middle (s = 0)
+      const dDeg = (Math.atan(slope) * 180) / Math.PI;
+      const tOff = mid - (padT + th / 2);
+      if (Math.abs(dDeg) <= 8 && (Math.abs(dDeg) >= 0.03 || Math.abs(tOff) >= 0.5)) {
+        const again = fitLineToInk(img, {
+          cx: cx + nx * tOff, cy: cy + ny * tOff, angle: angle + dDeg, len, th,
+        }, tokens, { reslanted: true, centers });
+        if (again) return again;
+      }
+    }
+  }
+  // ACROSS — the rows THIS line's letters cover. Lines in a photograph sit
+  // close and the blur between them is never quite empty, so growing out to
+  // "any ink" ran into the next line. Instead: the CORE (the x-height band —
+  // rows at least 35% as inked as the fullest, around the fullest row nearest
+  // the band's middle), then out from it for ascenders and descenders only
+  // while the ink keeps FALLING (a rise is the next line) and never more than
+  // 0.6 of the core's height on either side.
+  const rowInk = new Float64Array(T);
+  for (let j = 0; j < T; j += 1) for (let i = padS; i < S - padS; i += 1) if (isInk(grid[j * S + i])) rowInk[j] += 1;
+  // A light smoothing, so one noisy row doesn't end the walk.
+  const rows = new Float64Array(T);
+  for (let j = 0; j < T; j += 1) rows[j] = (rowInk[Math.max(0, j - 1)] + 2 * rowInk[j] + rowInk[Math.min(T - 1, j + 1)]) / 4;
+  const mid = padT + th / 2;
+  let maxRow = 0;
+  for (let j = padT; j < T - padT; j += 1) maxRow = Math.max(maxRow, rows[j]);
+  if (!maxRow) return null;
+  const coreMin = maxRow * 0.35;
+  // The core nearest the middle (a band may still hold a sliver of a
+  // neighbouring line at its edge).
+  let peak = -1;
+  for (let j = padT; j < T - padT; j += 1) {
+    if (rows[j] < coreMin) continue;
+    if (peak < 0 || Math.abs(j - mid) < Math.abs(peak - mid)) peak = j;
+  }
+  if (peak < 0) return null;
+  let cTop = peak; let cBot = peak;
+  while (cTop > 0 && rows[cTop - 1] >= coreMin) cTop -= 1;
+  while (cBot < T - 1 && rows[cBot + 1] >= coreMin) cBot += 1;
+  const coreH = cBot - cTop + 1;
+  const reach = Math.max(2, Math.round(coreH * 0.6));
+  const edgeMin = maxRow * 0.04;
+  const walk = (from, dir) => {
+    let at = from; let low = rows[from];
+    for (let n = 1; n <= reach; n += 1) {
+      const j = from + dir * n;
+      if (j < 0 || j >= T) break;
+      const v = rows[j];
+      if (v < edgeMin) break;                         // ground: the letters end
+      if (v > low * 1.25 + maxRow * 0.03) break;      // rising: the next line
+      low = Math.min(low, v);
+      at = j;
+    }
+    return at;
+  };
+  const top = walk(cTop, -1); const bottom = walk(cBot, 1);
+  let t0 = top - padT - th / 2; let t1 = bottom + 1 - padT - th / 2;
+  const fittedTh = t1 - t0;
+  if (fittedTh < th * 0.35 || fittedTh > th * 1.3) { t0 = -th / 2; t1 = th / 2; }
+  // ALONG — ink columns (counted on the rows just found).
+  const r0 = Math.max(0, Math.round(t0 + th / 2 + padT)); const r1 = Math.min(T, Math.round(t1 + th / 2 + padT));
+  const colMin = Math.max(1, Math.round((r1 - r0) * 0.04));
+  const ink = new Uint8Array(S);
+  const colInk = new Float64Array(S);   // how much ink each column holds
+  for (let i = 0; i < S; i += 1) {
+    let n = 0;
+    for (let j = r0; j < r1; j += 1) if (isInk(grid[j * S + i])) n += 1;
+    colInk[i] = n;
+    ink[i] = n >= colMin ? 1 : 0;
+  }
+  // Clusters of ink (letters closer than a third of the line's height) — the
+  // line is the clusters that reach into the detector's own extent.
+  const join = Math.max(2, th * 0.35);
+  const blobs = [];
+  for (let i = 0; i < S; i += 1) {
+    if (!ink[i]) continue;
+    const last = blobs[blobs.length - 1];
+    if (last && i - last[1] <= join) last[1] = i; else blobs.push([i, i]);
+  }
+  const kept = blobs.filter(([a, b]) => b >= padS && a < S - padS);
+  if (!kept.length) return null;
+  const start = kept[0][0]; const end = kept[kept.length - 1][1] + 1;
+  if (end - start < len * 0.4) return null;
+  // The blank gaps inside the line.
+  const gaps = [];
+  for (let i = start; i < end; i += 1) {
+    if (ink[i]) continue;
+    let k = i;
+    while (k < end && !ink[k]) k += 1;
+    gaps.push({ a: i, b: k, w: k - i, c: (i + k) / 2 });
+    i = k;
+  }
+  // Where the letter counts would put each boundary, on the fitted extent —
+  // or, when the recogniser said where every letter is (`centers`, projected
+  // onto this frame's columns), halfway between the last letter of a word and
+  // the first of the next.
+  const total = tokens.reduce((n, w) => n + w.length, 0) + tokens.length - 1;
+  const letterCount = tokens.reduce((n, w) => n + Array.from(w).length, 0);
+  const cols = Array.isArray(centers) && centers.length === letterCount
+    ? centers.map(([px, py]) => (px - cx) * ux + (py - cy) * uy + padS + len / 2)
+    : null;
+  const wordCols = [];
+  if (cols) { let q = 0; for (const w of tokens) { const n = Array.from(w).length; wordCols.push(cols.slice(q, q + n)); q += n; } }
+  const expect = [];
+  let at = 0;
+  for (let k = 0; k < tokens.length - 1; k += 1) {
+    at += tokens[k].length;
+    expect.push(cols
+      ? (wordCols[k][wordCols[k].length - 1] + wordCols[k + 1][0]) / 2
+      : start + ((at + 0.5) / total) * (end - start));
+    at += 1;
+  }
+  let cuts = [];
+  const need = expect.length;
+  if (need && gaps.length >= need) {
+    // dp[k][g]: the best score with boundary k on gap g (gaps in order).
+    const G = gaps.length;
+    const gain = (k, g) => 4 * Math.min(gaps[g].w, th * 0.7) / th - 0.6 * Math.abs(gaps[g].c - expect[k]) / th;
+    let prev = new Float64Array(G).fill(-Infinity);
+    const from = [];
+    for (let g = 0; g < G; g += 1) prev[g] = gain(0, g);
+    from.push(new Int32Array(G).fill(-1));
+    for (let k = 1; k < need; k += 1) {
+      const cur = new Float64Array(G).fill(-Infinity);
+      const back = new Int32Array(G).fill(-1);
+      let bestPrev = -Infinity; let bestAt = -1;
+      for (let g = 0; g < G; g += 1) {
+        if (g > 0 && prev[g - 1] > bestPrev) { bestPrev = prev[g - 1]; bestAt = g - 1; }
+        if (bestAt >= 0) { cur[g] = bestPrev + gain(k, g); back[g] = bestAt; }
+      }
+      from.push(back); prev = cur;
+    }
+    let g = 0;
+    for (let i = 1; i < G; i += 1) if (prev[i] > prev[g]) g = i;
+    if (Number.isFinite(prev[g])) {
+      for (let k = need - 1; k >= 0; k -= 1) { cuts.unshift(gaps[g]); g = from[k][g]; }
+    }
+  }
+  // Each word from the ink after one boundary to the ink before the next; a
+  // line whose gaps couldn't be matched keeps the letter-count split, laid on
+  // the fitted extent.
+  let words;
+  if (cuts.length === need) {
+    words = tokens.map((w, k) => [w, k === 0 ? start : cuts[k - 1].b, k === need ? end : cuts[k].a]);
+  } else {
+    cuts = [];
+    let p = 0;
+    words = tokens.map((w) => { const a = start + (p / total) * (end - start); p += w.length; const b = start + (p / total) * (end - start); p += 1; return [w, a, b]; });
+  }
+  if (words.some(([, a, b]) => !(b > a))) return null;
+  const off = padS + len / 2;   // grid column → s (centred frame)
+  const wordsOut = words.map(([w, a, b], k) => [w, a - off, b - off, charCuts(colInk, a, b, w, cols ? wordCols[k] : null).map((c) => c - off)]);
+  // THE LINE'S EDGES ALONG IT — where the letters' tops and bottoms actually
+  // are, so a selection can follow text that grows or shrinks along the line (a
+  // page photographed at an angle). Every letter's own top and bottom ink row
+  // is measured; a straight line through the tops is moved up to the highest
+  // tenth of them, one through the bottoms down to the lowest tenth.
+  // A letter's top and bottom are found by growing from the line's middle
+  // through ITS OWN ink (a gap of up to a sixth of the line's height is crossed —
+  // the dot of an i, the breve of an ă), out to the edge of the sampled band:
+  // a letter that is taller than the line's measured band (the big end of a
+  // line in perspective) is followed, a neighbouring line beyond a real gap is
+  // not.
+  const edges = [];
+  const midRow = Math.round((t0 + t1) / 2 + th / 2 + padT);
+  const gapMax = Math.max(1, Math.round(th / 6));
+  for (const [, a, b, cuts] of wordsOut) {
+    const bounds = [a, ...cuts, b].map((v) => v + off);
+    for (let i = 0; i + 1 < bounds.length; i += 1) {
+      const c0 = Math.max(0, Math.round(bounds[i])); const c1 = Math.min(S, Math.round(bounds[i + 1]));
+      if (c1 - c0 < 1) continue;
+      const has = (j) => { for (let x = c0; x < c1; x += 1) if (isInk(grid[j * S + x])) return true; return false; };
+      // The ink row nearest the middle (the letter's body).
+      let seed = -1;
+      for (let d = 0; d <= Math.round(th / 2) && seed < 0; d += 1) {
+        if (midRow - d >= 0 && has(midRow - d)) seed = midRow - d;
+        else if (midRow + d < T && has(midRow + d)) seed = midRow + d;
+      }
+      if (seed < 0) continue;
+      let top = seed; let gap = 0;
+      for (let j = seed - 1; j >= 0; j -= 1) { if (has(j)) { top = j; gap = 0; } else if (++gap > gapMax) break; }
+      let bot = seed + 1; gap = 0;
+      for (let j = seed + 1; j < T; j += 1) { if (has(j)) { bot = j + 1; gap = 0; } else if (++gap > gapMax) break; }
+      edges.push({ s: (c0 + c1) / 2 - off, top: top - padT - th / 2, bot: bot - padT - th / 2 });
+    }
+  }
+  let edge = null;
+  if (edges.length >= 2) {
+    const fitSide = (key, upper) => {
+      const n = edges.length;
+      let sx = 0; let sy = 0; let sxx = 0; let sxy = 0;
+      for (const e of edges) { sx += e.s; sy += e[key]; sxx += e.s * e.s; sxy += e.s * e[key]; }
+      const den = n * sxx - sx * sx;
+      const m = den > 0 ? (n * sxy - sx * sy) / den : 0;
+      const c = (sy - m * sx) / n;
+      const res = edges.map((e) => e[key] - (m * e.s + c)).sort((x, y) => x - y);
+      const q = res[Math.min(n - 1, Math.max(0, Math.round((upper ? 0.1 : 0.9) * (n - 1))))];
+      return [c + q, m];   // value at s = 0, slope
+    };
+    const [tc, tm] = fitSide('top', true);
+    const [bc, bm] = fitSide('bot', false);
+    // Never beyond the sampled band, never inside out.
+    const clampT = (v) => Math.min(T - padT - th / 2, Math.max(-padT - th / 2, v));
+    const sL = start - off; const sR = end - off;
+    const tl = clampT(tc + tm * sL); const tr = clampT(tc + tm * sR);
+    const bl = clampT(bc + bm * sL); const br = clampT(bc + bm * sR);
+    if (bl - tl > 1 && br - tr > 1) {
+      edge = { tl, tr, bl, br };
+      // The line's band covers its edges (the letters' cells, which take the
+      // pointer, are as tall as the band).
+      t0 = Math.min(t0, tl, tr); t1 = Math.max(t1, bl, br);
+    }
+  }
+  return {
+    frame: { cx, cy, angle },
+    s0: start - off, s1: end - off, t0, t1, edge,
+    // Each word also carries where its LETTERS meet (charCuts): what a drag
+    // selects is then the letters under the pointer, not a font's guess.
+    words: wordsOut,
+  };
+}
+// The width a character takes in an ordinary sans-serif, relative — how a word's
+// room is first shared among its letters before the ink corrects it.
+let glyphCtx = null;
+const glyphMemo = new Map();
+function glyphWidth(ch) {
+  if (glyphMemo.has(ch)) return glyphMemo.get(ch);
+  let w = 0.55;
+  try {
+    if (!glyphCtx && typeof document !== 'undefined') glyphCtx = document.createElement('canvas').getContext('2d');
+    if (glyphCtx) { glyphCtx.font = '100px Arial, Helvetica, sans-serif'; w = glyphCtx.measureText(ch).width / 100 || w; }
+  } catch { /* the estimate stands */ }
+  glyphMemo.set(ch, w);
+  return w;
+}
+// Where the letters of ONE word meet, in grid columns between `a` and `b`
+// (n letters → n − 1 cuts). The letters are first given their font's share of
+// the word, then every boundary is moved onto the column with the LEAST ink
+// near it — the gap (or the thinnest join, where blurred letters touch)
+// between two letters — by dynamic programming over the boundaries in order:
+// little ink and little distance from the font's estimate both count.
+function charCuts(colInk, a, b, word, centers = null) {
+  const chars = Array.from(word);
+  const n = chars.length;
+  if (n < 2 || b - a < n) return [];
+  const widths = chars.map(glyphWidth);
+  const total = widths.reduce((x, y) => x + y, 0) || n;
+  const span = b - a;
+  const expect = [];
+  let acc = 0;
+  // The recogniser's letter centres, when known and in order: each boundary
+  // starts halfway between two centres. Otherwise the font's letter widths.
+  const usable = Array.isArray(centers) && centers.length === n && centers.every((c, i) => i === 0 || c > centers[i - 1]);
+  for (let k = 0; k < n - 1; k += 1) {
+    acc += widths[k];
+    expect.push(usable ? Math.min(b - 1, Math.max(a + 1, (centers[k] + centers[k + 1]) / 2)) : a + (acc / total) * span);
+  }
+  const avg = span / n;
+  const win = Math.max(1, Math.round(avg * 0.85));
+  let peak = 0;
+  for (let i = a; i < b; i += 1) peak = Math.max(peak, colInk[i]);
+  if (!peak) return expect;
+  // A column's cost: its ink, lightly smoothed (one stray pixel is not a
+  // letter), plus how far it is from where the font put the boundary.
+  const inkAt = (i) => (colInk[i - 1] + 2 * colInk[i] + colInk[i + 1]) / (4 * peak);
+  const cands = expect.map((e) => {
+    const out = [];
+    for (let c = Math.max(a + 1, Math.round(e - win)); c <= Math.min(b - 1, Math.round(e + win)); c += 1) {
+      const d = (c - e) / avg;
+      out.push({ c, cost: inkAt(c) * 3 + d * d * 0.6 });
+    }
+    return out;
+  });
+  if (cands.some((x) => !x.length)) return expect;
+  // dp over boundaries: each strictly right of the one before.
+  let prev = cands[0].map((x) => ({ cost: x.cost, from: -1 }));
+  const backs = [prev];
+  for (let k = 1; k < cands.length; k += 1) {
+    const cur = cands[k].map((x) => {
+      let best = Infinity; let from = -1;
+      cands[k - 1].forEach((y, j) => { if (y.c < x.c && prev[j].cost < best) { best = prev[j].cost; from = j; } });
+      return { cost: best + x.cost, from };
+    });
+    backs.push(cur); prev = cur;
+  }
+  let j = 0;
+  for (let i = 1; i < prev.length; i += 1) if (prev[i].cost < prev[j].cost) j = i;
+  if (!Number.isFinite(prev[j].cost)) return expect;
+  const cuts = new Array(cands.length);
+  for (let k = cands.length - 1; k >= 0; k -= 1) { cuts[k] = cands[k][j].c; j = backs[k][j].from; }
+  return cuts;
+}
+// The picture at the resolution the fitting works at: its FULL size (a long
+// edge up to FIT_EDGE), turned like the reading — the detector's <=1920px copy
+// loses the half-pixels that decide where a letter ends, and the viewer zooms
+// to 800%.
+const FIT_EDGE = 6000;
+function fitCanvas(el, turns, base) {
+  const natW = el.naturalWidth || el.width; const natH = el.naturalHeight || el.height;
+  const side = turns % 2 === 1;
+  const baseW = side ? base.height : base.width;   // the base canvas's width, unturned
+  const scale = Math.max(baseW / natW, Math.min(1, FIT_EDGE / Math.max(natW, natH)));
+  const w = Math.max(1, Math.round(natW * scale)); const h = Math.max(1, Math.round(natH * scale));
+  const canvas = document.createElement('canvas');
+  canvas.width = side ? h : w; canvas.height = side ? w : h;
+  const ctx = canvas.getContext('2d', { willReadFrequently: true });
+  ctx.imageSmoothingQuality = 'high';
+  ctx.fillStyle = '#ffffff'; ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.translate(canvas.width / 2, canvas.height / 2);
+  ctx.rotate((turns * Math.PI) / 2);
+  ctx.drawImage(el, -w / 2, -h / 2, w, h);
+  return canvas;
+}
+// The runs of ONE reading (PaddleOCR's, in `base`'s pixels - the detector's
+// canvas) fitted to the ink of the picture `el` at full resolution. Returns new
+// runs in `base`'s pixels, kept to a hundredth of a pixel (no rounding to whole
+// pixels: at 800% one is many screen pixels). A line found slanted by more
+// than SLANT_MIN degrees becomes a tilted run, laid along its slant.
+const SLANT_MIN = 0.12;
+const r2 = (v) => Math.round(v * 100) / 100;
+function fitRunsToInk(el, turns, base, runs) {
+  let img; let k = 1;
+  try {
+    const big = el ? fitCanvas(el, turns, base) : base;
+    k = big.width / base.width;
+    img = lumaOf(big);
+  } catch {
+    try { img = lumaOf(base); k = 1; } catch { return runs; }
+  }
+  return runs.map((given) => {
+    // Always fitted from the DETECTOR's own geometry (kept as `raw` the first
+    // time), never from an earlier fit - refitting must not compound.
+    const raw = given.raw || { x0: given.x0, y0: given.y0, x1: given.x1, y1: given.y1, tilt: given.tilt || null, boxes: given.boxes };
+    const run = { ...given, x0: raw.x0, y0: raw.y0, x1: raw.x1, y1: raw.y1, tilt: raw.tilt, boxes: raw.boxes, raw };
+    const tokens = run.text.split(' ').filter(Boolean);
+    try {
+      const start = run.tilt
+        ? { cx: run.tilt.cx, cy: run.tilt.cy, angle: run.tilt.angle, len: run.tilt.len, th: run.tilt.th }
+        : { cx: (run.x0 + run.x1) / 2, cy: (run.y0 + run.y1) / 2, angle: 0, len: run.x1 - run.x0, th: run.y1 - run.y0 };
+      const centers = Array.isArray(given.charAt) ? given.charAt.map((c) => [c.x * k, c.y * k]) : null;
+      const f = fitLineToInk(img, { cx: start.cx * k, cy: start.cy * k, angle: start.angle, len: start.len * k, th: start.th * k }, tokens, { centers });
+      if (!f) return run;
+      // Back into the base canvas's pixels.
+      const { cx, cy, angle } = f.frame;
+      const rad = (angle * Math.PI) / 180;
+      const ux = Math.cos(rad); const uy = Math.sin(rad);
+      const s0 = f.s0 / k; const s1 = f.s1 / k; const t0 = f.t0 / k; const t1 = f.t1 / k;
+      const len = s1 - s0;
+      const ms = (s0 + s1) / 2; const mt = (t0 + t1) / 2;
+      const ccx = cx / k + ux * ms - uy * mt; const ccy = cy / k + uy * ms + ux * mt;
+      const words = f.words.map(([w, a, b, cuts]) => [w, a / k, b / k, cuts.map((c) => c / k)]);
+      // The line's top / bottom at its two ends, as fractions of its thickness
+      // from its middle (-0.5 = the top of the band): [top-left, top-right,
+      // bottom-left, bottom-right].
+      const thk = (t1 - t0) || 1;
+      const edge = f.edge
+        ? [f.edge.tl, f.edge.tr, f.edge.bl, f.edge.br].map((v) => Math.round(((v / k - mt) / thk) * 10000) / 10000)
+        : null;
+      if (Math.abs(angle) >= SLANT_MIN) {
+        return {
+          ...run,
+          tilt: {
+            cx: r2(ccx), cy: r2(ccy), angle: Math.round(angle * 1000) / 1000,
+            len: Math.max(1, r2(len)), th: Math.max(1, r2(t1 - t0)),
+            words: words.map(([w, a, b, cuts]) => [w, (a - s0) / len, (b - s0) / len, cuts.map((c) => (c - s0) / len)]),
+          },
+          edge,
+        };
+      }
+      // Level: an upright box (s runs along x, t along y).
+      const x0 = r2(ccx - len / 2); const x1 = r2(ccx + len / 2);
+      const y0 = r2(ccy - (t1 - t0) / 2); const y1 = r2(ccy + (t1 - t0) / 2);
+      const toX = (v) => r2(ccx + (v - ms));
+      return {
+        ...run, tilt: null, x0, y0, x1, y1, edge,
+        boxes: words.map(([t, a, b, cuts]) => ({ x0: toX(a), y0, x1: toX(b), y1, ink: hasInk(t), t, cuts: cuts.map(toX) })),
+      };
+    } catch { return run; }
+  });
+}
+
 // How well a reading went: confident characters on lines that run ACROSS the
 // canvas. A line the detector found running up or down it (a sideways photo)
 // counts for nothing — the text is only laid out right once it runs across, so
@@ -592,7 +1106,10 @@ async function detectWithPaddle(el) {
       if (best.score >= 10 && best.mean >= 80) break;
     }
   }
-  return { turns: best.turns, cw: best.canvas.width, ch: best.canvas.height, runs: readingOrder(best.runs), engine: 'paddleocr' };
+  return {
+    turns: best.turns, cw: best.canvas.width, ch: best.canvas.height,
+    runs: readingOrder(fitRunsToInk(el, best.turns, best.canvas, best.runs)), engine: 'paddleocr', inkFit: INK_FIT,
+  };
 }
 
 // → `{ turns, cw, ch, runs }`: the measured pieces, in the pixels of the picture
@@ -736,7 +1253,9 @@ async function readRunsWithAi(el, local, { projectId } = {}) {
   const src = local.engine === 'paddleocr' ? paddleCanvas(el, local.turns) : ocrCanvas(el, local.turns);
   const sheets = buildSheets(src, local.runs);
   if (!sheets.length) return [];
-  const res = await askProjectAi({
+  const askAi = (await import('./aiEngine')).askAi;
+  const res = await askAi({
+    surface: 'tool', timeoutMs: 180_000,
     messages: [{
       role: 'user',
       content: [
@@ -745,7 +1264,6 @@ async function readRunsWithAi(el, local, { projectId } = {}) {
       ],
     }],
     model: MODEL,
-    tools: false,
     usageProject: projectId,
     usageAction: 'text-regions',
   });
@@ -842,6 +1360,16 @@ export function loadReadingMode() {
 }
 export function saveReadingMode(mode) {
   try { localStorage.setItem(MODE_KEY, JSON.stringify(cleanMode(mode))); } catch { /* unavailable */ }
+  try { window.dispatchEvent(new CustomEvent('docvex:reading-mode')); } catch { /* no window */ }
+}
+// Called with the new mode whenever it changes — in this window (Settings) or
+// in another (the viewer is a window of its own: the `storage` event).
+export function subscribeReadingMode(fn) {
+  const here = () => fn(loadReadingMode());
+  const there = (e) => { if (e.key === MODE_KEY) fn(loadReadingMode()); };
+  window.addEventListener('docvex:reading-mode', here);
+  window.addEventListener('storage', there);
+  return () => { window.removeEventListener('docvex:reading-mode', here); window.removeEventListener('storage', there); };
 }
 const sameMode = (a, b) => !!a && a.result === b.result;
 const current = (facet, mode = loadReadingMode()) => (
@@ -933,6 +1461,44 @@ function reconcileWithAi(regions, aiText) {
 // For the engine's checks outside the app (scratch harness), nothing else.
 export const textRegionsInternals = { detectLocally, composeReading };
 
+// The text of a picture that is not a file yet — a scan being saved — read on
+// this computer (the local engine; no AI), composed as a saved reading is.
+// → { data, engine } ready for saveAiFacet, or null when nothing could be read.
+// The scan keeps the text its page carries: the picture's own reading is of
+// the photo, whose geometry the flattening changed, so the page is read again.
+export async function readCanvasText(canvas) {
+  if (!canvas?.width || !canvas?.height) return null;
+  // The engine reads <img>-shaped sources (naturalWidth / naturalHeight).
+  const blob = await new Promise((res) => { canvas.toBlob(res, 'image/png'); });
+  if (!blob) return null;
+  const url = URL.createObjectURL(blob);
+  try {
+    const img = new Image();
+    img.src = url;
+    await img.decode();
+    const local = await detectLocally(img);
+    const { turns, cw, ch } = local;
+    const composed = composeReading(local.runs.map((r) => ({ ...r })), turns, cw, ch);
+    const data = {
+      v: READING_VERSION,
+      mode: { result: 'local' },
+      text: joinRegions(composed.regions),
+      regions: composed.regions,
+      shapes: composed.shapes,
+      turns,
+      ai: false,
+      parts: { local },
+    };
+    return { data, engine: local.engine || 'tesseract' };
+  } catch (err) {
+    // eslint-disable-next-line no-console
+    console.warn('[text-regions] could not read the scan:', err);
+    return null;
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+}
+
 // `reuseAny` = any saved reading of THIS version of the file will do, whatever
 // mode or engine made it (the Files tab's AI scan wants the text, not the
 // best-placed highlights, and must not read a picture twice).
@@ -1008,4 +1574,60 @@ export async function extractImageText(file, { el = null, force = false, mode: a
   // An empty reading is saved too — "no text here" is an answer worth keeping.
   saveAiFacet({ path, name: file?.name, projectId: file?.projectId }, 'text', { data, engine, stamp });
   return getAiFacet(path, 'text') || { kind: 'text', at: Date.now(), engine, data };
+}
+
+// A SAVED PaddleOCR reading made before its words were fitted to the ink:
+// fitted now from the picture on screen (`el`), with NO reading again and no
+// AI call — the measured runs are re-placed, the text (the engine's or the
+// AI's per piece) kept, and the reading re-composed and saved. → the new
+// facet, or null when there is nothing to do.
+export function needsInkFit(data) {
+  const local = data?.parts?.local;
+  return !!(local && local.engine === 'paddleocr' && Array.isArray(local.runs) && local.inkFit !== INK_FIT);
+}
+export async function refitImageText(file, el) {
+  const path = file?.path || '';
+  if (!path || !el?.naturalWidth) return null;
+  const stamp = await stampFor(path);
+  const saved = getAiFacet(path, 'text', stamp);
+  const data = saved?.data;
+  if (!needsInkFit(data)) return null;
+  // A reading whose words were matched from a page-wide transcription has no
+  // per-piece text to carry over: re-composing would lose it.
+  if (data.ai && !Array.isArray(data.parts.ai)) return null;
+  const local = data.parts.local;
+  const canvas = paddleCanvas(el, local.turns || 0);
+  // The runs were measured on a canvas made the same way; a different size
+  // means another picture (or another rule) — leave it.
+  if (canvas.width !== local.cw || canvas.height !== local.ch) return null;
+  // A reading the first fit (INK_FIT 1) placed kept no detector geometry, and
+  // that fit could swallow the next line: such a LOCAL reading is measured
+  // again on this computer (no AI); an AI-read one is left as it is (its text
+  // per piece is tied to the old pieces).
+  const lostRaw = (local.inkFit && local.runs.some((r) => !r.raw))
+    // …or made before the recogniser's letter positions were kept (local only).
+    || (!data.ai && local.runs.length > 0 && local.runs.every((r) => !r.charAt));
+  if (lostRaw && data.ai) return null;
+  let fittedLocal;
+  if (lostRaw) {
+    try { fittedLocal = await detectLocally(el); } catch { return null; }
+    if (fittedLocal.turns !== local.turns) return null;
+  } else {
+    fittedLocal = { ...local, runs: fitRunsToInk(el, local.turns || 0, canvas, local.runs), inkFit: INK_FIT };
+  }
+  const parts = { ...data.parts, local: fittedLocal };
+  const byAi = data.ai && Array.isArray(parts.ai);
+  const runs = !byAi ? fittedLocal.runs : fittedLocal.runs
+    .map((run, i) => (parts.ai[i] == null ? run : (parts.ai[i] ? runWithText(run, parts.ai[i]) : null)))
+    .filter(Boolean);
+  const composed = composeReading(runs.map((r) => ({ ...r })), fittedLocal.turns, fittedLocal.cw, fittedLocal.ch);
+  const next = {
+    ...data,
+    text: joinRegions(composed.regions),
+    regions: composed.regions,
+    shapes: composed.shapes,
+    parts,
+  };
+  saveAiFacet({ path, name: file?.name, projectId: file?.projectId }, 'text', { data: next, engine: saved.engine, stamp });
+  return getAiFacet(path, 'text') || { ...saved, data: next };
 }

@@ -244,6 +244,8 @@ export async function getWeeklyDigest({ force = false } = {}) {
 
   const value = {
     summary: data.summary || '',
+    // The web sources the briefing cites ([n](url) in `summary`), when it searched.
+    sources: Array.isArray(data.sources) ? data.sources : [],
     highImpactCount: data.highImpactCount ?? 0,
     total: data.total ?? 0,
     generatedAt: data.generatedAt || new Date().toISOString(),

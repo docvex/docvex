@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import Tooltip from '../components/Tooltip';
 import CaenCard from '../components/CaenCard';
-import { sentenceCase, fold } from '../lib/caen';
+import { sentenceCase } from '../lib/caen';
 
 // Two more ways to read the CAEN tab's tree, beside the list (Caen.jsx's
 // View dropdown):
@@ -66,91 +66,6 @@ function sectionMeta(idx, s) {
 }
 
 // ── Outline ────────────────────────────────────────────────────────────────
-export function CaenOutline({ data, trees, rev, selected, onPick, cardRef }) {
-  const idx = useCaenIndex(data);
-  const [sec, setSec] = useSection(data, idx, selected);
-  const cls = selected && data.items[selected]?.l === 'c' ? selected : '';
-  const secIt = data.items[sec];
-
-  return (
-    <div className="cn-ol">
-      <nav className="cn-ol-rail" aria-label="Sections">
-        {data.sections.map((s) => {
-          const on = s === sec;
-          const n = idx.classes(s).length;
-          return (
-            <Tooltip key={s} content={`Section ${s} — ${nameOf(data.items[s])}`}>
-              <button
-                type="button"
-                className={`cn-ol-sec${on ? ' is-on' : ''}`}
-                disabled={!idx.kids[s]?.length}
-                onClick={() => { setSec(s); const first = idx.classes(s)[0]; if (first) onPick(first); }}
-              >
-                <span className="cn-ol-sec-code">{s}</span>
-                <span className="cn-ol-sec-name">{nameOf(data.items[s])}</span>
-                <span className="cn-ol-sec-n">{n}</span>
-              </button>
-            </Tooltip>
-          );
-        })}
-      </nav>
-
-      <main className="cn-ol-main">
-        {secIt ? (
-          <>
-            <div className="cn-ol-head">
-              <div className="cn-ol-eyebrow">Section {sec}</div>
-              <h2 className="cn-ol-title">{nameOf(secIt)}</h2>
-              <div className="cn-ol-meta">{sectionMeta(idx, sec)}</div>
-            </div>
-            {(idx.kids[sec] || []).map((d) => (
-              <section key={d} className="cn-ol-div">
-                <div className="cn-ol-divhead">
-                  <span className="cn-ol-divcode">{d}</span>
-                  <span className="cn-ol-divname">{nameOf(data.items[d])}</span>
-                  <span className="cn-ol-divmeta">{plural(idx.classes(d).length, 'class', 'classes')}</span>
-                </div>
-                {(idx.kids[d] || []).map((g) => {
-                  const cl = idx.kids[g] || [];
-                  // A group holding one class of the same name says nothing
-                  // the class does not: its label is left out.
-                  const solo = cl.length === 1 && fold(data.items[cl[0]].n) === fold(data.items[g].n);
-                  return (
-                    <div key={g} className="cn-ol-group">
-                      {!solo ? <div className="cn-ol-grouplabel">{g} · {nameOf(data.items[g])}</div> : null}
-                      {cl.map((c) => (
-                        <button
-                          key={c}
-                          type="button"
-                          className={`cn-ol-class${c === cls ? ' is-on' : ''}`}
-                          onClick={() => onPick(c)}
-                        >
-                          <span className="cn-ol-classcode">{c}</span>
-                          <span>{nameOf(data.items[c])}</span>
-                        </button>
-                      ))}
-                    </div>
-                  );
-                })}
-              </section>
-            ))}
-          </>
-        ) : null}
-      </main>
-
-      <aside className="cn-ol-side" ref={cardRef}>
-        {cls ? (
-          <CaenCard trees={trees} code={cls} rev={rev} onPick={onPick} crumbs={false} kids={false} />
-        ) : (
-          <div className="cn-card cn-ol-empty">
-            <p className="cn-empty-title">Pick a class</p>
-            <p className="cn-empty-sub">Its notes — what it includes and what it leaves out — show here.</p>
-          </div>
-        )}
-      </aside>
-    </div>
-  );
-}
 
 // ── Atlas ──────────────────────────────────────────────────────────────────
 export function CaenAtlas({ data, trees, rev, selected, onPick, onClose }) {

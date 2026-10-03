@@ -131,6 +131,29 @@ Deno.serve(async (req: Request) => {
     }
   } catch (_) { /* keep going — the account still gets deleted */ }
 
+  // Rows keyed by the user's EMAIL or id that no foreign key cascades
+  // (security audit 2026-10-01, GDPR Art. 17): the AI rate-limit log, the
+  // newsletter subscription, the website forms, invitations sent to them.
+  const email = String(user.email || "").toLowerCase();
+  // An exact, case-insensitive match: `_` and `%` in an address are literal.
+  const emailPattern = email.replace(/[\\%_]/g, (c) => "\\" + c);
+  const steps: Array<[string, () => PromiseLike<{ error: unknown }>]> = [
+    ["ai_call_log", () => admin.from("ai_call_log").delete().eq("user_id", user.id)],
+  ];
+  if (email) {
+    steps.push(
+      ["newsletter_subscribers", () => admin.from("newsletter_subscribers").delete().ilike("email", emailPattern)],
+      ["enrollments", () => admin.from("enrollments").delete().ilike("email", emailPattern)],
+      ["project_invitations", () => admin.from("project_invitations").delete().ilike("email", emailPattern)],
+    );
+  }
+  for (const [name, run] of steps) {
+    try {
+      const { error } = await run();
+      if (error) console.warn(`[delete-user] ${name}: ${(error as { message?: string }).message ?? "failed"}`);
+    } catch (_) { console.warn(`[delete-user] ${name}: failed`); }
+  }
+
   const { error: delErr } = await admin.auth.admin.deleteUser(user.id);
   if (delErr) {
     return jsonResponse({ error: "delete_failed", detail: delErr.message }, 500);

@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import RuleOptions from '../components/RuleOptions';
 import {
   AI_SURFACES, CAPABILITIES, AI_LIMITS, AI_MODELS, AI_PROMPTS, AI_MANNERS, AI_SETTING_KEYS, AI_STYLES,
-  ROUTER_MODEL, FALLBACK_MODEL, paragraphFrame, paragraphAck, loadAiModel, loadAiProjectFiles, loadAiStyle, aiModel, aiStyle, quickRoute,
+  ROUTER_MODEL, FALLBACK_MODEL, loadAiModel, loadAiProjectFiles, loadAiStyle, aiModel, aiStyle, quickRoute,
 } from '../lib/aiEngine';
 import { EDIT_RULE } from '../lib/aiFileEdits';
 
@@ -88,12 +88,6 @@ function useOtherPrompts(on) {
       };
       await add(() => import('../lib/aiFileEdits'), (m) => [{ title: 'File viewer — edit rule', where: 'lib/aiFileEdits EDIT_RULE', text: m.EDIT_RULE }]);
       await add(() => import('../lib/docAuthority'), (m) => [{ title: 'Official documents win', where: 'lib/docAuthority AUTHORITY_RULE', text: m.AUTHORITY_RULE }]);
-      await add(() => import('../lib/dataCollections'), (m) => [
-        { title: 'Files scan — understanding each file', where: 'lib/dataCollections UNDERSTAND_PROMPT', text: m.UNDERSTAND_PROMPT },
-        { title: 'Files scan — connecting files into collections', where: 'lib/dataCollections CONNECT_PROMPT', text: m.CONNECT_PROMPT },
-        { title: 'Files scan — adding new files to collections', where: 'lib/dataCollections INTEGRATE_PROMPT', text: m.INTEGRATE_PROMPT },
-        { title: 'Files scan — a person’s / company’s record', where: 'lib/dataCollections RECORD_RULE', text: m.RECORD_RULE },
-      ]);
       await add(() => import('../lib/roIdDocuments'), (m) => [
         { title: 'Identity documents — the MRZ strip', where: 'lib/roIdDocuments MRZ_PROMPT', text: m.MRZ_PROMPT },
         { title: 'Identity documents — reading a Romanian ID', where: 'lib/roIdDocuments RO_ID_PROMPT', text: m.RO_ID_PROMPT },
@@ -257,7 +251,6 @@ export default function AiSettings() {
           <Text title="File viewer — create files: the two tools" where="AI_PROMPTS.drafting, on the latest message while drafting" text={AI_PROMPTS.drafting} />
           <Text title="File viewer — create files: the document being drafted" where="AI_PROMPTS.currentDocument + its acknowledgement" text={`${AI_PROMPTS.currentDocument('Contract.docx', '<the current version>')}\n\n— ${AI_PROMPTS.currentDocumentAck}`} />
           <Text title="File viewer — a Word file DocVex did not write" where="AI_PROMPTS.foreignDocument + its acknowledgement" text={`${AI_PROMPTS.foreignDocument('Contract.docx', '<its text>')}\n\n— ${AI_PROMPTS.foreignDocumentAck}`} />
-          <Text title="File viewer — edit files: a picked paragraph" where="paragraphFrame + paragraphAck" text={`${paragraphFrame({ fileName: 'Contract.docx', source: sample, paragraphs: 1, context: '<the rest of the document>' })}\n\n— ${paragraphAck(false)}`} />
           <Text title="File viewer — edit files: changing project files" where="lib/aiFileEdits EDIT_RULE, as the opening exchange" text={EDIT_RULE} />
           <Text title="File viewer — create AND edit files: your Playbook document rules (live)" where="lib/docRules docRulesSteer, as <playbook_rules> in the cached context of every file-viewer turn (drafts, paragraph edits, file edits); the server defers to it (PLAYBOOK_RULE)" text={steer ? (steer.rules || '(the Playbook rules are paused)') : 'Loading…'} />
           <Text title="File viewer — create files: your writing style (live)" where="lib/writingStyle styleSteer, on a draft" text={steer ? (steer.style || '(no writing voice learned yet)') : 'Loading…'} />

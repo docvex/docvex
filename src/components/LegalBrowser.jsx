@@ -379,7 +379,7 @@ function SerpSummary({ page }) {
 // `bare`: the field alone (the new-tab page's) — no back / forward / reload.
 // DocVex · Source — how an open item is shown: restyled by DocVex, or the data
 // as the platform's service gave it (the default). lib/legalViewMode.
-function ViewModeToggle() {
+export function ViewModeToggle() {
   const mode = useLegalViewMode();
   return (
     <div className="lgt-toggle lgb-viewmode" role="tablist" aria-label="How an item is shown">

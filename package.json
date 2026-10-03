@@ -7,13 +7,13 @@
   "private": true,
   "scripts": {
     "prestart": "node scripts/dev-rename-electron.mjs",
-    "postinstall": "node scripts/copy-ocr-assets.mjs && node scripts/copy-face-assets.mjs && node scripts/copy-whisper-assets.mjs",
+    "postinstall": "node scripts/copy-ocr-assets.mjs && node scripts/copy-whisper-assets.mjs",
     "start": "electron-forge start",
     "start:multi": "node scripts/run-many.mjs",
     "package": "electron-forge package",
     "make": "electron-forge make",
-    "publish": "electron-forge publish",
-    "preversion": "git diff-index --quiet HEAD -- || (echo Commit or stash changes before releasing && exit 1)",
+    "publish": "node scripts/check-signing.mjs && electron-forge publish",
+    "preversion": "(git diff-index --quiet HEAD -- || (echo Commit or stash changes before releasing && exit 1)) && node scripts/check-signing.mjs",
     "version": "node scripts/sync-readme-version.mjs && node scripts/release-upload-page.mjs",
     "postversion": "node scripts/post-release.mjs",
     "release:patch": "npm version patch -m \"chore(release): %s\"",
@@ -25,6 +25,7 @@
     "site:upload-page": "node scripts/build-upload-page.mjs",
     "test": "node --test tests/*.test.mjs",
     "test:index": "node scripts/test-index.mjs",
+    "check:vertex": "node scripts/check-vertex.mjs",
     "check:storage": "node scripts/check-localstorage.mjs",
     "lint": "echo \"No linting configured\""
   },
@@ -52,7 +53,7 @@
     "@electron/fuses": "^1.8.0",
     "@vitejs/plugin-react": "^4.7.0",
     "archiver": "^8.0.0",
-    "electron": "^42.0.1",
+    "electron": "^42.11.10",
     "vite": "^5.4.21"
   },
   "dependencies": {
@@ -64,7 +65,6 @@
     "@supabase/supabase-js": "^2.105.4",
     "@tesseract.js-data/eng": "^1.0.0",
     "@tesseract.js-data/ron": "^1.0.0",
-    "@vladmandic/face-api": "^1.7.15",
     "@zxing/library": "^0.21.3",
     "country-flag-icons": "^1.6.20",
     "docx": "^9.7.1",
@@ -88,8 +88,13 @@
     "remark-gfm": "^4.0.1",
     "tesseract.js": "^7.0.0",
     "update-electron-app": "^3.2.0",
-    "vis-network": "^10.1.2",
     "word-extractor": "^1.0.4",
-    "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz"
+    "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz",
+    "yauzl": "^2.10.0"
+  },
+  "overrides": {
+    "pptxgenjs": {
+      "image-size": "^2.0.4"
+    }
   }
 }

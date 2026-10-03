@@ -93,138 +93,10 @@
   .updates-page .updates-mh-title { font-size: 33.6px; }
 }
 
-/* ── Compact header on scroll (mirrors the launch hub) ──────────────────────
-   A blurred, translucent bar fixed to the content area that fades + slides in
-   once the large "Versions" title scrolls away. Anchored to the content area
-   via the sidebar width + titlebar height so it spans exactly the page column
-   and tracks the sidebar's expand/collapse. */
-.updates-page .versions-compact {
-  position: fixed;
-  /* Rounded FLOATING section (matches the project tabs / .pjd-compact): inset
-     past the sidebar with a matching right gap, seated flush under the title bar
-     (the chromeless Versions route has --sv-chrome-h = 0). */
-  top: calc(var(--titlebar-h, 0px) + var(--chrome-inset, 6.4px) + var(--sv-chrome-h, 0px));
-  /* No --content-left-gap term: the bar sits one --rail-gap off the sidebar
-     rail (its title lands at the content edge — see padding-left below),
-     matching Activity / Newsletter. */
-  left: calc(var(--sidebar-width, 0px) + var(--chrome-inset, 6.4px) + var(--rail-gap, 6.4px));
-  right: var(--chrome-inset, 6.4px);
-  z-index: 30;
-  height: 40px;
-  display: flex;
-  align-items: center;
-  gap: 6.4px;
-  padding: 0 17.6px 0 calc(17.6px - var(--rail-gap, 6.4px));
-  overflow: hidden;
-  /* Tight line boxes so the mixed-size title + eyebrow optically center in the
-     bar (inheriting the page's 1.5+ line-height pushed the text low, reading as
-     a gap at the top). */
-  line-height: 1;
-  /* Rounded floating card — the SIDEBAR's frosted surface (see
-     styles/miniHeader.css); spotlight + border shine via .mini-glow. */
-  border-radius: 9.6px;
-  background: color-mix(in srgb, var(--bg-page) 66%, transparent);
-  backdrop-filter: blur(6.4px);
-  -webkit-backdrop-filter: blur(6.4px);
-  border: 1.5px solid var(--border-flat);
-  box-shadow: var(--mini-seam-shadow);
-  opacity: 0;
-  transform: translateY(-8px);
-  pointer-events: none;
-  transition: opacity 240ms ease,
-              transform 240ms cubic-bezier(0.22, 1, 0.36, 1),
-              left 250ms ease;
-}
-/* At ≥1024px the content caps at --content-max-width (left-aligned), so the
-   mini header stops at the content's right edge instead of the window edge
-   (matches the project tabs). See AppShell.css for the derivation of this
-   right inset. */
-@media (min-width: 1024px) {
-  .updates-page .versions-compact {
-    /* Grown 11.2px past the content column's right edge (and the clamp down
-       from 17.6px to one --chrome-inset), so the bar reads a touch wider
-       than the content below it. */
-    right: max(6.4px, 100vw - var(--sidebar-width, 192px) - var(--chrome-inset, 6.4px) - var(--content-left-gap, 0px) - var(--content-max-width, 1280px) - 11.2px);
-  }
-}
-.updates-page .versions-compact.is-visible {
-  opacity: 1;
-  transform: translateY(0);
-  pointer-events: auto;
-}
 /* Title + separator + eyebrow group on the left; the status pill is pushed to
    the far right of the bar via .mini-head-status (margin-left: auto). */
 .updates-page .mini-head-text { display: inline-flex; align-items: center; }
 .updates-page .mini-head-status { margin-left: auto; flex-shrink: 0; }
-.updates-page .versions-compact-title {
-  font-family: var(--font-display);
-  font-size: 13.6px;
-  font-weight: 700;
-  letter-spacing: -0.01em;
-  color: var(--text-primary);
-}
-.updates-page .versions-compact-sep {
-  color: var(--text-muted);
-  font-weight: 600;
-  /* Breathing room on each side of the "middle circle". */
-  margin: 0 7px;
-}
-.updates-page .versions-compact-eyebrow {
-  font-size: 10.4px;
-  font-weight: 600;
-  color: var(--text-muted);
-  white-space: nowrap;
-}
-
-/* Status chip in the compact header — up to date (gray) or update available
-   (colour-coded by bump kind), mirroring the status banner / topbar pill. */
-.updates-page .versions-compact-status {
-  display: inline-flex;
-  align-items: center;
-  gap: 5.6px;
-  font-family: inherit;
-  font-size: 10px;
-  font-weight: 600;
-  padding: 3.2px 8.8px;
-  border-radius: 999px;
-  border: 1px solid var(--border-strong);
-  background: color-mix(in srgb, var(--text-primary) 6%, transparent);
-  color: var(--text-secondary);
-  white-space: nowrap;
-  cursor: pointer;
-  transition: filter 130ms ease, background 130ms ease, border-color 130ms ease;
-}
-.updates-page .versions-compact-status:hover {
-  filter: brightness(1.06);
-  border-color: color-mix(in srgb, currentColor 55%, transparent);
-}
-.updates-page .versions-compact-dot {
-  width: 5.6px;
-  height: 5.6px;
-  border-radius: 50%;
-  background: currentColor;
-  flex-shrink: 0;
-}
-.updates-page .versions-compact-status.is-update {
-  border-color: color-mix(in srgb, var(--cat-update) 45%, transparent);
-  background: color-mix(in srgb, var(--cat-update) 12%, transparent);
-  color: var(--cat-update);
-}
-.updates-page .versions-compact-status.is-major {
-  border-color: color-mix(in srgb, var(--danger) 45%, transparent);
-  background: color-mix(in srgb, var(--danger) 12%, transparent);
-  color: var(--danger-soft);
-}
-.updates-page .versions-compact-status.is-minor {
-  border-color: color-mix(in srgb, var(--info-soft) 45%, transparent);
-  background: color-mix(in srgb, var(--info-soft) 12%, transparent);
-  color: var(--info-soft);
-}
-.updates-page .versions-compact-status.is-patch {
-  border-color: color-mix(in srgb, var(--teal-soft) 45%, transparent);
-  background: color-mix(in srgb, var(--teal-soft) 12%, transparent);
-  color: var(--teal-soft);
-}
 
 .updates-page .updates-body {
   display: flex;
@@ -813,3 +685,72 @@
   .updates-page .rail-rail .rel-row { --railw: 76.8px; --linex: 62.4px; }
   .updates-page .rail-label { width: calc(var(--linex) - 9.6px); }
 }
+
+/* =========================================================================
+   THE DESIGN SYSTEM'S RULES (Design system tab; src/styles/designSystem.css)
+   The release cards stand on the page ground — no fill, no shadow, a
+   hairline frame at the card radius; every pill the ONE soft recipe
+   (a tint and a ring of its tone, the text in it, sentence case — none
+   filled); buttons the gallery's button; hovers a NEUTRAL wash of the text
+   colour (--bg-elevated reads blue on Ink); the banner a callout (a hairline
+   box, no fill). Colour stays with tokens.css.
+   ========================================================================= */
+.updates-page .card {
+  background: var(--ds-card-fill, transparent);
+  box-shadow: var(--ds-card-shadow, none);
+  border: 1px solid var(--ds-hairline, var(--border));
+  border-radius: var(--ds-card-radius, 14px);
+}
+.updates-page .card.is-latest { border-color: color-mix(in srgb, var(--success) 45%, var(--ds-hairline, var(--border))); }
+.updates-page .card.is-installed { border-color: color-mix(in srgb, var(--accent) 55%, var(--ds-hairline, var(--border))); }
+.updates-page .card-foot { border-top-color: var(--ds-hairline, var(--border)); }
+
+.updates-page .disclose { border-radius: var(--ds-control-radius, 4.8px); }
+.updates-page .disclose:hover { background: color-mix(in srgb, var(--text-primary) 7%, transparent); }
+
+/* Pills — the soft recipe. */
+.updates-page .pill {
+  --pill-tone: var(--text-secondary);
+  display: inline-flex; align-items: center;
+  height: var(--ds-pill-h, 20px); padding: 0 var(--ds-pill-pad, 9px); line-height: 1;
+  border-radius: var(--ds-pill-radius, 999px);
+  font-size: var(--ds-tag-size, 10.4px); font-weight: var(--ds-pill-weight, 650);
+  letter-spacing: var(--ds-tag-tracking, 0.01em); text-transform: none;
+  color: var(--pill-tone);
+  background: color-mix(in srgb, var(--pill-tone) var(--ds-pill-tint, 14%), transparent);
+  border: 1px solid color-mix(in srgb, var(--pill-tone) var(--ds-pill-ring, 45%), transparent);
+}
+.updates-page .pill-latest,
+:root[data-theme="ink"] .updates-page .pill-latest { --pill-tone: var(--success); color: var(--pill-tone); background: color-mix(in srgb, var(--pill-tone) var(--ds-pill-tint, 14%), transparent); border-color: color-mix(in srgb, var(--pill-tone) var(--ds-pill-ring, 45%), transparent); }
+.updates-page .pill-installed { --pill-tone: var(--accent); }
+.updates-page .kind-major { --pill-tone: var(--danger); }
+.updates-page .kind-minor { --pill-tone: var(--info); }
+.updates-page .kind-patch { --pill-tone: var(--teal-soft, var(--success)); }
+.updates-page .kind-pre { --pill-tone: var(--warning); }
+
+/* Buttons — the gallery's button. */
+.updates-page .btn,
+.updates-btn {
+  height: 30px; padding: 0 12px; gap: 6px;
+  border: 1px solid var(--ds-hairline, var(--border));
+  border-radius: var(--ds-row-radius, 8px);
+  background: var(--ds-card-fill, transparent);
+  color: var(--text-primary);
+  font-size: 12px; font-weight: 600;
+}
+.updates-page .btn:hover:not(:disabled),
+.updates-btn:hover:not(:disabled) { background: color-mix(in srgb, var(--text-primary) 7%, transparent); border-color: var(--border-strong); }
+.updates-btn-primary { background: var(--accent); border-color: var(--accent); color: var(--text-on-accent); }
+.updates-btn-primary:hover:not(:disabled) { background: var(--accent-hover); border-color: var(--accent-hover); }
+
+/* The banner — the callout: a hairline box, no fill. */
+.updates-banner {
+  background: transparent;
+  box-shadow: none;
+  border-color: var(--ds-hairline, var(--border));
+  border-radius: var(--ds-row-radius, 8px);
+}
+
+/* Release notes' tables: the header row on the control tint. */
+.updates-page .md th { background: color-mix(in srgb, var(--text-primary) var(--ds-control-tint, 4%), transparent); }
+.updates-page .md th, .updates-page .md td { border-color: var(--ds-hairline, var(--border)); }

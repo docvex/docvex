@@ -70,11 +70,10 @@ export default function SecurityInfoModal({ onClose }) {
           <ul className="sec-list">
             <li>Project files live in a folder you choose. DocVex has <strong>no cloud file store</strong> — nothing is uploaded when you open, edit or organise them.</li>
             <li>Two cloud features are off until you switch them on: <strong>Sync with account</strong> keeps a copy of a project in private EU storage that only its members can read, and <strong>phone upload through the DocVex cloud</strong> holds a file only until this computer has received it.</li>
-            <li>What DocVex works out about your files (text read out of documents, AI conversations, face measurements), the placeholder table and the thumbnail cache are <strong>encrypted on this computer</strong> with a key kept by Windows / macOS. Turn on BitLocker or FileVault to protect the case files themselves.</li>
+            <li>What DocVex works out about your files (text read out of documents, AI conversations), the placeholder table and the thumbnail cache are <strong>encrypted on this computer</strong> with a key kept by Windows / macOS. Turn on BitLocker or FileVault to protect the case files themselves.</li>
             <li>Deleting a file moves it to a local recycle bin for 30 days, on your disk.</li>
             <li>The app refuses system locations and only writes in the folders you opened. Paths are resolved through their real location, so a shortcut can’t be used to reach the rest of your drive.</li>
             <li>Links open in your normal browser, and only ever <code>http</code> / <code>https</code>.</li>
-            <li>Face matching (off by default) compares faces <strong>on this computer only</strong>. Face data is biometric data: it is never uploaded, never sent to an AI provider and never synced to your account.</li>
           </ul>
         </section>
 
@@ -93,8 +92,7 @@ export default function SecurityInfoModal({ onClose }) {
         <section className="sec-section">
           <h3 className="sec-h3">When AI is used — and what it sees</h3>
           <p className="sec-note">
-            AI runs only when you ask it to, or when you switch on automatic understanding of new files
-            for a project. What does get sent goes to the providers’ <strong>business APIs</strong> in the
+            AI runs only when you ask it to. What does get sent goes to the providers’ <strong>business APIs</strong> in the
             United States, whose terms exclude your data from training their models; it is held roughly
             30 days for abuse monitoring and then deleted. The table that turns placeholders back into
             real names never leaves this computer.

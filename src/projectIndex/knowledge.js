@@ -13,10 +13,10 @@ import crypto from 'node:crypto';
 import { readJson, writeJsonAtomic } from './atomic.js';
 import { SEALED_EXT, isFolderKey, isSealedFolderJson, openFromFolder, sealForFolder } from './folderSeal.js';
 
-// Kinds that must never leave this machine. `faces` holds face descriptors
-// (biometric data): the AI data layer marks them `local: true` and account
-// sync already leaves them out — a shard in the case folder would ship them
-// with every copy of the folder instead.
+// Kinds that must never leave this machine. `faces` held face descriptors
+// (biometric data) for the face matching that was REMOVED (2026-10-02): nothing
+// writes them any more, but an index may still hold old rows, and they must
+// never be copied into a case folder or synced.
 export const LOCAL_KINDS = new Set(['faces']);
 
 export const isShaHex = (s) => typeof s === 'string' && /^[0-9a-f]{64}$/.test(s);

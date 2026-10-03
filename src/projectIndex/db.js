@@ -198,8 +198,20 @@ export class IndexDb {
     }
     return out;
   }
-  putKnowledge(hash, kind, facet, local) { this.s.putKnowledge.run(hash, kind, sealJson(facet), local ? 1 : 0); }
+  // Without the index key (no OS key store) knowledge and private rows are
+  // NOT persisted — they would be written in the clear (security audit
+  // 2026-10-01). The renderer keeps them in memory for the session.
+  putKnowledge(hash, kind, facet, local) {
+    if (!hasIndexKey()) return;
+    this.s.putKnowledge.run(hash, kind, sealJson(facet), local ? 1 : 0);
+  }
   clearKnowledge(hash, kind) { this.s.clearKnowledge.run(hash, kind); }
+  // The content hashes knowledge is kept for, and dropping one hash's facets
+  // (the orphan sweep, index.js knowledgeGc).
+  knowledgeHashes() { return this.db.prepare('SELECT DISTINCT hash FROM knowledge').all().map((r) => r.hash); }
+  clearKnowledgeHash(hash) { return Number(this.db.prepare('DELETE FROM knowledge WHERE hash = ?').run(hash).changes) || 0; }
+  // Every facet of every file (Clear file data). → how many rows went.
+  clearAllKnowledge() { return Number(this.db.prepare('DELETE FROM knowledge').run().changes) || 0; }
 
   getSetting(store) {
     const r = this.s.getSetting.get(store);
@@ -218,7 +230,7 @@ export class IndexDb {
   putPrivate(user, key, value, at) {
     // undefined OR null deletes: the renderer's stores delete by putting null.
     if (value === undefined || value === null) this.s.deletePrivate.run(user, key);
-    else this.s.putPrivate.run(user, key, sealJson(value), at);
+    else if (hasIndexKey()) this.s.putPrivate.run(user, key, sealJson(value), at);
   }
   listPrivate(user, prefix = '') {
     return this.s.listPrivate.all(user, prefix, prefix).map((r) => {

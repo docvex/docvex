@@ -4,8 +4,20 @@
 .ai-ctrls-model { display: inline-flex; align-items: center; }
 .ai-ctrls-model .lg-kind { height: 25.6px; }
 .ai-ctrls-files.tgl, .ai-ctrls-files .tgl { height: 25.6px; box-sizing: border-box; }
-.ai-ctrls-style { display: inline-flex; align-items: center; }
-.ai-ctrls .ai-ctrls-style .lg-kind { height: 25.6px; }
 /* In Research's mini header the style picker stands right before the search
    (the search's own margin-left:auto is used up by this one). */
-.lgt-line2 .ai-ctrls-style.is-bar { margin-left: auto; }
+
+/* AiNotice: a quiet "i" once read; a highlighted pill until then. */
+.ai-ctrls-notice {
+  height: 25.6px; min-width: 25.6px; padding: 0 8px; box-sizing: border-box;
+  display: inline-grid; place-items: center;
+  border: 1px solid var(--ds-hairline, var(--border)); border-radius: 999px;
+  background: transparent; color: var(--text-secondary);
+  font: inherit; font-size: 11.5px; font-weight: 600; cursor: pointer;
+}
+.ai-ctrls-notice:hover { background: color-mix(in srgb, var(--text-primary) 7%, transparent); color: var(--text-primary); }
+.ai-ctrls-notice.is-new {
+  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  color: var(--accent);
+}

@@ -113,3 +113,19 @@ html.dv-focus-moving .tooltip {
   transition: opacity 120ms ease, transform 45ms ease-out;
 }
 :root[data-reduce-motion='true'] .tooltip.is-out { transition: none; }
+
+/* The SELECTED TEXT pill (components/SelectionTooltip, the Doc Viewer): the
+   same pill, but it wraps — at most four lines, cut with "…" — and is a little
+   wider than a hint needs. Two lines or more get the multi-line radius above. */
+.tooltip.dv-sel-tooltip {
+  white-space: normal;
+  max-width: 320px;
+  overflow-wrap: anywhere;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 4;
+  overflow: hidden;
+  line-height: 1.35;
+  /* Placed once, under the selection — it does not chase anything. */
+  transition: none;
+}

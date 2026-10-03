@@ -1,7 +1,8 @@
 // OCR (text extraction) for the DocViewer's "Extract text" selection tool
 // on photos and paused video frames.
 //
-// The cropped selection is sent to the `doc-ai` Edge Function (task "ocr"),
+// The cropped selection is sent — its identifiers painted over with vault
+// tokens first, see below — to the `doc-ai` Edge Function (task "ocr"),
 // where Claude transcribes it — the Anthropic key stays server-side and the
 // call rides the user's Supabase session like every other doc-ai task.
 import { supabase } from './supabaseClient';
@@ -29,13 +30,31 @@ export const OCR_MAX_EDGE = 1568;
 export async function recognizeCanvas(canvas, onProgress, { cloud } = {}) {
   if (!(cloud ?? isCloudMediaAllowed())) return recognizeLocally(canvas, onProgress);
   onProgress?.({ label: 'Reading text…', progress: null });
+  // PSEUDONYMISED like every other AI call: the picture's identifiers are
+  // painted over with their vault tokens here (lib/pseudonymize/imageRedact)
+  // and the transcription is re-identified on the way back. A masked call that
+  // cannot be masked is not sent.
+  const { vaultForCall } = await import('./pseudonymize/transport');
+  const guard = await vaultForCall(undefined, 'ocr');
+  if (guard.error) throw new Error('The picture could not be protected on this computer, so it was not sent.');
+  if (guard.vault) {
+    const { redactCanvas } = await import('./pseudonymize/imageRedact');
+    const copy = document.createElement('canvas');
+    copy.width = canvas.width;
+    copy.height = canvas.height;
+    copy.getContext('2d').drawImage(canvas, 0, 0);
+    try { await redactCanvas(copy, guard.vault, guard.maskOpts); } catch {
+      throw new Error('The picture could not be protected on this computer, so it was not sent.');
+    }
+    canvas = copy;
+  }
   // JPEG keeps photo crops small (Claude caps images at ~5 MB); text stays
   // perfectly legible at this quality.
   const dataUrl = canvas.toDataURL('image/jpeg', 0.92);
   const image = dataUrl.slice(dataUrl.indexOf(',') + 1);
 
   const { data, error } = await supabase.functions.invoke('doc-ai', {
-    body: { task: 'ocr', image, mediaType: 'image/jpeg' },
+    body: { task: 'ocr', image, mediaType: 'image/jpeg', ...(guard.projectId ? { projectId: guard.projectId } : {}) },
   });
   if (error) throw new Error('Couldn’t reach the AI service — make sure you’re signed in and online.');
   if (!data?.ok) {
@@ -43,5 +62,6 @@ export async function recognizeCanvas(canvas, onProgress, { cloud } = {}) {
       ? 'The AI key isn’t configured on the server.'
       : 'The AI couldn’t read the selection — try again.');
   }
-  return (data.text || '').trim();
+  const text = (data.text || '').trim();
+  return guard.vault ? guard.vault.reidentify(text) : text;
 }

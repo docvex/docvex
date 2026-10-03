@@ -1,7 +1,6 @@
 import React, { startTransition, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import './Legislation.css';
-import PageMasthead from '../components/PageMasthead';
 import { LegalSearchBox } from '../components/LegalTabs';
 import { LegalBar, BarDice, BarPicker, BarInput, BarGo } from '../components/LegalBar';
 import Tooltip from '../components/Tooltip';
@@ -10,16 +9,15 @@ import { useMorphPill } from '../components/useMorphPill';
 import { refHitPill } from '../components/RefHitPill';
 import { findFollowableRefs, lawRefDetails, lawRefLabel } from '../lib/lawRefs';
 import { isElectron, openExternal } from '../lib/platform';
-import { askProjectAi } from '../lib/projectAi';
 import { recallPage, usePageMemory } from '../lib/pageMemory';
-import { logSearch, logOpen } from '../lib/legislationHistory';
-import { BinIcon } from '../components/HistoryMenu';
+import { BinIcon } from '../components/LegalWorkspace';
 import LegalWorkspace, { WorkspaceSearch } from '../components/LegalWorkspace';
 import { takeRecord } from '../lib/legalBrowser';
 import {
   LEGIS_TYPES, searchLegislation, searchLegislationPlain, loadAct, keepAct, listArchive, clearArchive, fetchActLive, sameAct, forgetLegislationSession,
   loadActPage, peekActPage, parseActHtml, actTreeStrings, legislationQueryFor,
-  parseActText, parseBoxTable, parseBoxDiagram, diagramStrings, actHeading, actLabel, formatBytes, fold,
+  parseActText, parseBoxTable, parseBoxDiagram, diagramStrings, actHeading, actLabel, fold,
+  portalTypeFor,
 } from '../lib/legislation';
 
 // Legislation — the national legislative portal, inside the app.
@@ -89,7 +87,8 @@ async function suggestTerms(words) {
   const prompt = 'A user is searching Romanian national legislation (legislatie.just.ro) and typed, in plain words: «' + words + '». '
     + 'Give up to 3 short Romanian phrases (2 to 5 words each) that the TITLE or TEXT of the acts they want would actually contain — legal terms as the law writes them, with diacritics, most likely first. '
     + 'Answer with a JSON array of strings only, nothing else.';
-  const res = await askProjectAi({ messages: [{ role: 'user', content: prompt }], tools: false, model: 'claude-sonnet-4-6', usageAction: 'legislation-search' });
+  const askAi = (await import('../lib/aiEngine')).askAi;
+  const res = await askAi({ surface: 'tool', messages: [{ role: 'user', content: prompt }], model: 'claude-sonnet-4-6', usageAction: 'legislation-search' });
   const m = /\[[\s\S]*\]/.exec(res?.text || '');
   if (!m) return [];
   try { const arr = JSON.parse(m[0]); return Array.isArray(arr) ? arr.filter((x) => typeof x === 'string') : []; } catch { return []; }
@@ -98,9 +97,6 @@ async function suggestTerms(words) {
 
 
 // The Kind field is the shared BarPicker (components/LegalBar) over LEGIS_TYPES.
-
-// The Kind of a history entry, as the form names it.
-const kindLabel = (tip) => LEGIS_TYPES.find((t) => t.id === tip)?.label || '';
 
 // The act's name as the portal writes it, with its state — "(republicată)",
 // "(*actualizată*)" — set in bold as the portal sets it.
@@ -714,7 +710,6 @@ export default function Legislation() {
     setSource(res.source);
     setPortalError(res.portalError || '');
     setFound(res.mode ? { mode: res.mode, terms: res.terms || [] } : null);
-    logSearch({ tip: q.tip, numar: q.numar, an: q.an, words: q.titlu, count: res.records.length, source: res.source });
     refreshLibrary();
     if (oneAct && (fixed || !words)) {
       // Through the ref: `open` is remade every render (it reads the
@@ -906,7 +901,6 @@ export default function Legislation() {
       // The reader has moved on: the answer goes into the session's item.
       if (res?.ok) {
         setTabs((t) => t.map((x) => (x.id === id ? { ...x, state: { ...x.state, act: res.act, actSource: res.source || '', actSync: { state: res.source === 'live' ? 'same' : '', live: null }, actHtml: '' } } : x)));
-        logOpen(res.act);
         if (res.source === 'live') { await keepAct(res.act); refreshLibrary(); }
       }
       return;
@@ -918,7 +912,6 @@ export default function Legislation() {
     setActSync({ state: res.source === 'live' ? 'same' : '', live: null });
     // The page too — the portal's, this machine's copy when it cannot answer.
     fetchPage(res.act, res.source === 'live');
-    logOpen(res.act);
     if (res.source === 'live') { await keepAct(res.act); refreshLibrary(); }
     { const el = scroller(); if (el) el.scrollTop = 0; }
   };
@@ -1065,6 +1058,8 @@ export default function Legislation() {
           kind: a ? (a.tipAct || 'Act') : 'Opening…',
           title: a?.numar ? `nr. ${a.numar}${a.year ? `/${a.year}` : ''}` : '',
           tip: a?.title ? `${label} — ${a.title}` : label,
+          // Its address: kept in the one list and opened again from it.
+          href: a?.numar ? `/legislation?${new URLSearchParams({ ...(portalTypeFor(a.tipAct) ? { tip: portalTypeFor(a.tipAct) } : {}), nr: String(a.numar), ...(a.year ? { an: String(a.year) } : {}), open: '1' }).toString()}` : '',
         };
       })}
       activeId={activeTab}
@@ -1073,37 +1068,21 @@ export default function Legislation() {
       onSearch={leaveToResults}
       onReload={reload}
       railLabel="Acts open in this tab"
-      masthead={(
-        <PageMasthead
-          eyebrow="Portalul legislativ"
-          eyebrowMuted="source: legislatie.just.ro"
-          title="Legislation"
-          compact={false}
-          actions={(
-            <div className="lg-mast-meta">
-              <div>
-                <div className="lg-mast-num">{library.acts.length}</div>
-                <div>Kept here</div>
-              </div>
-              <span className="lg-mast-sep" />
-              <div>
-                <div className="lg-mast-num">{formatBytes(library.bytes)}</div>
-                <div>On this machine</div>
-              </div>
-            </div>
-          )}
-        >
-          Romanian legislation, searched through the Ministry of Justice’s own web service and read
-          here as a laid-out document — every act you open is kept on this machine, so it is still
-          there when the portal is not.
-        </PageMasthead>
-      )}
       // WITH AN ACT OPEN the mini header's second line is the act's: the
       // words box finds inside its text. The search itself — the bar and the
       // words box — is the Search item's (drawn at the head of the search
       // view, below). The status pill: where what is on show came from AND
       // the way out to the portal.
       bar={{
+        // Forget what this tab keeps on this machine.
+        trailing: (
+          <Tooltip content={library.acts.length ? 'Forget every act kept whole on this machine' : 'No act is kept on this machine'}>
+            <button type="button" className="lgt-tool-btn is-danger" disabled={!library.acts.length} onClick={async () => { await clearArchive(); refreshLibrary(); }}>
+              <span className="lgt-tool-ico">{BinIcon}</span><span>Kept acts</span>
+            </button>
+          </Tooltip>
+        
+        ),
         status: (act ? actSource : results && source) ? (() => {
           // A kept copy that IS what the portal has is as good as live, and
           // says so with the one pill; only a copy that differs (or one not
@@ -1146,42 +1125,6 @@ export default function Legislation() {
           find: { current: total ? at + 1 : 0, total, prev: () => step(-1), next: () => step(1) },
         } : null,
         noSearch: !act,
-      }}
-      // History — the shared button over this tab's log; a search entry
-      // runs again, an act entry opens again; "Kept acts" in its head
-      // forgets the archive's acts.
-      history={{
-        tab: 'legislation',
-        tip: 'Every search run and every act opened, with the time',
-        emptyText: 'Nothing yet. Every search you run and every act you open is listed here.',
-        renderEntry: (e) => (e.kind === 'search' ? (
-          <>
-            {kindLabel(e.tip) ? <span className="lg-hist-kind">{kindLabel(e.tip)} </span> : null}
-            {e.numar ? `nr. ${e.numar}` : ''}{e.an ? `${e.numar ? '/' : 'din '}${e.an}` : ''}
-            {e.words ? `${e.numar || e.an || kindLabel(e.tip) ? ' · ' : ''}“${e.words}”` : ''}
-            {!e.numar && !e.an && !e.words && !kindLabel(e.tip) ? 'Everything' : ''}
-            <span className="lg-hist-dim"> · {e.count} {e.count === 1 ? 'result' : 'results'}{e.source === 'archive' ? ' · from this machine' : ''}</span>
-          </>
-        ) : (
-          <>
-            <span className="lg-hist-kind">{actLabel(e.rec)}</span>
-            {e.rec?.title ? <span className="lg-hist-dim"> — {e.rec.title}</span> : null}
-          </>
-        )),
-        onPick: (e) => {
-          if (e.kind === 'search') {
-            const q = { tip: e.tip || '', numar: e.numar || '', an: e.an || '', titlu: e.words || '', text: '' };
-            setQuery(q); leaveToResults();
-            run(q);
-          } else if (e.rec) open(e.rec);
-        },
-        extra: (
-          <Tooltip content={library.acts.length ? 'Forget every act kept whole on this machine' : 'No act is kept on this machine'}>
-            <button type="button" className="lgt-tool-btn is-danger" disabled={!library.acts.length} onClick={async () => { await clearArchive(); refreshLibrary(); }}>
-              <span className="lgt-tool-ico">{BinIcon}</span><span>Kept acts</span>
-            </button>
-          </Tooltip>
-        ),
       }}
     >
       {act ? (

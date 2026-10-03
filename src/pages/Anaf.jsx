@@ -1,15 +1,13 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import './Anaf.css';
-import PageMasthead from '../components/PageMasthead';
 import LegalTabs, { LegalSearchBox } from '../components/LegalTabs';
-import LegalWorkspace, { WorkspaceSearch, WorkspaceClear, SourceStatus, KeptFigures } from '../components/LegalWorkspace';
-import { BinIcon } from '../components/HistoryMenu';
+import LegalWorkspace, { LegislationMasthead, WorkspaceSearch, WorkspaceClear, SourceStatus } from '../components/LegalWorkspace';
+import { BinIcon } from '../components/LegalWorkspace';
 import { LegalBar, BarDice, BarNote, BarGo } from '../components/LegalBar';
 import Tooltip from '../components/Tooltip';
 import { isElectron } from '../lib/platform';
 import { recallPage, usePageMemory } from '../lib/pageMemory';
-import { logHistory } from '../lib/tabHistory';
 import CaenModal from '../components/CaenModal';
 import {
   lookupCompanies, lookupCompaniesKept, checkCompany, keptStats, clearKept, onKeptChange, parseCuis, fmtDate, ANAF_MAX, companyBilant, euidOf, longDate, ageOf } from '../lib/anaf';
@@ -134,9 +132,6 @@ export default function Anaf() {
     if (res.companies.length === 1) openCompany(res.companies[0]); else setActiveCo(null);
     // The tab's history: the lookup, then — for a short list — each company
     // it found, as the answers (a hundred at once would drown the log).
-    const n = res.companies.length;
-    logHistory('anaf', { kind: 'search', label: cuis.length === 1 ? `CUI ${cuis[0]}` : `${cuis.length} CUIs`, detail: `${n} ${n === 1 ? 'company' : 'companies'}`, data: { text: cuis.join(' ') } });
-    if (n <= 5) for (const c of res.companies) logHistory('anaf', { kind: 'open', label: c.name || String(c.cui), detail: `CUI ${c.cui}`, data: { text: String(c.cui) }, dedupe: `o:${c.cui}` });
   }, [openCompany]);
   runRef.current = run;
 
@@ -212,38 +207,11 @@ export default function Anaf() {
     />
   );
 
-  const masthead = (
-    <PageMasthead
-      eyebrow="Company tax data"
-      eyebrowMuted="source: anaf.ro"
-      title="ANAF"
-      compact={false}
-      actions={(
-        <KeptFigures
-          count={kept.count}
-          bytes={kept.bytes}
-          lead={answer ? (
-            <>
-              <div>
-                <div className="lg-mast-num">{fmtDate(answer.asOf)}</div>
-                <div>As of</div>
-              </div>
-              <span className="lg-mast-sep" />
-            </>
-          ) : null}
-        />
-      )}
-    >
-      A company’s record as ANAF holds it today — registration, registered office, CAEN code,
-      VAT and inactivity states — for one CUI or a list pasted from a spreadsheet, so you know
-      who you are signing with.
-    </PageMasthead>
-  );
 
   if (!isElectron) {
     return (
       <div className="lws an-page">
-        {masthead}
+        <LegislationMasthead />
         <LegalTabs />
         <div className="an-empty">
           <p className="an-empty-title">Only in the desktop app</p>
@@ -326,12 +294,12 @@ export default function Anaf() {
         data: shown.raw || shown,
         note: shown.raw ? '' : 'This copy was kept before ANAF’s own answer was — reload to see it as ANAF gives it.',
       } : null}
-      masthead={masthead}
       items={open.map((o) => ({
         id: o.id,
         kind: o.c.legalForm || 'Company',
         title: o.c.name || `CUI ${o.c.cui}`,
         tip: `${o.c.name || '—'} — CUI ${o.c.cui}`,
+        href: o.c.cui ? `/anaf?cui=${encodeURIComponent(o.c.cui)}` : '',
       }))}
       activeId={activeCo}
       onSelect={setActiveCo}
@@ -339,23 +307,15 @@ export default function Anaf() {
       onClose={(id) => { setOpenList((list) => list.filter((o) => o.id !== id)); if (id === activeCo) setActiveCo(null); }}
       onSearch={() => setActiveCo(null)}
       railLabel="Companies open in this tab"
-      // History — this tab's log (components/HistoryMenu): a lookup runs
-      // again, a company is looked up again by its CUI.
-      history={{
-        tab: 'anaf',
-        tip: 'Every lookup run and every company found, with the time',
-        extra: (
+      // No find in this tab: the lookup is the main column's (below).
+      bar={{ noSearch: true, status, trailing: (
           <Tooltip content={kept.count ? 'Forget every company kept on this machine' : 'No company is kept on this machine'}>
             <button type="button" className="lgt-tool-btn is-danger" disabled={!kept.bytes} onClick={clearKept}>
               <span className="lgt-tool-ico">{BinIcon}</span><span>Kept companies</span>
             </button>
           </Tooltip>
-        ),
-        emptyText: 'Nothing yet. Every lookup you run and every company it finds is listed here.',
-        onPick: (e) => { const t = e.data?.text || ''; if (!t) return; setText(t); run(t); },
-      }}
-      // No find in this tab: the lookup is the main column's (below).
-      bar={{ noSearch: true, status }}
+        
+      ) }}
     >
       {shown ? (
         // ── One company open ─────────────────────────────────────────────

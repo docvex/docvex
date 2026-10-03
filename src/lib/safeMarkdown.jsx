@@ -25,7 +25,7 @@ export function safeUrlTransform(url) {
   return '';
 }
 
-function SafeLink({ href, children }) {
+export function SafeLink({ href, children }) {
   if (!href || href.startsWith('#')) return <span className="md-link-text">{children}</span>;
   const onClick = (e) => {
     e.preventDefault();

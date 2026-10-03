@@ -9,7 +9,7 @@ import './Toggle.css';
 // like the sidebar); the ACCENT only on the knob and a tint of it on its
 // track while it is on; the track faded while off; the sidebar items'
 // spotlight following the pointer on hover.
-export default function Toggle({ on, onChange, label, tip = null, className = '' }) {
+export default function Toggle({ on, onChange, label, tip = null, className = '', disabled = false, ariaLabel }) {
   // The spotlight: the pointer's place over the switch, as --item-spot-x/y,
   // written by the app's one pointer (lib/pointer).
   useEffect(() => registerHoverSpot('.tgl'), []);
@@ -18,6 +18,8 @@ export default function Toggle({ on, onChange, label, tip = null, className = ''
       type="button"
       role="switch"
       aria-checked={!!on}
+      aria-label={ariaLabel}
+      disabled={disabled}
       className={`tgl${on ? ' is-on' : ''}${className ? ` ${className}` : ''}`}
       onClick={() => onChange?.(!on)}
     >

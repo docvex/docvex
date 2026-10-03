@@ -56,7 +56,7 @@ export async function getCachedPdf(storagePath, signedUrl) {
 
   const loadPromise = (async () => {
     const pdfjs = await loadPdfModule();
-    const doc = await pdfjs.getDocument({ url: signedUrl }).promise;
+    const doc = await pdfjs.getDocument({ url: signedUrl, isEvalSupported: false }).promise;
     _pdfCache.set(storagePath, doc);
 
     // Evict oldest while over cap. Map iteration order is insertion order,

@@ -74,13 +74,13 @@ export function setWorkspaceSimulation(on) {
 export const workspaceSimulation = () => simOn;
 
 const sameItems = (a, b) => a.length === b.length
-  && a.every((x, i) => x.id === b[i].id && x.kind === b[i].kind && x.title === b[i].title && x.tip === b[i].tip);
+  && a.every((x, i) => x.id === b[i].id && x.kind === b[i].kind && x.title === b[i].title && x.tip === b[i].tip && x.href === b[i].href);
 
 /** A tab's current list. Cheap when nothing changed (no emit). */
 export function publishWorkspace(route, { items = [], activeId = null }) {
   const prev = lists.get(route);
   if (prev && prev.activeId === activeId && sameItems(prev.items, items)) return;
-  lists.set(route, { items: items.map(({ id, kind, title, tip }) => ({ id, kind, title, tip })), activeId });
+  lists.set(route, { items: items.map(({ id, kind, title, tip, href }) => ({ id, kind, title, tip, href })), activeId });
   emit();
 }
 

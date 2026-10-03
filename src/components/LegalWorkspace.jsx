@@ -1,58 +1,25 @@
-import React, { useCallback, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react';
+import React, { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import './LegalWorkspace.css';
-import LegalTabs, { RailToggle, LEGAL_TABS } from './LegalTabs';
-import { useTabSetting, InfoButton } from './LegalOmnibox';
-import { useGo, useBrowserKeys, AddressRow, TabRail, TabStrip, TabMenu, NewTabPage, SerpPage, SerpScopes, HistoryPage, ClearHistoryButton, useSerp, ROOT_ROUTES } from './LegalBrowser';
-import { curPage, applyPage, consumeExpected, arrive, arrivalLabel, reportItems, registerReloader, endSwitch, selectTab, browserState, subscribeBrowser, showRoot, isRootOn } from '../lib/legalBrowser';
-import { listArchive } from '../lib/legislation';
+import LegalTabs, { LEGAL_TABS } from './LegalTabs';
+import { ViewModeToggle } from './LegalBrowser';
 import PageMasthead from './PageMasthead';
-import { useChatFind } from '../lib/useChatFind';
 import Tooltip from './Tooltip';
 import { useItemSpots } from './DocRibbon';
 import { toLayoutPx } from '../lib/appZoom';
 import { openExternal } from '../lib/platform';
-import { useLocation } from 'react-router-dom';
-import { publishWorkspace, registerWorkspace } from '../lib/workspaceItems';
+import { useLocation, useNavigate } from 'react-router-dom';
+import { publishWorkspace, registerWorkspace, requestWorkspace, subscribeWorkspaces, workspacesSnapshot } from '../lib/workspaceItems';
+import { syncSourceItems } from '../lib/legislationEntries';
+import { researchStore } from '../lib/researchChats';
+import AskRail, { ASK_RAIL_WIDTH_KEY, ASK_RAIL_MIN, ASK_RAIL_MAX, ASK_RAIL_DEFAULT, readAskRailWidth, useAskRailState, AskRailToggle } from './AskRail';
+import { PLATFORMS } from '../lib/legalBrowser';
 import { registerHoverSpot } from '../lib/pointer';
 import { useRailSpotlight } from '../lib/pointerSpots';
 import { useLegalViewMode } from '../lib/legalViewMode';
 
-// The Legislation tabs' WORKSPACE — how the legislatie.just.ro tab is laid
-// out, made the one frame every source tab stands in (the Newsletter keeps
-// its own editorial layout):
-//
-//   masthead
-//   the tab bar (LegalTabs) — its second line opening with SEARCH (the way
-//     back to the search and its answers, lit while they are on show) and
-//     History (the clock alone), then the page's own tools
-//   ┌ rail ┐┌ main ─────────────────────────────┐
-//   │ item ││ the search, or the item open       │
-//   │ item ││                                    │
-//   └──────┘└────────────────────────────────────┘
-//
-// What the tab has OPEN — one item per act, court file, company, CAEN class,
-// the active one lit, each closable — is NOT drawn here any more: it is
-// published (lib/workspaceItems) to the APP SIDEBAR, which lists every tab's
-// items in a dropdown under its Legislation entry, one block per tab. The
-// page still hands `items` / `activeId` / `onSelect` / `onClose` exactly as
-// before; this component publishes them and answers the sidebar's requests.
-// (`WorkspaceRail` below is kept for the Design system gallery.)
-//
-// The former in-page RAIL, for reference:
-// It is sticky under the mini header and runs to the window's foot, frosts
-// on the very render the bar pins (LegalTabs' `onPinnedChange`), carries the
-// app sidebar's spotlight, and its divider is a drag handle (width kept per
-// device, shared by every tab so the Search control above it — whose width
-// is the rail's — lines up on all of them).
-//
-// A page hands it: `masthead`; `bar` (LegalTabs' props — search, status,
-// trailing, noSearch; `bar.tools` stands after Search + History); `history`
-// (HistoryButton's props, drawn as the clock beside Search); `items`
-// ([{ id, kind, title, tip }]: the small-caps line and the main line),
-// `activeId` (null = the search is on show), `onSelect(id)`, `onClose(id)`,
-// `onSearch()` (Search pressed); `className` (the page's own root class,
-// for its own rules); `rootRef` (the page's ref on the root);
-// children = the main column.
+// The frame every Legislation tab stands in — see LegalWorkspace (below) for
+// its layout. The other exports are the pieces the platform pages draw with:
+// the search view, the rail of what is open, the source pill, the figures.
 
 export const RAIL_W_KEY = 'docvex:legislation:rail-w';
 export const RAIL_W_DEFAULT = 236;
@@ -69,11 +36,6 @@ const CloseIcon = (
     <path d="M6 6l12 12M18 6L6 18" />
   </svg>
 );
-
-const loadRailW = () => {
-  try { const v = Number(localStorage.getItem(RAIL_W_KEY)); return v >= RAIL_W_MIN && v <= RAIL_W_MAX ? v : RAIL_W_DEFAULT; } catch { return RAIL_W_DEFAULT; }
-};
-const saveRailW = (w) => { try { localStorage.setItem(RAIL_W_KEY, String(w)); } catch { /* storage refused */ } };
 
 /** SEARCH, in the mini header — the far left of its second line, the act
  *  find's size, lit while the search is on show. */
@@ -128,13 +90,16 @@ export function SourceStatus({ source, sync = '', href, tip, onSync, liveLabel =
   const site = LEGAL_TABS.find((t) => t.to === pathname)?.label || 'the portal';
   liveLabel = liveLabel || `Live from ${site}`;
   if (!source) return null;
-  const src = sync === 'same' ? 'live' : source;
+  // `backup:<provider>` — an answer from a backup service (court files: the
+  // portal could not answer, so EasyAPI or DosarJust did). Drawn as a copy is.
+  const backup = String(source).startsWith('backup:') ? String(source).slice(7) : '';
+  const src = sync === 'same' ? 'live' : backup ? 'archive' : source;
   return (
     <>
-      <Tooltip content={tip || 'Open the source in the browser'}>
+      <Tooltip content={backup ? `${site} could not answer, so this came from ${backup}, a backup service — it may be a little behind` : (tip || 'Open the source in the browser')}>
         <button type="button" className={`lgt-status-pill is-${src}`} onClick={() => href && openExternal(href)}>
           {sync === 'same' ? <span className="lgt-status-ico">{TickGlyph}</span> : null}
-          <span>{src === 'live' ? liveLabel : archiveLabel}</span>
+          <span>{src === 'live' ? liveLabel : backup ? `From ${backup} (backup)` : archiveLabel}</span>
           {href ? <span className="lgt-status-ico">{ExternalGlyph}</span> : null}
         </button>
       </Tooltip>
@@ -169,6 +134,13 @@ export function KeptFigures({ count, bytes, label = 'Kept here', lead = null }) 
   );
 }
 
+// A bin — the pages' "Kept …" buttons (forget the copies kept on this machine).
+export const BinIcon = (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <path d="M4 7h16" /><path d="M10 11v6M14 11v6" /><path d="M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12" /><path d="M9 7V4h6v3" />
+  </svg>
+);
+
 // The search view's Clear: an eraser.
 export const ClearGlyph = (
   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -188,18 +160,44 @@ export function WorkspaceClear({ onClick, disabled, tip = 'Clear the search — 
 }
 
 /** THE SEARCH VIEW, as every source tab draws it. Before anything is asked
- *  (`asked` false) it is the tabs' EMPTY STATE — a bare thin-stroke mark, a
- *  title, a muted line, centred — holding the ways to search STACKED at a
- *  larger size, "or" between them, each labelled over and hinted under
+ *  (`asked` false) it is the tab's EMPTY STATE — a thin-stroke mark, a title,
+ *  a muted line, centred — holding the ways to search STACKED at a larger
+ *  size, "or" between them, each labelled over and hinted under
  *  (`modes: [{ id, label, hint?, node }]`), and `foot` (Clear, the bar's
  *  note) under them. Once there is an answer the same controls stand as one
- *  compact row over it. */
-// Before anything is asked a platform page shows nothing of its own — the
-// tabs' new-tab page is where a search starts. Once there is an answer, its
-// foot (Clear, the bar's note) stands over the answer.
-export function WorkspaceSearch({ asked, foot = null }) {
-  if (!asked) return null;
-  return foot ? <div className="lgb-foot">{foot}</div> : null;
+ *  compact row over it. (Restored 2026-10-02: with the Legislation browser
+ *  retired, each source tab is searched from its own page again.) */
+export function WorkspaceSearch({ asked, title = '', sub = '', modes = [], foot = null }) {
+  if (!asked) {
+    return (
+      <div className="lg-start">
+        <div className="lg-start-mark" aria-hidden="true">{SearchMark}</div>
+        {title ? <h2 className="lg-start-title">{title}</h2> : null}
+        {sub ? <p className="lg-start-sub">{sub}</p> : null}
+        {modes.length ? (
+          <div className="lg-start-modes">
+            {modes.map((m, i) => (
+              <React.Fragment key={m.id || i}>
+                {i > 0 ? <p className="lg-start-or">or</p> : null}
+                <div className="lg-start-mode">
+                  {m.label ? <p className="lg-start-label">{m.label}</p> : null}
+                  {m.node}
+                  {m.hint ? <p className="lg-start-hint">{m.hint}</p> : null}
+                </div>
+              </React.Fragment>
+            ))}
+          </div>
+        ) : null}
+        {foot ? <div className="lg-start-foot">{foot}</div> : null}
+      </div>
+    );
+  }
+  return (
+    <div className="lg-searchrow">
+      {modes.map((m, i) => <React.Fragment key={m.id || i}>{m.node}</React.Fragment>)}
+      {foot}
+    </div>
+  );
 }
 
 /** The rail — presentational: the items, the resize handle, the spotlight.
@@ -300,541 +298,284 @@ export function WorkspaceRail({
   );
 }
 
-// ONE LEGISLATION TAB, AS A BROWSER (lib/legalBrowser, components/LegalBrowser):
-//
-//   the header ("Legislation", what is kept on this machine)
-//   the mini header: [the tabs, when they run along the top]
-//                    back · forward · the dice + THE search · where Enter goes · where it came from
-//                    the page's own line: its controls at the left, the find at the right
-//   ┌ tabs ┐┌ main ───────────────────────────────┐
-//   │ tab  ││ the new-tab page, one search's      │
-//   │ tab  ││ results on every platform, history, │
-//   │ …    ││ or the platform page's own item     │
-//   └──────┘└─────────────────────────────────────┘
-//
-// Every platform is still a page of its own (/legislation, /portal-just,
-// /anaf, /caen), each rendering this frame with its own `items` / `activeId`
-// / `onSelect` / `onClose` / `bar` / children. The frame publishes them
-// (lib/workspaceItems) and REPORTS them to the tabs: a tab showing one of
-// its items is bound to it, and an item the reader opens inside a page (a
-// citation, a row of the page's own list) becomes that tab's next page. A
-// link arriving from elsewhere (the Doc Viewer's "Read here", ANAF's Court
-// files, the Newsletter) becomes a page of the active tab. A page's own
-// `masthead` and `history` are no longer drawn: the header and the history
-// are the tabs'.
-const ARRIVAL_KEYS = ['_', 'open', 'nr', 'cui', 'code', 'parte', 'rid', 'q', 'tip', 'an'];
 
-// The tabs' state as the FRAME reads it. The frame only looks at which tab
-// is active, each tab's pages and place in them, the switch flag and the
-// layout — not at the address field's draft, a tab's loading spinner or its
-// pin, which the rows that draw them read for themselves. Every keystroke in
-// the address field is a store change, and re-rendering the whole frame
-// (masthead, mini header, rail) for it was the cost of typing there; so the
-// snapshot handed back stays the same object until something the frame
-// reads has changed.
-const sameFrame = (a, b) => a.active === b.active && a.switching === b.switching && a.layout === b.layout
-  && a.tabs.length === b.tabs.length
-  && a.tabs.every((t, i) => t.id === b.tabs[i].id && t.idx === b.tabs[i].idx && t.stack === b.tabs[i].stack);
-function useFrameBrowser() {
-  const last = useRef(null);
-  const get = useCallback(() => {
-    const now = browserState();
-    if (!last.current || (last.current !== now && !sameFrame(last.current, now))) last.current = now;
-    return last.current;
-  }, []);
-  return useSyncExternalStore(subscribeBrowser, get);
+// ── THE ONE SIDEBAR of the Legislation entry (2026-10-02) ─────────────────
+// Every tab of the entry shows the same list on its left: Ask's chats, then
+// what each source has open (its acts, court files, companies, CAEN codes —
+// published by the source pages through lib/workspaceItems, so the list
+// knows a tab's items while another tab is on show). A press goes to that
+// tab and opens the item there; × closes it. On Ask the list is Research's
+// own chat rail (with its drag, menu and resize) and these SOURCE GROUPS are
+// appended to it; on a source tab the whole of it is `LegislationRail`.
+const RailCloseGlyph = (
+  <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
+    <path d="M6 6l12 12M18 6L6 18" />
+  </svg>
+);
+
+function RailRow({ active, tone, kind, title, tip, onOpen, onClose, closeLabel = 'Close' }) {
+  return (
+    <div
+      role="tab"
+      aria-selected={active}
+      tabIndex={0}
+      className={`lg-rail-item lgb-rtab${active ? ' is-active' : ''}`}
+      onClick={onOpen}
+      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onOpen(); } }}
+      onAuxClick={(e) => { if (e.button === 1 && onClose) { e.preventDefault(); onClose(); } }}
+      onMouseDown={(e) => { if (e.button === 1) e.preventDefault(); }}
+    >
+      <Tooltip content={tip || title}>
+        <span className="lg-rail-title">
+          <span className="lg-rail-kind lgb-rtab-kind">
+            <span className="lgb-dot" style={{ '--tone': tone }} />
+            <span className="lgb-rtab-kindtext">{kind}</span>
+          </span>
+          <span className="lg-rail-num">{title}</span>
+        </span>
+      </Tooltip>
+      {onClose ? (
+        <span className="lg-rail-actions">
+          <Tooltip content={closeLabel}>
+            <button type="button" aria-label={closeLabel} onClick={(e) => { e.stopPropagation(); onClose(); }}>{RailCloseGlyph}</button>
+          </Tooltip>
+        </span>
+      ) : null}
+    </div>
+  );
 }
 
+/** What each SOURCE has open, one group per source with something in it. */
+export function LegislationSourceGroups() {
+  const lists = useSyncExternalStore(subscribeWorkspaces, workspacesSnapshot);
+  const navigate = useNavigate();
+  const { pathname } = useLocation();
+  const groups = LEGAL_TABS
+    .map((t) => ({ t, list: lists?.[t.to] }))
+    .filter(({ list }) => list?.items?.length);
+  if (!groups.length) return null;
+  return groups.map(({ t, list }) => {
+    const tone = PLATFORMS[t.id]?.tone || 'var(--accent)';
+    return (
+      <React.Fragment key={t.id}>
+        <div className="lgb-rail-div" aria-hidden="true" />
+        <p className="lgw-rail-group">{t.label}</p>
+        {list.items.map((it) => (
+          <RailRow
+            key={it.id}
+            active={pathname === t.to && list.activeId === it.id}
+            tone={tone}
+            kind={it.kind || t.short || t.label}
+            title={it.title || it.kind || ''}
+            tip={it.tip}
+            onOpen={() => {
+              if (pathname !== t.to) navigate(t.to);
+              requestWorkspace(t.to, 'select', it.id);
+            }}
+            onClose={() => requestWorkspace(t.to, 'close', it.id)}
+          />
+        ))}
+      </React.Fragment>
+    );
+  });
+}
+
+/** THE one sidebar on a source tab: the Ask tab's own list (components/AskRail
+ *  — New research, the chats, what each source has open), its width shared
+ *  with Ask's and resizable here too. Opening a chat goes to Ask. Like Ask's,
+ *  it sticks under the mini header, runs to one gap above the window's foot
+ *  and draws its card only while stuck. */
+export function LegislationRail() {
+  const navigate = useNavigate();
+  const railRef = useRef(null);
+  const [width, setWidth] = useState(readAskRailWidth);
+  const [resizing, setResizing] = useState(false);
+  const toAsk = () => navigate('/research');
+  const startResize = (e) => {
+    e.preventDefault();
+    setResizing(true);
+    const startX = e.clientX;
+    const startW = width;
+    let latest = startW;
+    const onMove = (ev) => { latest = Math.max(ASK_RAIL_MIN, Math.min(ASK_RAIL_MAX, startW + toLayoutPx(ev.clientX - startX))); setWidth(latest); };
+    const onUp = () => {
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+      setResizing(false);
+      try { localStorage.setItem(ASK_RAIL_WIDTH_KEY, String(Math.round(latest))); } catch { /* quota */ }
+    };
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+  };
+  // Sticky under the mini header; its height down to one gap above the
+  // window's foot; the card only while stuck (Research.jsx does the same).
+  useEffect(() => {
+    const rail = railRef.current;
+    const scroller = rail?.closest('.sv-single-scroll, .main-content');
+    if (!rail || !scroller) return undefined;
+    let raf = 0;
+    const measure = () => {
+      raf = 0;
+      const root = rail.closest('.lws') || scroller;
+      const bar = root.querySelector('.lgt-bar');
+      const cs = getComputedStyle(rail);
+      const inset = parseFloat(cs.getPropertyValue('--chrome-inset')) || 6.4;
+      const gap = parseFloat(cs.getPropertyValue('--rail-gap')) || 6.4;
+      const top = inset + (bar ? bar.offsetHeight : 48) + gap;
+      rail.style.top = `${top}px`;
+      const sr = scroller.getBoundingClientRect();
+      const at = toLayoutPx(rail.getBoundingClientRect().top - sr.top);
+      rail.classList.toggle('is-stuck', scroller.scrollTop > 0 && at <= top + 0.5);
+      rail.style.height = `${Math.max(160, scroller.clientHeight - Math.max(at, top) - gap)}px`;
+    };
+    const onScroll = () => { if (!raf) raf = requestAnimationFrame(measure); };
+    measure();
+    scroller.addEventListener('scroll', onScroll, { passive: true });
+    window.addEventListener('resize', onScroll);
+    const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(onScroll) : null;
+    ro?.observe(scroller);
+    if (rail.parentElement) ro?.observe(rail.parentElement);
+    return () => { cancelAnimationFrame(raf); ro?.disconnect(); scroller.removeEventListener('scroll', onScroll); window.removeEventListener('resize', onScroll); };
+  }, []);
+  return (
+    <>
+      <AskRail
+        railRef={railRef}
+        className={`lgw-askrail${resizing ? ' is-resizing' : ''}`}
+        onNew={() => { researchStore.openNew(); toAsk(); }}
+        onOpenChat={toAsk}
+        style={{ flexBasis: `calc(${width}px + var(--ds-divider-pull, 11.2px))` }}
+      />
+      <div
+        className={`lgw-askrail-resizer${resizing ? ' is-active' : ''}`}
+        role="separator"
+        aria-orientation="vertical"
+        aria-label="Resize the list"
+        onMouseDown={startResize}
+        onDoubleClick={() => { setWidth(ASK_RAIL_DEFAULT); try { localStorage.setItem(ASK_RAIL_WIDTH_KEY, String(ASK_RAIL_DEFAULT)); } catch { /* quota */ } }}
+      />
+    </>
+  );
+}
+
+/** THE LEGISLATION ENTRY'S MASTHEAD — one, the same on Ask (pages/Research)
+ *  and on every source tab: switching tabs changes what is under the tab
+ *  row, never the header above it. */
+export function LegislationMasthead() {
+  return (
+    <PageMasthead eyebrow="Legislation" eyebrowMuted="· Romanian law and your case" title="Legislation" compact={false}>
+      Ask about Romanian law and your case, or search each source on its own tab — acts, court files,
+      companies, CAEN codes and the sources still to come.
+    </PageMasthead>
+  );
+}
+
+// THE LEGISLATION TAB (2026-10-02): one sidebar entry, tabs across the top —
+// ASK (the conversation, pages/Research) and then every source DocVex reads
+// or will read, in the order Research's "i" lists them (LEGAL_TABS). A source
+// tab is that platform's OWN PAGE, searched from its own search view
+// (WorkspaceSearch); the cross-platform browser that stood here (one search
+// for every platform, browser-style tabs, an address row) was retired — Ask
+// is the one search across everything now.
+//
+//   masthead ("Legislation" — or the page's own)
+//   the tab bar (LegalTabs): Ask · legislatie.just.ro · portal.just.ro · …
+//     its second line: the page's own tools, its find / search
+//   ┌ open ┐┌ main ─────────────────────────────┐
+//   │ item ││ the search view, or the item open  │
+//   └──────┘└────────────────────────────────────┘
+//
+// A page hands it: `bar` (LegalTabs' props — tools, search, status,
+// trailing, noSearch); `items`
+// ([{ id, kind, title, tip }]) with `activeId`, `onSelect(id)`, `onClose(id)`
+// — what the page has open, listed on the left; `source` (the open item AS
+// ITS SERVICE GAVE IT, for the DocVex · Source switch); `className`,
+// `rootRef`; children = the main column. The masthead is the entry's one
+// (LegislationMasthead), never the page's. The Newsletter uses the same frame without the source tabs.
 export default function LegalWorkspace({
   className = '', bar = {},
   items = [], activeId = null, onSelect, onClose,
-  rootRef = null, children, onReload = null,
-  // The open item AS ITS SERVICE GAVE IT, for the Source view:
-  // `{ site, service, data, text?, note? }` — null while nothing is open.
+  rootRef = null, children,
   source = null,
 }) {
   const viewMode = useLegalViewMode();
   const showSource = viewMode === 'source' && !!source;
   const ownRef = useRef(null);
   const pageRef = rootRef || ownRef;
-  const go = useGo();
-  const { pathname } = go;
-  // The tab's RELOAD asks this page to fetch what it shows again
-  // (`onReload`, async); registered while the page is mounted.
-  const reloadRef = useRef(onReload);
-  reloadRef.current = onReload;
-  useEffect(() => registerReloader(pathname, () => reloadRef.current?.()), [pathname]);
-  const location = useLocation();
-  const s = useFrameBrowser();
-  const tab = s.tabs.find((t) => t.id === s.active) || s.tabs[0];
-  const page = curPage(tab);
-  // THE MINI HEADER IS DRAWN ONLY WITH SOMETHING BOTH ABOVE AND UNDER ITS
-  // DIVIDER. Every page but the search screen has both (the address row
-  // above; the results' scopes, History's Clear or an item's find under).
-  // The search screen has neither — its field is in the page — so it has no
-  // mini header; with the tabs across the top their strip stands in the page
-  // as a plain row instead.
-  const barShown = page.type !== 'new';
-  useBrowserKeys(go);
+  const { pathname } = useLocation();
+  const newsletter = pathname === '/newsletter';
 
-  // A link from elsewhere becomes a page of the tabs; coming back to the
-  // Legislation tab puts the active tab's page on screen. BEFORE the publish
-  // below: an arrival's baseline is the item on show until now, and a page
-  // that writes its selection into the URL (CAEN) changes both at once.
+  // What this source has open, published for THE sidebar (every tab lists
+  // every tab's items), and how it answers a press there.
   const live = useRef({ onSelect, onClose });
   live.current = { onSelect, onClose };
-  const mounted = useRef(false);
   useEffect(() => {
-    const url = `${location.pathname}${location.search}`;
-    const first = !mounted.current;
-    mounted.current = true;
-    if (location.search) {
-      if (consumeExpected(url)) return;
-      // A page writing its OWN address (CAEN's selected code) is not a link
-      // arriving from elsewhere.
-      if (location.state?.internal) return;
-      // A tab window opening ON a tab (the sidebar's "Open in a new window"):
-      // that tab selected, its page put on screen.
-      const lt = new URLSearchParams(location.search).get('ltab');
-      if (lt) { selectTab(lt, go); return; }
-      const params = new URLSearchParams(location.search);
-      if (ARRIVAL_KEYS.some((k) => params.get(k))) {
-        // `newtab=1` asks for a NEW tab from outside the app's router (the Doc
-        // Viewer's highlight card, over the main-window channel, which carries
-        // no router state); it is not part of the page's address.
-        const clean = url.replace(/[?&]_=\d+/, '').replace(/([?&])newtab=1(&|$)/, (m, a, b) => (b ? a : '')).replace(/\?$/, '');
-        arrive(location.pathname, clean, arrivalLabel(location.pathname, params), go, { newTab: !!location.state?.newTab || params.get('newtab') === '1' });
-      }
-      return;
-    }
-    if (!first || page.type !== 'item') return;
-    if (page.route !== pathname) { applyPage(page, go); return; }
-    if (page.itemId != null && page.itemId !== activeId && items.some((x) => x.id === page.itemId)) live.current.onSelect?.(page.itemId);
-    else if (page.itemId == null && !page.pending) applyPage(page, go);
-  }, [location.pathname, location.search]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // Publish what is open under this platform's route, and answer requests
-  // (the tabs, the app sidebar) while mounted — through a ref, so the
-  // registered handlers are always the page's latest.
-  useEffect(() => {
+    if (newsletter) return;
     publishWorkspace(pathname, { items, activeId });
+    // Every item opened here is kept in the ONE list (lib/legislationEntries).
+    syncSourceItems(pathname, items);
   });
-  useEffect(() => registerWorkspace(pathname, {
+  useEffect(() => (newsletter ? undefined : registerWorkspace(pathname, {
     onSelect: (id) => live.current.onSelect?.(id),
     onClose: (id) => live.current.onClose?.(id),
-  }), [pathname]);
+  })), [pathname, newsletter]);
 
-  // The page's items, reported to the tabs (names, binding, pages opened inside).
-  // The page a tab switch asked for is ON SCREEN (the platform's route, and
-  // its item shown — or one still opening, which the tab's own spinner
-  // covers): the switch is over.
-  useEffect(() => {
-    if (!s.switching) return;
-    if (page.type !== 'item') { endSwitch(); return; }
-    // Over when the page shows the tab's item, or is OPENING it (the tab's
-    // own spinner covers that), or tried and found nothing to bind. An
-    // unbound page not yet asked (the deferred apply has not run) is not over.
-    if (pathname !== page.route) return;
-    if (page.pending || (page.itemId != null && activeId === page.itemId) || (page.itemId == null && page.settled)) endSwitch();
-  });
-
-  const lastActive = useRef(activeId);
-  useEffect(() => {
-    reportItems(pathname, items, activeId, lastActive.current);
-    lastActive.current = activeId;
-  });
-
-  // THE MINI HEADER is the Design system's (components/LegalTabs .lgt-bar):
-  // it pins and frosts itself; here only its height is measured, for the
-  // rail standing under it, and how far the page scrolls before it sticks.
-  useLayoutEffect(() => {
-    const root = pageRef.current;
-    const barEl = root?.querySelector(':scope > .lgt-bar');
-    const scroller = root?.closest('.sv-single-scroll, .main-content');
-    if (!root || !scroller) return undefined;
-    if (!barEl) {
-      // No mini header (the search screen, tabs down the side): the rail
-      // stands under the masthead and sticks at the page's inset.
-      root.style.setProperty('--lgb-bar-h', '0px');
-      root.style.setProperty('--lgb-scroll-h', `${scroller.clientHeight}px`);
-      const shell = root.querySelector('.lgb-shell');
-      const natural = shell ? shell.getBoundingClientRect().top - scroller.getBoundingClientRect().top + scroller.scrollTop : 0;
-      root.style.setProperty('--lgb-travel', `${Math.max(0, Math.round(natural))}px`);
-      return undefined;
-    }
-    // --lgb-travel: how far the page scrolls before the bar (and the rail
-    // under it) sticks — the range over which the rail grows to its stuck
-    // height, so its foot stays one inset above the window's bottom.
-    const place = () => {
-      root.style.setProperty('--lgb-bar-h', `${barEl.offsetHeight}px`);
-      root.style.setProperty('--lgb-scroll-h', `${scroller.clientHeight}px`);
-      const inset = parseFloat(getComputedStyle(barEl).top) || 0;
-      const was = barEl.style.position;
-      barEl.style.position = 'relative';
-      const natural = barEl.getBoundingClientRect().top - scroller.getBoundingClientRect().top + scroller.scrollTop;
-      barEl.style.position = was;
-      root.style.setProperty('--lgb-travel', `${Math.max(0, Math.round(natural - inset))}px`);
-    };
-    place();
-    const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(place) : null;
-    ro?.observe(barEl); ro?.observe(scroller);
-    window.addEventListener('resize', place);
-    return () => { ro?.disconnect(); window.removeEventListener('resize', place); };
-  }, [barShown]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // THE RAIL is always there now: it holds the PLATFORMS (the Newsletter first,
-  // then every platform — components/LegalBrowser PlatformItems) above the tabs.
-  const soleSearch = false;
-  // The app sidebar's Legislation dropdown already lists the tabs while it
-  // is expanded (and the sidebar is not collapsed): the page's own rail of
-  // the same tabs is not drawn then.
-  const sidebarLists = useSidebarListsTabs();
-  // The list can be put away from the bar's toggle (kept per device); while
-  // the app sidebar lists the tabs the page's rail steps aside anyway.
-  const [railHidden, setRailHidden] = useState(() => { try { return localStorage.getItem(LEGAL_RAIL_HIDDEN_KEY) === '1'; } catch { return false; } });
-  const canRail = s.layout !== 'strip' && !soleSearch;
-  const showRail = canRail && !sidebarLists && !railHidden;
-  const toggleRail = () => {
-    const next = !showRail;
-    setRailHidden(!next);
-    try { localStorage.setItem(LEGAL_RAIL_HIDDEN_KEY, next ? '0' : '1'); } catch { /* quota */ }
-    // Showing it takes the list back from the app sidebar (one switch).
-    if (next && sidebarLists) window.dispatchEvent(new CustomEvent('docvex:legal-list-set', { detail: { open: false } }));
-  };
-  const rail = useRailPresence(showRail);
-  useRailFill(pageRef, rail.mounted);
-
-  // Moving to another page of the tabs lands at the top.
-  const pageKey = `${tab.id}|${tab.idx}|${page.type}`;
+  // Moving to another item lands at its top.
   const firstKey = useRef(true);
   useEffect(() => {
     if (firstKey.current) { firstKey.current = false; return; }
     const scroller = pageRef.current?.closest('.sv-single-scroll, .main-content');
     if (scroller) scroller.scrollTop = 0;
-  }, [pageKey]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [activeId]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // A PLATFORM'S OWN PAGE reached by its address (the Newsletter from a
-  // notification, a planned source's route): shown in a tab of its own
-  // (showRoot) unless the tab on show is already it.
-  useEffect(() => {
-    const root = ROOT_ROUTES.get(pathname);
-    if (!root) return;
-    const b = browserState();
-    const cur = curPage(b.tabs.find((t) => t.id === b.active));
-    if (!isRootOn(cur, pathname)) showRoot(pathname, root, go);
-  }, [pathname]); // eslint-disable-line react-hooks/exhaustive-deps
+  const { tools, trailing, status, search, noSearch } = bar || {};
+  // DocVex · Source, wherever an item open has its service's own record.
+  // The list's show / hide button stands first on every tab's second line,
+  // under the tab bar's underline (one setting for every tab, components/AskRail).
+  const lineTools = !newsletter || source || tools
+    ? <>{newsletter ? null : <AskRailToggle />}{source ? <ViewModeToggle /> : null}{tools}</>
+    : null;
+  const { off: railOff } = useAskRailState();
+  const lineTrailing = trailing || null;
 
-  const [menu, setMenu] = useState(null);
-  const openMenu = useCallback((id, x, y) => setMenu({ id, x, y }), []);
-  const closeMenu = useCallback(() => setMenu(null), []);
-
-  // THE FIND, at the right of the page's line: the page's own (an open act's)
-  // or one over whatever the tab shows.
-  const mainRef = useRef(null);
-  const isItem = page.type === 'item';
-  const { tools, trailing, ...barRest } = bar || {};
-  const pageSearch = isItem && barRest.search && !barRest.noSearch && barRest.search.find ? barRest.search : null;
-  const [tabFind, setTabFind] = useTabSetting(`browser|${tab.id}|${tab.idx}`, 'find', '');
-  const found = useChatFind({ containerRef: mainRef, query: isItem && !pageSearch ? tabFind : '', name: 'legalfind' });
-  const search = !isItem ? null : pageSearch || {
-    value: tabFind,
-    placeholder: 'Find in this page',
-    onChange: setTabFind,
-    find: { current: found.current, total: found.total, prev: found.goPrev, next: found.goNext },
-  };
-
-  // THE SEARCH SCREEN FITS THE WINDOW: everything on it is in view, so the
-  // page does not scroll — the shell is sized to run from where it starts to
-  // one inset above the window's bottom (`--lgb-fit-h`), the page's scroller
-  // is locked while it is on show (LegalBrowser.css), and a window too short
-  // for it scrolls the column inside, never the page.
-  const isSearch = page.type === 'new';
-  useLayoutEffect(() => {
-    if (!isSearch) return undefined;
-    const root = pageRef.current;
-    const scroller = root?.closest('.sv-single-scroll, .main-content');
-    const shell = root?.querySelector('.lgb-shell');
-    if (!root || !scroller || !shell) return undefined;
-    const fit = () => {
-      scroller.scrollTop = 0;
-      const top = toLayoutPx(shell.getBoundingClientRect().top - scroller.getBoundingClientRect().top) - scroller.clientTop;
-      const inset = parseFloat(getComputedStyle(root).getPropertyValue('--ds-page-inset')) || 6.4;
-      root.style.setProperty('--lgb-fit-h', `${Math.max(160, Math.floor(scroller.clientHeight - top - inset))}px`);
-    };
-    fit();
-    const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(fit) : null;
-    ro?.observe(scroller);
-    window.addEventListener('resize', fit);
-    return () => { ro?.disconnect(); window.removeEventListener('resize', fit); root.style.removeProperty('--lgb-fit-h'); };
-  }, [isSearch, barShown]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  const figures = useArchiveFigures();
-  const strip = s.layout === 'strip';
-  const pageTools = page.type === 'serp' ? <SerpScopes page={page} />
-    : page.type === 'history' ? <ClearHistoryButton />
-      : isItem && (tools || trailing) ? <>{tools}{trailing}</> : null;
-  // The rail toggle first on the line, wherever the page has a rail to show.
-  const lineTools = canRail
-    ? <><RailToggle shown={showRail} onToggle={toggleRail} what="tabs" />{pageTools}</>
-    : pageTools;
-
-  // THE "i" (what is kept on this machine) stands directly ABOVE THE
-  // DIVIDER under the masthead's text: with an address row, that divider is
-  // the mini header's hairline under the row, so the "i" ends the row; on the
-  // search screen (no address row) the divider is the masthead's own, and it
-  // stays in the masthead.
-  const addrShown = page.type !== 'new';
-  const info = (
-    <InfoButton label="What is kept on this machine" title="Kept on this machine">
-      <KeptFigures count={figures?.count ?? 0} bytes={figures?.bytes ?? 0} />
-      <p className="lgb-info-note">
-        Acts you open are saved here whole, so they still open when legislatie.just.ro does not answer.
-      </p>
-    </InfoButton>
-  );
+  // ONE masthead for the whole Legislation entry — the same on Ask and on
+  // every source tab (LegislationMasthead); the Newsletter draws its own.
+  const head = newsletter ? null : <LegislationMasthead />;
 
   return (
-    <div className={`lws lgb-root${className ? ` ${className}` : ''}${strip ? ' is-strip' : ''}${isSearch ? ' is-search' : ''}`} ref={pageRef}>
-      <PageMasthead
-        eyebrow="Legal search"
-        eyebrowMuted={`· ${LEGAL_TABS.filter((t) => !t.stub).length} platforms connected`}
-        title="Legislation"
-        compact={false}
-        actions={addrShown ? null : info}
-      >
-        Romanian law, court files, companies and CAEN codes behind one search — type anything and every
-        connected platform answers at once. What you open stays in the list on the left, like browser tabs.
-      </PageMasthead>
-      {barShown ? <LegalTabs
-        standalone
-        className="lgb-bar"
-        rows={[
-          strip ? <TabStrip go={go} openMenu={openMenu} /> : null,
-          // The search screen has its field in the page (NewTabPage).
-          page.type === 'new' ? null : <AddressRow go={go} status={isItem ? barRest.status : page.type === 'serp' ? <SerpStatus page={page} /> : null} extra={info} />,
-        ]}
+    <div className={`lws lgw-root${className ? ` ${className}` : ''}`} ref={pageRef}>
+      {head}
+      <LegalTabs
+        standalone={newsletter}
+        status={status}
         tools={lineTools}
+        trailing={lineTrailing}
         search={search}
-        noSearch={!search}
-        // Nothing to put under the hairline (a new tab): no second line.
-        line2={!!(lineTools || search)}
-      /> : null}
-      {!barShown && s.layout === 'strip' ? <div className="lgb-strip-plain"><TabStrip go={go} openMenu={openMenu} /></div> : null}
-      <div className={`lgb-shell${rail.mounted ? ' has-rail' : ''}`}>
-        {rail.mounted ? <TabRail go={go} openMenu={openMenu} className={rail.className} /> : null}
-        <div className={`lgb-main${s.switching && isItem ? ' is-switching' : ''}`} ref={mainRef}>
-          {/* A tab switch on its way: the content fades and a spinner shows
-              (after a moment) until the page shows the tab. */}
-          {s.switching && isItem ? <SwitchSpinner /> : null}
-          {page.type === 'new' ? <NewTabPage />
-            : page.type === 'history' ? <HistoryPage />
-              : page.type === 'serp' ? <SerpPage key={`${page.q}|${tab.id}`} page={page} tabId={tab.id} />
-                : (
-                  <>
-                    {/* DocVex · Source (the address row's switch): in Source
-                        the open item is shown as the service gave it, and the
-                        page's own view stays MOUNTED but hidden, so switching
-                        back keeps its state (scroll, find, tables). */}
-                    {showSource ? <SourceView source={source} /> : null}
-                    <div style={{ display: showSource ? 'none' : 'contents' }}>{children}</div>
-                  </>
-                )}
+        noSearch={!search || !!noSearch}
+        dropSearch={!search || !!noSearch}
+        line2={!!(lineTools || lineTrailing || search)}
+      />
+      <div className={`lgw-shell${newsletter || railOff ? '' : ' has-rail'}`}>
+        {/* THE one sidebar of the entry — the same list on every tab. */}
+        {newsletter || railOff ? null : <LegislationRail />}
+        <div className="lgw-main">
+          {/* DocVex · Source: in Source the open item is shown as the service
+              gave it, and the page's own view stays MOUNTED but hidden, so
+              switching back keeps its state. */}
+          {showSource ? <SourceView source={source} /> : null}
+          <div style={{ display: showSource ? 'none' : 'contents' }}>{children}</div>
         </div>
       </div>
-      <TabMenu menu={menu} onClose={closeMenu} go={go} />
     </div>
   );
 }
 
-// THE RAIL FILLS THE SPACE ABOVE IT. Its column's top is the mini header's
-// foot; but where the header's second line holds nothing over the rail (a
-// new tab: no controls, no find; an open item whose only control is the find
-// at the right) that band is empty, and the rail grows up into it — lifted by
-// a transform, its height grown by the same, its foot still one inset above
-// the window's bottom. Driven here rather than by CSS because what is empty
-// is a matter of what the line happens to hold: the rows and every visible
-// thing on the second line that stands over the rail's width set the floor.
-// A change of layout (a page switch, the window resized) EASES to the new
-// place; a scroll follows at once (a transition there would lag the foot).
-function useRailFill(pageRef, on) {
-  useLayoutEffect(() => {
-    const root = pageRef.current;
-    if (!root || !on) return undefined;
-    const rail = root.querySelector('.lgb-rail');
-    const shell = root.querySelector('.lgb-shell');
-    const bar = root.querySelector(':scope > .lgt-bar');
-    const scroller = root.closest('.sv-single-scroll, .main-content');
-    if (!rail || !shell || !bar || !scroller) return undefined;
-    const zoom = 1 / (toLayoutPx(1) || 1);                  // layout px → viewport px
-    const css = (el, name, fb) => parseFloat(getComputedStyle(el).getPropertyValue(name)) || fb;
-    // What occupies the band over the rail's width: a row, or a visible
-    // control on the second line (looking through display: contents wrappers).
-    const lowest = (el, left, right, acc) => {
-      if (el.classList?.contains('is-hidden')) return acc;
-      const r = el.getBoundingClientRect();
-      if (!r.width && !r.height) {
-        for (const c of el.children) acc = lowest(c, left, right, acc);
-        return acc;
-      }
-      if (r.right <= left || r.left >= right) return acc;
-      return Math.max(acc, r.bottom);
-    };
-    let easeTimer = null;
-    const update = (ease) => {
-      if (window.innerWidth <= 760) {
-        rail.classList.remove('is-filled', 'is-lifted', 'is-easing');
-        shell.style.minHeight = '';
-        return;
-      }
-      const sr = scroller.getBoundingClientRect();
-      const inset = css(bar, 'top', 6.4) * zoom;
-      const gap = css(root, '--ds-head-gap', 8) * zoom;
-      // The rail keeps track of the MINI HEADER as it really stands — its
-      // measured bottom edge, in flow or pinned — not of where its height
-      // and the inset say it should be. Pinned, the rail sticks one head-gap
-      // under that edge (its sticky top is written from it); in flow, the
-      // shell under the bar is already there.
-      // STICKY, FROM CONSTANTS — never from the bar's pinned class, which
-      // flips a few pixels early and a frame late (LegalTabs decides it on
-      // its own scroll listener): the rail's sticky top is ALWAYS the bar's
-      // sticky top + the bar's height + the head gap, both measured against
-      // the same scrollport origin, so the two stick at the same scroll.
-      const br = bar.getBoundingClientRect();
-      const sc = getComputedStyle(scroller);
-      const origin = sr.top + (scroller.clientTop + (parseFloat(sc.paddingTop) || 0)) * zoom;
-      const barTopL = css(bar, 'top', 6.4);
-      const railTopL = barTopL + bar.offsetHeight + gap / zoom;
-      rail.style.setProperty('--lgb-rail-top', `${railTopL}px`);
-      const stuckTop = origin + railTopL * zoom;
-      // Stuck or about to paint as pinned: its frosted ground covers its box.
-      const pinned = bar.classList.contains('is-pinned') || br.top <= origin + barTopL * zoom + 0.5;
-      // Where the rail stands without any lift: its place in the page, or
-      // its sticky top once it has reached it.
-      const natural = Math.max(shell.getBoundingClientRect().top, stuckTop);
-      // The shell is kept exactly tall enough for the rail STUCK (its height
-      // there + its bottom margin), so sticking never runs out of room.
-      const foot0 = sr.top + scroller.clientHeight * zoom - inset;
-      shell.style.minHeight = `${toLayoutPx(foot0 - stuckTop + inset)}px`;
-      const rr = rail.getBoundingClientRect();
-      // What stands above the rail and must not be overlapped: PINNED, the
-      // bar paints its frosted ground over its whole box, so all of it is
-      // taken; in flow the bar is transparent, and only what it holds counts
-      // — its rows (with their hairline) and the visible controls on its
-      // second line over the rail's width. The rail is lifted only into
-      // what is left empty, and shrinks back as soon as anything is there.
-      let floor = -Infinity;
-      if (pinned) floor = br.bottom;
-      for (const row of bar.querySelectorAll(':scope > .lgt-row')) floor = Math.max(floor, row.getBoundingClientRect().bottom + 2 * zoom);
-      const line2 = bar.querySelector(':scope > .lgt-line2');
-      // The line under the divider is the header's WHOLE band, whatever
-      // stands on it and wherever (a find at its far right, a status…): the
-      // rail never rises into it — lifting into its empty left used to put
-      // the rail over the header's own line.
-      if (line2) {
-        const lr = line2.getBoundingClientRect();
-        if (lr.height) floor = Math.max(floor, lr.bottom);
-        else for (const c of line2.children) floor = lowest(c, rr.left, rr.right, floor);
-      }
-      const lift = floor === -Infinity ? 0 : Math.max(0, natural - (floor + gap));
-      const height = foot0 - (natural - lift);
-      if (ease) {
-        rail.classList.add('is-easing');
-        clearTimeout(easeTimer);
-        easeTimer = setTimeout(() => rail.classList.remove('is-easing'), 320);
-      }
-      rail.style.setProperty('--lgb-lift', `${toLayoutPx(lift)}px`);
-      rail.style.setProperty('--lgb-fill-h', `${toLayoutPx(height)}px`);
-      rail.classList.add('is-filled');
-      rail.classList.toggle('is-lifted', lift > 0.5);
-    };
-    let frame = null;
-    const onScroll = () => { if (frame == null) frame = requestAnimationFrame(() => { frame = null; update(false); }); };
-    const onLayout = () => requestAnimationFrame(() => update(true));
-    update(false);
-    scroller.addEventListener('scroll', onScroll, { passive: true });
-    window.addEventListener('resize', onLayout);
-    const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(onLayout) : null;
-    ro?.observe(bar); ro?.observe(scroller); ro?.observe(shell);
-    // The bar pinning / unpinning (its own class) happens mid-scroll: follow
-    // it at once. Anything else changing in the bar is a layout change: ease.
-    const mo = new MutationObserver((list) => {
-      const pinFlip = list.every((m) => m.type === 'attributes' && m.target === bar);
-      if (pinFlip) onScroll(); else onLayout();
-    });
-    mo.observe(bar, { childList: true, subtree: true, attributes: true, attributeFilter: ['class'] });
-    return () => {
-      scroller.removeEventListener('scroll', onScroll);
-      window.removeEventListener('resize', onLayout);
-      ro?.disconnect(); mo.disconnect();
-      if (frame != null) cancelAnimationFrame(frame);
-      clearTimeout(easeTimer);
-      shell.style.minHeight = '';
-    };
-  }, [pageRef, on]);
-}
-
-// Where a results page's answers came from: every platform live, or the
-// Legislation portal answered from the copy on this machine.
-function SerpStatus({ page }) {
-  const { answers } = useSerp(page.q, page.scope, 'all', page.refresh || 0);
-  const leg = answers.legislation;
-  const archive = !!leg && leg !== 'loading' && leg.source === 'archive';
-  const scope = page.scope || 'all';
-  const site = scope === 'all' ? 'legislatie.just.ro' : LEGAL_TABS.find((t) => t.id === scope)?.label || 'legislatie.just.ro';
-  return (
-    <Tooltip content={archive ? 'legislatie.just.ro did not answer — its results come from the copy kept here' : `Open ${site} in the browser`}>
-      <button type="button" className={`lgt-status-pill is-${archive ? 'archive' : 'live'}`} onClick={() => openExternal(`https://${site.split(' ')[0]}/`)}>
-        <span>{archive ? 'Legislation from your copy on this machine' : scope === 'all' ? 'Live from every platform' : `Live from ${site}`}</span>
-        <span className="lgt-status-ico">{ExternalGlyph}</span>
-      </button>
-    </Tooltip>
-  );
-}
-
-// "Kept here" / "On this machine": the acts the Legislation portal has left on
-// this machine (read once, kept for the session).
-let figuresCache = null;
-// THE RAIL COMES AND GOES ANIMATED (the app sidebar taking the list over,
-// the only tab being the search tab…): it narrows to nothing while it fades
-// and the page beside it glides over — and back. Mounted without motion on
-// the page's first frame. States: 'in' · 'from' (collapsed, about to grow) ·
-// 'growing' · 'leaving' (collapsing, then unmounted) · 'out'.
-const RAIL_MS = 300;
-const LEGAL_RAIL_HIDDEN_KEY = 'docvex:legislation:rail-hidden';
-
-function useRailPresence(show) {
-  const [st, setSt] = useState(show ? 'in' : 'out');
-  useEffect(() => {
-    let raf = 0; let timer = 0;
-    if (show) {
-      // Each step schedules the NEXT from its own state: scheduling the grow
-      // together with setSt('from') lost it — the state change re-ran this
-      // effect, whose cleanup cancelled the frame, and the rail stayed
-      // folded (mounted, zero wide) with the dropdown collapsed.
-      if (st === 'out' || st === 'leaving') {
-        setSt('from');
-      } else if (st === 'from') {
-        raf = requestAnimationFrame(() => { raf = requestAnimationFrame(() => setSt('growing')); });
-      } else if (st === 'growing') {
-        timer = setTimeout(() => setSt('in'), RAIL_MS);
-      }
-    } else if (st === 'in' || st === 'from' || st === 'growing') {
-      setSt('leaving');
-    } else if (st === 'leaving') {
-      timer = setTimeout(() => setSt('out'), RAIL_MS);
-    }
-    return () => { cancelAnimationFrame(raf); clearTimeout(timer); };
-  }, [show, st]);
-  const reduce = typeof document !== 'undefined' && document.documentElement.dataset.reduceMotion === 'true';
-  if (reduce) return { mounted: show, className: '' };
-  return {
-    mounted: st !== 'out',
-    className: st === 'from' ? 'is-folded' : st === 'growing' ? 'is-animating' : st === 'leaving' ? 'is-folded is-animating' : '',
-  };
-}
-
 // THE SOURCE VIEW — the open item exactly as its platform's service gave it
-// (the address row's DocVex · Source switch, Source by default): which
+// (the DocVex · Source switch on the tab bar's second line): which
 // service answered, the record as it came (JSON, in the service's own field
 // names) and — for an act — its full text as sent, one line break for one.
 // Nothing restyled, nothing left out. Copy puts all of it on the clipboard.
@@ -868,43 +609,3 @@ function SourceView({ source }) {
   );
 }
 
-function SwitchSpinner() {
-  const [on, setOn] = useState(false);
-  useEffect(() => { const id = setTimeout(() => setOn(true), 140); return () => clearTimeout(id); }, []);
-  return on ? (
-    <div className="lgb-switching" role="status" aria-label="Loading">
-      <span className="lgb-switching-spin" aria-hidden="true" />
-    </div>
-  ) : null;
-}
-
-function useSidebarListsTabs() {
-  const read = () => window.__docvexLegalListed === true && window.__docvexSidebarCollapsed !== true;
-  const [on, setOn] = useState(read);
-  useEffect(() => {
-    const sync = () => setOn(read());
-    window.addEventListener('docvex:legal-listed', sync);
-    window.addEventListener('docvex:sidebar-state', sync);
-    sync();
-    return () => {
-      window.removeEventListener('docvex:legal-listed', sync);
-      window.removeEventListener('docvex:sidebar-state', sync);
-    };
-  }, []);
-  return on;
-}
-
-function useArchiveFigures() {
-  const [f, setF] = useState(figuresCache);
-  useEffect(() => {
-    let alive = true;
-    listArchive().then((r) => {
-      if (!alive || !r?.ok) return;
-      const acts = r.acts || r.records || [];
-      figuresCache = { count: acts.filter((a) => a.hasText ?? a.withText ?? true).length, bytes: r.bytes || 0 };
-      setF(figuresCache);
-    }).catch(() => {});
-    return () => { alive = false; };
-  }, []);
-  return f;
-}

@@ -64,12 +64,14 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { firmDescriptor, jurisdictionPrompt } from "../_shared/jurisdictions.ts";
 import { handleCrossref, handlePassport } from "./fileGraph.ts";
+import { guardAiCall } from "../_shared/guard.ts";
 import {
   anthropicFilesHeaders,
   callClaude as claudeTransport,
   claudeConfigured,
   supportsFilesApi,
 } from "../_shared/claude.ts";
+import { WEB_SEARCH_TOOL, WEB_SEARCH_RULE, WEB_SEARCH_ALWAYS, makeCiter, citeMessage, type Citer } from "../_shared/webSearch.ts";
 
 const corsHeaders: Record<string, string> = {
   "Access-Control-Allow-Origin": "*",
@@ -198,7 +200,7 @@ const WRITE_DOCUMENT_TOOL = {
     "Create or update the document the user is building, and save it as a NEW version. " +
     "Call this for ANY request to create, draft, write, change, edit, add to, extend, shorten, reword, redo, " +
     "regenerate, remake, or otherwise modify the document — including tiny edits and 'make another version'. " +
-    "You CAN produce unlimited versions; NEVER refuse, NEVER say you can only provide text or cannot make real " +
+    "You CAN produce unlimited versions; never decline on the grounds that you can only provide text or cannot make real " +
     "Office files, and NEVER tell the user to build it themselves or copy-paste. DocVex turns this call into a " +
     "real file on disk. Always pass the COMPLETE document — every unchanged part included verbatim — not a diff " +
     "or a snippet.",
@@ -373,7 +375,12 @@ async function callClaudeRaw(opts: ClaudeOpts): Promise<Record<string, unknown>>
 // piece of text is passed to `onText` as it arrives, and the finished message
 // ({ content, stop_reason, usage }) is rebuilt and returned — the same shape
 // callClaudeRaw returns, so one function turns either into the answer.
-async function callClaudeStream(opts: ClaudeOpts, onText: (t: string) => void): Promise<Record<string, unknown>> {
+async function callClaudeStream(
+  opts: ClaudeOpts,
+  onText: (t: string) => void,
+  onEvent: (e: Record<string, unknown>) => void = () => {},
+  cite: Citer = makeCiter(),
+): Promise<Record<string, unknown>> {
   const resp = await anthropicFetch({ ...claudePayload(opts), stream: true });
   if (!resp.ok || !resp.body) {
     const detail = (await resp.text()).slice(0, 400);
@@ -403,8 +410,14 @@ async function callClaudeStream(opts: ClaudeOpts, onText: (t: string) => void): 
           break;
         case "content_block_start":
           blocks[ev.index] = { ...ev.content_block };
-          if (ev.content_block?.type === "text") blocks[ev.index].text = "";
+          if (ev.content_block?.type === "text") { blocks[ev.index].text = ""; blocks[ev.index].citations = []; }
           json[ev.index] = "";
+          if (ev.content_block?.type === "server_tool_use") onEvent({ t: "search", q: "" });
+          // The search's results arrive whole: every source it found, listed.
+          if (ev.content_block?.type === "web_search_tool_result") {
+            const added = cite.results(ev.content_block);
+            if (added.length) onEvent({ t: "sources", d: cite.list() });
+          }
           break;
         case "content_block_delta":
           if (ev.delta?.type === "text_delta") {
@@ -412,11 +425,27 @@ async function callClaudeStream(opts: ClaudeOpts, onText: (t: string) => void): 
             onText(ev.delta.text);
           } else if (ev.delta?.type === "input_json_delta") {
             json[ev.index] = (json[ev.index] ?? "") + ev.delta.partial_json;
+          } else if (ev.delta?.type === "citations_delta" && ev.delta.citation) {
+            (blocks[ev.index].citations as unknown[]).push(ev.delta.citation);
           }
           break;
         case "content_block_stop":
-          if (blocks[ev.index]?.type === "tool_use") {
+          if (blocks[ev.index]?.type === "tool_use" || blocks[ev.index]?.type === "server_tool_use") {
             try { blocks[ev.index].input = JSON.parse(json[ev.index] || "{}"); } catch { blocks[ev.index].input = {}; }
+          }
+          if (blocks[ev.index]?.type === "server_tool_use") {
+            onEvent({ t: "search", q: String((blocks[ev.index].input as Record<string, unknown>)?.query ?? "") });
+          }
+          // A passage that cites the web: its numbered links follow it, in the
+          // stream and in the text kept.
+          if (blocks[ev.index]?.type === "text") {
+            const marks = cite.marks(blocks[ev.index].citations as unknown[]);
+            if (marks) {
+              blocks[ev.index].text = String(blocks[ev.index].text ?? "") + marks;
+              onText(marks);
+              onEvent({ t: "sources", d: cite.list() });
+            }
+            if (!(blocks[ev.index].citations as unknown[])?.length) delete blocks[ev.index].citations;
           }
           break;
         case "message_delta":
@@ -448,6 +477,12 @@ function matterContext(projectName?: string, fileNames?: unknown, jurisdiction?:
   return [ctx, filesLine, jurisdictionPrompt(jurisdiction)].filter(Boolean).join(" ");
 }
 
+// ── Web search (2026-10-02): the tool, the rule and the citation numbering
+// live in _shared/webSearch.ts (the Newsletter's digest uses them too).
+// A long search turn can come back paused (`pause_turn`): it is sent back as
+// it is, to carry on, at most twice.
+const PAUSE_CONTINUES = 2;
+
 // ── ask ─────────────────────────────────────────────────────────────
 async function handleAsk(body: {
   messages?: unknown;
@@ -463,6 +498,9 @@ async function handleAsk(body: {
   effort?: string;
   stream?: boolean;
   warm?: boolean;
+  webSearch?: boolean;
+  // Search before every substantive answer (Research), not only when needed.
+  searchAlways?: boolean;
 }): Promise<Response> {
   if (!AI_CONFIGURED()) return jsonResponse({ ok: false, error: "ai_not_configured" });
 
@@ -504,7 +542,7 @@ async function handleAsk(body: {
     "otherwise modify the document, call the `write_document` tool with the COMPLETE updated document (every unchanged part " +
     "included verbatim — never a diff or a snippet). The most recent document content is given to you in the conversation; " +
     "edits are full rewrites of it. " +
-    "You CAN and SHOULD produce as many versions as the user asks for — there is NO limit. NEVER refuse, NEVER claim you can " +
+    "You CAN and SHOULD produce as many versions as the user asks for — there is NO limit. Never decline on the grounds that you can " +
     "only provide text or cannot create real Office files, and NEVER tell the user to build it themselves or copy-paste. " +
     "DocVex turns each write_document call into a real .docx/.pptx/.xlsx on disk. " +
     "Only reply in plain text (without calling write_document) when the user asks a pure question that does NOT change the " +
@@ -518,10 +556,16 @@ async function handleAsk(body: {
     `${PLAYBOOK_RULE} ` +
     matterContext(body.projectName, body.fileNames, body.jurisdiction);
 
-  const system = docTools ? docBuilderSystem : baseAssistantSystem;
-  const toolsArr = docTools
-    ? [WRITE_DOCUMENT_TOOL, ASK_USER_TOOL]
-    : (useTools ? [ASK_USER_TOOL] : []);
+  // Web search: asked for by the client per call (conversations and summaries).
+  const webSearch = body.webSearch === true;
+  const searchRule = body.searchAlways === true
+    ? WEB_SEARCH_ALWAYS + WEB_SEARCH_RULE.replace(/^[^.]*\.[^.]*\. /, "")
+    : WEB_SEARCH_RULE;
+  const system = `${docTools ? docBuilderSystem : baseAssistantSystem}${webSearch ? ` ${searchRule}` : ""}`;
+  const toolsArr = [
+    ...(docTools ? [WRITE_DOCUMENT_TOOL, ASK_USER_TOOL] : (useTools ? [ASK_USER_TOOL] : [])),
+    ...(webSearch ? [WEB_SEARCH_TOOL] : []),
+  ];
   const toolChoice = docTools && body.forceDocument === true
     ? { type: "tool", name: "write_document" }
     : undefined;
@@ -549,8 +593,18 @@ async function handleAsk(body: {
       async start(ctl) {
         const send = (o: unknown) => ctl.enqueue(enc.encode(`data: ${JSON.stringify(o)}\n\n`));
         try {
-          const data = await callClaudeStream(opts, (d) => send({ t: "text", d }));
-          send({ t: "done", ...answerOf(data) });
+          const cite = makeCiter();
+          let data = await callClaudeStream(opts, (d) => send({ t: "text", d }), send, cite);
+          // A paused search turn carries on where it stopped.
+          for (let i = 0; i < PAUSE_CONTINUES && data?.stop_reason === "pause_turn"; i++) {
+            const prev = (data.content ?? []) as unknown[];
+            const more = await callClaudeStream(
+              { ...opts, messages: [...opts.messages, { role: "assistant", content: prev } as Msg] },
+              (d) => send({ t: "text", d }), send, cite,
+            );
+            data = { ...more, content: [...prev, ...((more.content ?? []) as unknown[])], usage: sumUsage(data.usage, more.usage) };
+          }
+          send({ t: "done", ...answerOf(data, cite) });
         } catch (err) {
           send({ t: "error", error: "ai_failed", detail: String((err as Error)?.message ?? err).slice(0, 400) });
         }
@@ -563,8 +617,15 @@ async function handleAsk(body: {
   }
 
   try {
-    const data = await callClaudeRaw(opts);
-    return jsonResponse(answerOf(data));
+    const cite = makeCiter();
+    let data = await callClaudeRaw(opts);
+    for (let i = 0; i < PAUSE_CONTINUES && data?.stop_reason === "pause_turn"; i++) {
+      const prev = (data.content ?? []) as unknown[];
+      const more = await callClaudeRaw({ ...opts, messages: [...opts.messages, { role: "assistant", content: prev } as Msg] });
+      data = { ...more, content: [...prev, ...((more.content ?? []) as unknown[])], usage: sumUsage(data.usage, more.usage) };
+    }
+    citeMessage(data, cite);
+    return jsonResponse(answerOf(data, cite));
   } catch (err) {
     return jsonResponse(
       { ok: false, error: "ai_failed", detail: String((err as Error)?.message ?? err).slice(0, 400) },
@@ -573,14 +634,26 @@ async function handleAsk(body: {
   }
 }
 
-// The usage the client meters and shows — cache reads and writes included.
+// The usage the client meters and shows — cache reads and writes included,
+// and the web searches made.
 function usageOf(data: Record<string, unknown>) {
-  const u = (data?.usage ?? {}) as Record<string, number>;
+  const u = (data?.usage ?? {}) as Record<string, number> & { server_tool_use?: { web_search_requests?: number } };
   return {
     input_tokens: u.input_tokens ?? 0,
     output_tokens: u.output_tokens ?? 0,
     cache_read_input_tokens: u.cache_read_input_tokens ?? 0,
     cache_creation_input_tokens: u.cache_creation_input_tokens ?? 0,
+    web_search_requests: u.server_tool_use?.web_search_requests ?? 0,
+  };
+}
+// Two parts of one paused turn, counted together.
+function sumUsage(a: unknown, b: unknown): Record<string, unknown> {
+  const x = (a ?? {}) as Record<string, any>; const y = (b ?? {}) as Record<string, any>;
+  const n = (k: string) => (Number(x[k]) || 0) + (Number(y[k]) || 0);
+  return {
+    input_tokens: n("input_tokens"), output_tokens: n("output_tokens"),
+    cache_read_input_tokens: n("cache_read_input_tokens"), cache_creation_input_tokens: n("cache_creation_input_tokens"),
+    server_tool_use: { web_search_requests: (Number(x.server_tool_use?.web_search_requests) || 0) + (Number(y.server_tool_use?.web_search_requests) || 0) },
   };
 }
 // A Claude response → the ask action's answer. Tools are NOT executed
@@ -588,23 +661,28 @@ function usageOf(data: Record<string, unknown>) {
 // (write_document) or renders the question (ask_user).
 // What this version of the function supports — the client reads it to know
 // it may send the stable data apart (before, it folded it into the question).
-const ASK_FEATURES = ["context", "stream", "effort", "warm"];
-function answerOf(data: Record<string, unknown>): Record<string, unknown> {
+const ASK_FEATURES = ["context", "stream", "effort", "warm", "webSearch", "searchAlways"];
+function answerOf(data: Record<string, unknown>, cite?: Citer): Record<string, unknown> {
   const features = ASK_FEATURES;
   const usage = usageOf(data);
+  // The web sources of this answer (numbered as the links in its text).
+  const sources = cite ? cite.list() : [];
+  const searches = ((Array.isArray(data?.content) ? data.content : []) as Array<Record<string, any>>)
+    .filter((b) => b?.type === "server_tool_use" && b?.name === "web_search")
+    .map((b) => String(b?.input?.query ?? "")).filter(Boolean);
   const blocks = (Array.isArray(data?.content) ? data.content : []) as Array<Record<string, unknown>>;
   const text = blocks.filter((b) => b?.type === "text").map((b) => (b.text as string) ?? "").join("").trim();
   if (data?.stop_reason === "tool_use") {
     const wd = blocks.find((b) => b?.type === "tool_use" && b?.name === "write_document");
     if (wd) {
-      return { ok: true, stopReason: "tool_use", tool: "write_document", text, toolUse: { id: wd.id as string, input: wd.input }, assistantContent: blocks, usage, features };
+      return { ok: true, stopReason: "tool_use", tool: "write_document", text, toolUse: { id: wd.id as string, input: wd.input }, assistantContent: blocks, usage, features, sources, searches };
     }
     const au = blocks.find((b) => b?.type === "tool_use" && b?.name === "ask_user");
     if (au) {
-      return { ok: true, stopReason: "tool_use", tool: "ask_user", text, askUser: { id: au.id as string, input: au.input }, assistantContent: blocks, usage, features };
+      return { ok: true, stopReason: "tool_use", tool: "ask_user", text, askUser: { id: au.id as string, input: au.input }, assistantContent: blocks, usage, features, sources, searches };
     }
   }
-  return { ok: true, text, usage, stopReason: data?.stop_reason ?? null, features };
+  return { ok: true, text, usage, stopReason: data?.stop_reason ?? null, features, sources, searches };
 }
 
 // ── suggest ─────────────────────────────────────────────────────────
@@ -759,6 +837,10 @@ async function handleOffice(body: {
   // Agent Skills, code execution and the Files API are not on Vertex AI: the
   // client builds the file locally instead (lib/documentGen.js, Path B).
   if (!supportsFilesApi()) return jsonResponse({ ok: false, error: "office_unavailable" });
+  // The Files API + code-execution sandbox exist only on Anthropic's own API,
+  // in the United States. Off unless explicitly allowed (security audit
+  // 2026-10-01, GDPR Art. 44): the client then builds the file locally.
+  if (Deno.env.get("ALLOW_OFFICE_US") !== "1") return jsonResponse({ ok: false, error: "office_unavailable" });
   const kind = String(body.kind ?? "").toLowerCase();
   const skill = OFFICE_SKILLS[kind];
   if (!skill) return jsonResponse({ ok: false, error: "unsupported_kind" }, 400);
@@ -870,6 +952,9 @@ Deno.serve(async (req: Request) => {
   } catch {
     return jsonResponse({ error: "invalid_json" }, 400);
   }
+  // Signed-in user, a member of the project named, within the rate limit.
+  const guard = await guardAiCall(req, body, "project-ai", corsHeaders);
+  if (guard instanceof Response) return guard;
 
   switch (body.action) {
     case "ask":

@@ -59,7 +59,7 @@
 // | docvex:insights:signatures:v1:<dir>             | lib/caseInsights           | signature comparison report
 // | docvex:insight-resolutions:v1:<dir>             | lib/caseInsights           | contradiction decisions (CNPs…)
 // | docvex:insights:case:v1:<dir>                   | components/CaseInsights    | kind of case, keyed by folder path
-// | docvex:history:<tab>:v1, docvex:legislation:history:v1 | lib/tabHistory     | searched party names, CUIs, files opened
+// | docvex:history:<tab>:v1, docvex:legislation:history:v1 | (removed — purged on hydrate) | searched party names, CUIs, files opened
 // | docvex:source-cache:<tab>:v1                    | lib/sourceCache            | cached ANAF / court answers
 // | docvex.aichat.v3.*, docvex.aichat.active.v1.*   | lib/advisorChats           | Advisor chats
 // | docvex.research.v1.*, docvex.research.active.v1.* | lib/researchChats        | Research chats
@@ -106,6 +106,10 @@
 // ─────────────────────────────────────────────────────────────────────────────
 
 // Class (b): content or personal data — never in localStorage.
+// Kept in SECURE_PREFIXES so leftovers are still recognised (and wiped), but
+// deleted on every hydrate: features that were removed.
+const RETIRED_PREFIXES = ['docvex:history:', 'docvex:legislation:history:v1'];
+
 export const SECURE_PREFIXES = Object.freeze([
   'docvex:ai-data:v1:',
   'docvex:doc-viewer:conversation:',
@@ -146,6 +150,7 @@ export const SECURE_PREFIXES = Object.freeze([
   'docvex:phone-upload:local:v2:',  // upload address tokens
   'docvex:phone-upload:cloud:v1:',
   'docvex:phone-upload-key:',       // upload encryption keys (V6)
+  'docvex:link-preview:v1',         // where links in photos' codes land (lib/linkPreviews)
 ]);
 
 // Class (a): what may be written to localStorage. scripts/check-localstorage.mjs
@@ -327,6 +332,8 @@ export function registerSecureMerge(prefix, merge) { merges.push([prefix, merge]
 function mergeFor(key) { return merges.find(([p]) => key.startsWith(p))?.[1] || null; }
 
 export const isSecureStoreReady = () => ready;
+/** The user whose store is loaded (null before sign-in / after sign-out). */
+export const secureStoreUser = () => (ready ? userId : null);
 export const secureStoreBackend = () => backend;
 export function whenSecureStoreReady() {
   if (ready) return Promise.resolve(true);
@@ -501,7 +508,7 @@ async function onRemote(msg) {
 export async function hydrateSecureStore(uid, opts = {}) {
   if (!uid) return false;
   if (opts.api) apiOverride = opts.api;
-  if (userId === uid && ready) return true;
+  if (userId === uid && ready && !opts.force) return true;
   if (userId && userId !== uid && ready) {
     // Another account was signed in: its pending writes go first, then its
     // data leaves memory.
@@ -515,8 +522,20 @@ export async function hydrateSecureStore(uid, opts = {}) {
   if (myGen !== gen) return false;
   let loaded = {};
   let use = kind;
+  // A store that CAN be read but did not answer (the background helper still
+  // starting, the index busy) is asked again before giving up: falling back to
+  // memory for the session showed users an empty store — their research chats
+  // gone — and nothing written that session was kept.
+  let degraded = false;
   if (kind !== 'memory') {
-    try { loaded = await readAll(kind, uid); } catch (err) { use = 'memory'; warnOnce(String(err?.message || err)); }
+    let lastErr = null;
+    for (let attempt = 0; attempt < 4; attempt += 1) {
+      try { loaded = await readAll(kind, uid); lastErr = null; break; } catch (err) { lastErr = err; }
+      if (myGen !== gen) return false;
+      await new Promise((r) => setTimeout(r, 400 * 2 ** attempt));
+      if (myGen !== gen) return false;
+    }
+    if (lastErr) { use = 'memory'; degraded = true; warnOnce(String(lastErr?.message || lastErr)); }
   } else warnOnce(why);
   if (myGen !== gen) return false;
   backend = use;
@@ -532,12 +551,27 @@ export async function hydrateSecureStore(uid, opts = {}) {
     } catch { /* the written value stands */ }
   }
   migrateLegacy();
+  // The Legislation tabs' History was removed (2026-10-02): what it logged —
+  // party names, CUIs, files and acts opened — is not kept a day longer.
+  for (const k of [...cache.keys()]) {
+    if (RETIRED_PREFIXES.some((pre) => k.startsWith(pre))) { cache.delete(k); dirty.set(k, null); }
+  }
   if (backend === 'memory') dirty.clear();          // nowhere to write them
   ready = true;
   ensureChannel();
   const waiters = readyWaiters; readyWaiters = [];
   waiters.forEach((r) => r(true));
   emit(null, 'hydrate');
+  // Still unreadable: try again in a while, keeping what was written meanwhile
+  // (it is merged with the store, or wins over it, when the store answers).
+  if (degraded) {
+    const tries = (opts.retries || 0) + 1;
+    if (tries <= 10) {
+      setTimeout(() => {
+        if (myGen === gen && userId === uid) void hydrateSecureStore(uid, { force: true, retries: tries });
+      }, 30000);
+    }
+  }
   if (backend !== 'memory') await flushSecureStore();
   return backend !== 'memory';
 }

@@ -11,12 +11,14 @@ import { resolve, dirname } from 'node:path';
 // belt-and-braces for macOS/Linux where BrowserWindow.icon does matter.
 //   - appicon_desktop.png — the main window's taskbar / Alt-Tab thumbnail.
 //   - favicon.ico         — the in-app file-viewer popup windows.
+//   - appicon_tray.png (+ @2x) — the system-tray icon, drawn at its own size
+//     (16px / 32px) instead of shrinking the 512px app icon at runtime.
 function copyMainIcon() {
   return {
     name: 'docvex-copy-main-icon',
     apply: 'build',
     closeBundle() {
-      for (const file of ['appicon_desktop.png', 'favicon.ico']) {
+      for (const file of ['appicon_desktop.png', 'appicon_tray.png', 'appicon_tray@2x.png', 'favicon.ico']) {
         try {
           const src = resolve(__dirname, 'src', file);
           const dest = resolve(__dirname, '.vite/build', file);
@@ -44,8 +46,11 @@ function copyMainIcon() {
 }
 
 // https://vitejs.dev/config
-export default defineConfig({
+export default defineConfig(({ mode }) => ({
   plugins: [copyMainIcon()],
   // Minified: the main bundle is parsed before the first window can open.
   build: { minify: true },
-});
+  // console.log / info / debug dropped from production (paths in messages);
+  // warn and error stay.
+  esbuild: mode === 'production' ? { pure: ['console.log', 'console.info', 'console.debug'], drop: ['debugger'] } : {},
+}));

@@ -10,6 +10,7 @@ import React, {
 import { useAuth } from './AuthContext';
 import { applyAppScale } from '../lib/appScale';
 import { getPerfLevel } from '../lib/perf';
+import { setLanguage, DEFAULT_LANGUAGE } from '../lib/i18n';
 
 // App-wide user preferences (Settings → everything except Theme, which has its
 // own ThemeContext). Single source of truth so the preferences actually DRIVE
@@ -17,8 +18,10 @@ import { getPerfLevel } from '../lib/perf';
 //   - textSize    → global UI scale (webFrame zoom)  [applied here]
 //   - reduceMotion→ `data-reduce-motion` on <html> + a global CSS kill switch
 //   - thumbnails  → FileThumbnail renders the type glyph instead of a poster
-//   - fileView    → the Files workspace's initial grid/list view
-//   - language    → persisted; full app i18n isn't wired yet (placeholder)
+//   - language    → the interface language (lib/i18n): 'ro' (default), 'en'
+//                   or 'system' (the OS language, Romanian or else English). The
+//                   interface only — documents are written in the language
+//                   of the request.
 //
 // Per-user, persisted under docvex.appPrefs.<userId> (same key the Settings
 // page used before), hydrated on auth change. Global side-effects are applied
@@ -29,8 +32,7 @@ export const DEFAULT_PREFS = {
   textSize: 100, // app-wide display scale, percent (70–125); see lib/appScale
   thumbnails: true,
   reduceMotion: false,
-  fileView: 'grid',
-  language: 'en',
+  language: DEFAULT_LANGUAGE,
   showTokenUsage: false, // show the per-chat token-usage indicator in AI chats
   fpsCounter: 'off', // the title bar's FPS counter: 'off' | 'simple' | 'complex' | 'graph' (components/FpsMeter)
 };
@@ -41,7 +43,12 @@ function prefKey(uid) { return PREF_KEY_PREFIX + (uid || '_anonymous'); }
 function loadPrefs(uid) {
   try {
     const stored = JSON.parse(localStorage.getItem(prefKey(uid)) || '{}');
-    return { ...DEFAULT_PREFS, ...(stored && typeof stored === 'object' ? stored : {}) };
+    const prefs = { ...DEFAULT_PREFS, ...(stored && typeof stored === 'object' ? stored : {}) };
+    // Every save writes the whole object, so prefs saved before the
+    // translation carry the old 'en' default without anyone having picked it.
+    // Once, move them onto the new default; a pick made after is kept.
+    if (!prefs.languageChosen) prefs.language = DEFAULT_LANGUAGE;
+    return prefs;
   } catch {
     return { ...DEFAULT_PREFS };
   }
@@ -58,6 +65,7 @@ function applyGlobals(prefs) {
     root.setAttribute('data-reduce-motion', prefs.reduceMotion || getPerfLevel() === 'low' ? 'true' : 'false');
   }
   applyAppScale(prefs.textSize);
+  setLanguage(prefs.language);
 }
 
 export const AppPrefsContext = createContext(null);
@@ -88,7 +96,7 @@ export function AppPrefsProvider({ children }) {
 
   const setPref = useCallback((key, value) => {
     setPrefs((prev) => {
-      const next = { ...prev, [key]: value };
+      const next = { ...prev, [key]: value, ...(key === 'language' ? { languageChosen: true } : {}) };
       persist(next);
       return next;
     });

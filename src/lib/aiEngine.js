@@ -36,14 +36,29 @@ export const AI_SURFACES = {
   research: {
     id: 'research', label: 'Research', where: 'pages/Research',
     portals: true, auto: true, legalHighlight: true, projectFiles: true,
-    openFile: false, createFiles: false, editFiles: false,
+    openFile: false, createFiles: false, editFiles: false, webSearch: true,
+    // Research searches before every substantive answer, so each one comes
+    // with its sources (project-ai's WEB_SEARCH_ALWAYS).
+    searchAlways: true,
     usageAction: 'research',
   },
   viewer: {
     id: 'viewer', label: 'File viewer (Doc Viewer advisor)', where: 'pages/DocViewer',
     portals: true, auto: true, legalHighlight: true, projectFiles: true,
-    openFile: true, createFiles: true, editFiles: true,
+    openFile: true, createFiles: true, editFiles: true, webSearch: true,
     usageAction: 'viewer',
+  },
+  // EVERY OTHER AI CALL IN THE APP (2026-10-02 — one engine, app-wide): the
+  // calls whose answer CODE reads — JSON, a rewritten paragraph, a picture's
+  // reconstruction, file descriptions, the Attack scan. Same transport, limits,
+  // streaming and pseudonymisation as a conversation; no manners, answer
+  // style, web search, portals, Auto or project digest (they would change what
+  // the code has to parse). The caller names the model and its usageAction.
+  tool: {
+    id: 'tool', label: 'Utility calls (answers read by the app)', where: 'lib/* — file search, Attack, picture → Word, …',
+    portals: false, auto: false, legalHighlight: false, projectFiles: false,
+    openFile: false, createFiles: false, editFiles: false, webSearch: false, conversation: false,
+    usageAction: 'tool',
   },
 };
 export const CAPABILITIES = [
@@ -53,6 +68,7 @@ export const CAPABILITIES = [
   { id: 'projectFiles', label: 'Project files', what: 'The project digest (every file, data collection and what the scan read) is handed over when the composer’s switch is on.' },
   { id: 'openFile', label: 'The open file', what: 'The file on show is handed over in full (≤40,000 characters).' },
   { id: 'createFiles', label: 'Create files', what: 'The model may save a new version of the document (write_document) or ask questions first (ask_user) — written by your Playbook rules.' },
+  { id: 'webSearch', label: 'Web search', what: 'Claude searches the web itself (Anthropic’s own server-side search, at most 5 searches an answer, localised to Romania) when the answer depends on current or outside information; every statement taken from a result is followed by a numbered link [n](url), and the sources reviewed are listed under the answer. Answers read by code (paragraph rewrites, JSON) never search.' },
   { id: 'editFiles', label: 'Edit files', what: 'The model may rewrite a picked paragraph in place and change project files through edit blocks, each with Undo — edited by your Playbook rules.' },
 ];
 
@@ -108,31 +124,19 @@ const FILES_KEY = 'docvex:ai:project-files:v1';
 const STYLE_KEY = 'docvex:ai:style:v1';
 export const AI_SETTING_KEYS = { model: MODEL_KEY, projectFiles: FILES_KEY, style: STYLE_KEY };
 
-// ── How the AI answers: the style presets (the dropdown by Research's search,
-// and in the file viewer's composer). Sent as one line at the END of the
-// question — the volatile tail, so the cached prefix is untouched.
+// ── How the AI answers: ONE style, Direct (2026-10-03 — the style dropdown
+// and the Claude / DocVex presets were removed at the user's request). Sent as
+// one line at the END of the question — the volatile tail, so the cached
+// prefix is untouched. No greetings, closings or courtesy phrases.
 export const AI_STYLES = [
-  { id: 'claude', label: 'Claude', tip: 'Claude’s own default way of answering', prompt: '' },
-  {
-    id: 'docvex', label: 'DocVex', tip: 'Formal, no emojis — like a colleague at a law firm',
-    prompt: '[Style: Answer as an experienced legal professional at a law firm would write to a client or a colleague — a formal, courteous and measured register, precise legal terminology, complete sentences. No emojis, no exclamation marks, no slang or casual phrasing, no chatty openers or sign-offs.]',
-  },
   {
     id: 'direct', label: 'Direct', tip: 'Just the information, straight away',
-    // Direct = the DATA, straight — still courteous (AI_MANNERS holds): a brief
-    // polite greeting and closing stay, only padding and digressions go.
-    prompt: '[Style: Keep your usual courtesy — a brief polite greeting and a brief polite closing — but between them give the information directly: the answer itself first, no restating the question, no digressions or padding, no unrequested follow-up offers. Short sentences or a tight list; only what was asked.]',
+    prompt: '[Style: Give the information directly — the answer itself first. No greeting, no polite opening or closing, no thanks, no "I remain at your disposal", no restating the question, no digressions or padding, no unrequested follow-up offers. Short sentences or a tight list; only what was asked.]',
   },
 ];
-const STYLE_BY_ID = new Map(AI_STYLES.map((x) => [x.id, x]));
-export const aiStyle = (id) => STYLE_BY_ID.get(id) || AI_STYLES[0];
-export function loadAiStyle() {
-  try { const v = localStorage.getItem(STYLE_KEY); return STYLE_BY_ID.has(v) ? v : 'claude'; } catch { return 'claude'; }
-}
-export function saveAiStyle(id) {
-  try { localStorage.setItem(STYLE_KEY, id); } catch { /* quota */ }
-  try { window.dispatchEvent(new CustomEvent('docvex:ai-settings')); } catch { /* no window */ }
-}
+export const aiStyle = () => AI_STYLES[0];
+export function loadAiStyle() { return 'direct'; }
+export function saveAiStyle() { /* one style — nothing to keep */ }
 /** The question with the style line after it (outgoing copy only). */
 export const withStyle = (text, styleId) => {
   const p = aiStyle(styleId).prompt;
@@ -165,31 +169,14 @@ export function saveAiProjectFiles(on) {
 // code, not by the user (paragraph rewrites, the router, JSON extractors):
 // a greeting there would break the parsing. The last line keeps courtesy
 // out of what the AI WRITES for others (documents, files).
-export const AI_MANNERS = `<system_instructions>
-You are an exceptionally polite, respectful, and professional AI assistant built into this application. You must strictly adhere to the highest standards of formal etiquette and courtesy in every interaction.
-
-<core_rules>
-- Always begin the first interaction with a warm and respectful greeting.
-- Naturally embed polite phrases throughout your responses (e.g., "Please," "Thank you," "It is my pleasure to assist you," "Could you kindly...").
-- Maintain a highly patient, supportive, and empathetic tone at all times.
-- Conclude responses with appropriate formal closing remarks when a conversation or task finishes (e.g., "Best regards," "I remain at your disposal").
-- Never use slang, overly casual language, or inappropriate contractions.
-</core_rules>
-
-<tone_and_style>
-- Professional yet approachable.
-- Clear, structured, and easy to read.
-- Focused on making the user feel valued and respected.
-</tone_and_style>
-</system_instructions>
-<romanian_address>
+export const AI_MANNERS = `<romanian_address>
 When you write to me in Romanian, ALWAYS use the formal form of address (the polite plural, "dumneavoastră") — the informal "tu" forms are rude and must never be used. This applies to every way of addressing me:
 - Pronouns: "dumneavoastră" (never "tu", "te", "îți", "ți", "tine", "ție"); e.g. "vă rog", "vă mulțumesc", "vă pot ajuta", "vă recomand", "vă trimit" (never "te rog", "îți mulțumesc", "te pot ajuta", "îți recomand", "îți trimit").
 - Verbs in the 2nd person plural: "ce doriți" (never "ce dorești"), "aveți", "puteți", "doriți", "știți", "vreți", "sunteți", "ați menționat", "ați întrebat" (never "ai", "poți", "vrei", "știi", "ești", "ai menționat").
 - Imperatives in the plural: "vă rog să verificați", "consultați", "trimiteți", "alegeți", "precizați" (never "verifică", "consultă", "trimite", "alege", "spune-mi").
 - Possessives: "documentul dumneavoastră", "cererea dumneavoastră", "contractul dumneavoastră" (never "documentul tău", "cererea ta").
 - Reflexive and object forms: "vă interesează", "vă sugerez", "v-aș recomanda", "vă stă la dispoziție" (never "te interesează", "îți sugerez", "ți-aș recomanda").
-- Greetings and closings: "Bună ziua", "Cu deosebită considerație", "Vă stau la dispoziție pentru orice clarificare" (never "Salut", "Hei", "Pa").
+- Do not open with a greeting or end with a closing formula; if a greeting is ever needed, the formal one ("Bună ziua", never "Salut", "Hei", "Pa").
 - When a subject is needed, "dumneavoastră"; for a third party, the courtesy forms "dânsul" / "dânsa" / "domnul" / "doamna".
 Apply the same formal register in any other language that distinguishes it (e.g. "vous", "Sie", "usted").
 </romanian_address>
@@ -230,40 +217,9 @@ ${text}
   currentDocument: (name, text) => `Here is the CURRENT content of the document you are building ("${name || 'document'}"). When I ask for a change, take THIS and save the complete updated version with write_document:\n\n<<<CURRENT DOCUMENT>>>\n${text}\n<<<END>>>`,
   currentDocumentAck: 'Understood — I have the current document and will save a complete new version with write_document whenever you ask for a change.',
   // File viewer, a Word file DocVex did not write: its words only.
-  foreignDocument: (name, text) => `Here is the text of "${name || 'this document'}", which I am reading. It was NOT written here, so you have its words but not its layout.\n\n<<<DOCUMENT>>>\n${text}\n<<<END>>>\n\nAnswer questions about it directly. Do NOT call write_document for it: saving a new version would rebuild the file from this plain text and throw away its formatting, tables and numbering. When I want something in it changed, tell me to click the paragraph — a paragraph I pick is edited straight inside the file, keeping everything else exactly as it is.`,
-  foreignDocumentAck: 'Understood — I have the document’s text. I’ll answer about it, and point you at the paragraph when you want a change made.',
-  // File viewer, EDIT FILES: a picked paragraph (see paragraphFrame below).
-  paragraphMarker: '@@REWRITE@@',
+  foreignDocument: (name, text) => `Here is the text of "${name || 'this document'}", which I am reading. It was NOT written here, so you have its words but not its layout.\n\n<<<DOCUMENT>>>\n${text}\n<<<END>>>\n\nAnswer questions about it directly. Do NOT call write_document for it: saving a new version would rebuild the file from this plain text and throw away its formatting, tables and numbering. When I want something in it changed, say exactly what to change and where, so I can make the change in Word.`,
+  foreignDocumentAck: 'Understood — I have the document’s text. I’ll answer about it, and say exactly what to change when you want a change made.',
 };
-
-/** The frame of a turn aimed at a PICKED PARAGRAPH (file viewer, edit files). */
-export function paragraphFrame({ fileName, source, paragraphs, context }) {
-  const many = paragraphs > 1;
-  return [
-    `You are working inside "${fileName || 'this document'}". The reader has picked ${many ? `${paragraphs} paragraphs` : 'ONE paragraph'} out of it, and everything I ask is about ${many ? 'them' : 'it'}.`,
-    '',
-    many ? 'THE PICKED PARAGRAPHS, in order:' : 'THE PICKED PARAGRAPH:',
-    '<<<PASSAGE>>>',
-    source,
-    '<<<END PASSAGE>>>',
-    ...(context ? [
-      '',
-      'The rest of the document is below FOR CONTEXT ONLY — so you know the defined terms, the parties and the numbering. Never rewrite or repeat it.',
-      '<<<DOCUMENT>>>',
-      context,
-      '<<<END DOCUMENT>>>',
-    ] : []),
-    '',
-    'How to reply:',
-    `- If I am asking you to CHANGE the passage, reply with the line ${AI_PROMPTS.paragraphMarker} on its own, and under it the full new text of the passage and nothing else — no quotes, no markdown fences, no commentary.`,
-    ...(many ? [`  Give exactly ${paragraphs} paragraphs, in the same order, separated by one blank line.`] : []),
-    '- If I am only asking a question about it, answer in prose and do not use that line.',
-    '- Keep the language the passage is written in.',
-    '- Keep every [[placeholder]] and every blank (_____) exactly as written unless I ask you to fill it. Never invent a name, a date, a sum or an identifier.',
-    '- Change only this passage. The rest of the document stays as it is.',
-  ].join('\n');
-}
-export const paragraphAck = (many) => `Understood — I have the passage and the document around it, and I will ${many ? 'return those paragraphs' : 'return that paragraph'} only when you ask for a change.`;
 
 // ── Exact match (Research) ─────────────────────────────────────────────────
 // A line that IS an identifier (an act, a court file, a CUI, a CAEN code) is
@@ -529,27 +485,36 @@ function foldContext(messages, context) {
   return [...messages.slice(0, i), { ...m, content: `${context}\n\n${m.content}` }];
 }
 
-/** Ask, under the surface's time limit. `context` = the stable data (cached
- *  apart); `onText(piece, soFar)` streams the answer as it arrives; `signal`
- *  aborts it; `manners: false` leaves AI_MANNERS out (an answer read by code).
- *  → the askProjectAi result (+ `ttft`, ms to the first text), or { error }. */
-export async function askAi({ surface, messages, model, context: data = '', docTools = false, docKind, fileNames = [], projectName, usageAction, onText, signal, manners = true }) {
-  const context = manners ? withManners(data) : data;
-  const S = AI_SURFACES[surface];
+/** Ask, under the surface's time limit — THE way every part of the app calls
+ *  the AI (`surface: 'tool'` for an answer the code reads). `context` = the
+ *  stable data (cached apart); `onText(piece, soFar)` follows the answer as it
+ *  arrives; `signal` aborts it; `manners: false` leaves AI_MANNERS out (the
+ *  default on a surface that is not a conversation). EVERY call is STREAMED,
+ *  `onText` or not: text keeps the request alive, so a long answer is never
+ *  cut off by the server's 150 s idle limit (which is what broke Attack).
+ *  `usageProject` / `effort` / `timeoutMs` override the defaults.
+ *  → the askProjectAi result (+ `ttft`, ms to the first text), or { error: string }. */
+export async function askAi({ surface, messages, model, context: data = '', docTools = false, docKind, fileNames = [], projectName, usageAction, usageProject, onText, signal, manners, webSearch, onSearch, onSources, effort, timeoutMs }) {
+  const S = AI_SURFACES[surface] || AI_SURFACES.tool;
+  const polite = manners ?? (S.conversation !== false);
+  const context = polite ? withManners(data) : data;
+  // Web search: on for a surface's conversations; never for an answer code
+  // reads (manners: false), unless asked for outright.
+  const search = webSearch ?? (!!S.webSearch && polite);
   const tools = S.createFiles && docTools;
   const t0 = performance.now();
   let ttft = null;
   const apart = serverSupports('context');
   const opts = {
     messages: apart ? messages : foldContext(messages, context),
-    projectName, fileNames, model, context: apart ? context : '', effort: AI_LIMITS.effort,
+    projectName, fileNames, model, context: apart ? context : '', effort: effort || AI_LIMITS.effort,
     ...(tools ? { docTools: true, docKind: docKind || undefined } : { tools: false }),
     usageAction: usageAction || S.usageAction,
+    ...(usageProject !== undefined ? { usageProject } : {}),
+    ...(search ? { webSearch: true, ...(S.searchAlways ? { searchAlways: true } : {}) } : {}),
   };
-  const call = onText
-    ? askProjectAiStream({ ...opts, signal, onText: (d, all) => { if (ttft == null) ttft = performance.now() - t0; onText(d, all); } })
-    : askProjectAi(opts);
-  const limit = tools ? AI_LIMITS.draftMs : AI_LIMITS.answerMs;
+  const call = askProjectAiStream({ ...opts, signal, onSearch, onSources, onText: (d, all) => { if (ttft == null) ttft = performance.now() - t0; onText?.(d, all); } });
+  const limit = timeoutMs || (tools ? AI_LIMITS.draftMs : AI_LIMITS.answerMs);
   const res = await withLimit(call, limit);
   if (res === TIMEOUT) return { error: `The AI took more than ${Math.round(limit / 60000)} minutes and was stopped. Try again, or pick a faster model.` };
   if (res?.error) return { error: typeof res.error === 'string' ? res.error : (res.error?.message || 'The AI did not answer.') };

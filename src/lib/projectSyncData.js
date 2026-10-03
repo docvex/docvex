@@ -52,6 +52,7 @@ export const DATA_NAME = '.docvex-data.json';
 export const privateDataPath = (userId, projectId) => `user-${userId}/${projectId}.json`;
 // ProjectAI.jsx's STORAGE_PREFIX — keep the two in step.
 const AI_CHAT_PREFIX = 'docvex.aichat.v3.';
+const RESEARCH_PREFIX = 'docvex.research.v1.';   // lib/researchChats' — keep in step
 const MTIME_SLACK_MS = 2000;  // lib/projectSync's — the same file, a copy apart
 
 const bucket = () => supabase.storage.from('project-sync');
@@ -105,6 +106,42 @@ function sameVersion(a, b) {
     return Math.abs(new Date(a.mtime).getTime() - new Date(b.mtime).getTime()) <= MTIME_SLACK_MS;
   }
   return true;
+}
+
+// A saved chat list (the Advisor's, Research's) as a private store.
+function chatSlot(slot, prefix) {
+  return {
+    // The Advisor's saved chats: merged per thread (newest `updatedAt`), with
+    // deleted threads remembered so another device's copy can't revive them.
+    slot,
+    bundle: 'private',
+    key: (ctx) => `${prefix}${ctx.userId}.${ctx.projectId}`,
+    read(ctx, key) {
+      const threads = readJson(key);
+      const gone = goneFor(key);
+      if (!Array.isArray(threads) && !Object.keys(gone).length) return null;
+      const list = Array.isArray(threads) ? threads : [];
+      return { at: maxAt(list.map((t) => t?.updatedAt)), value: { threads: list, gone } };
+    },
+    merge(local, remote) {
+      const gone = { ...(remote.value.gone || {}) };
+      for (const [id, at] of Object.entries(local.value.gone || {})) gone[id] = Math.max(Number(gone[id]) || 0, Number(at) || 0);
+      const byId = new Map();
+      for (const t of [...(remote.value.threads || []), ...(local.value.threads || [])]) {
+        if (!t?.id) continue;
+        const cur = byId.get(t.id);
+        if (!cur || (t.updatedAt || 0) >= (cur.updatedAt || 0)) byId.set(t.id, t);
+      }
+      const threads = [...byId.values()]
+        .filter((t) => !(Number(gone[t.id]) >= (t.updatedAt || 0)))
+        .sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+      return { at: maxAt(threads.map((t) => t.updatedAt)), value: { threads, gone } };
+    },
+    write(ctx, key, value) {
+      setGone(key, value.gone);
+      return JSON.stringify(value.threads || []);
+    },
+  };
 }
 
 // ── Stores on this device ───────────────────────────────────────────────────
@@ -240,38 +277,10 @@ const PROJECT_STORES = [
     },
     clocked: true,
   },
-  {
-    // The Advisor's saved chats: merged per thread (newest `updatedAt`), with
-    // deleted threads remembered so another device's copy can't revive them.
-    slot: 'aiChats',
-    bundle: 'private',
-    key: (ctx) => `${AI_CHAT_PREFIX}${ctx.userId}.${ctx.projectId}`,
-    read(ctx, key) {
-      const threads = readJson(key);
-      const gone = goneFor(key);
-      if (!Array.isArray(threads) && !Object.keys(gone).length) return null;
-      const list = Array.isArray(threads) ? threads : [];
-      return { at: maxAt(list.map((t) => t?.updatedAt)), value: { threads: list, gone } };
-    },
-    merge(local, remote) {
-      const gone = { ...(remote.value.gone || {}) };
-      for (const [id, at] of Object.entries(local.value.gone || {})) gone[id] = Math.max(Number(gone[id]) || 0, Number(at) || 0);
-      const byId = new Map();
-      for (const t of [...(remote.value.threads || []), ...(local.value.threads || [])]) {
-        if (!t?.id) continue;
-        const cur = byId.get(t.id);
-        if (!cur || (t.updatedAt || 0) >= (cur.updatedAt || 0)) byId.set(t.id, t);
-      }
-      const threads = [...byId.values()]
-        .filter((t) => !(Number(gone[t.id]) >= (t.updatedAt || 0)))
-        .sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
-      return { at: maxAt(threads.map((t) => t.updatedAt)), value: { threads, gone } };
-    },
-    write(ctx, key, value) {
-      setGone(key, value.gone);
-      return JSON.stringify(value.threads || []);
-    },
-  },
+  chatSlot('aiChats', AI_CHAT_PREFIX),
+  // Research's chats (the Legislation tabs) belong to the project too
+  // (lib/researchChats): the same private, per-thread merge.
+  chatSlot('researchChats', RESEARCH_PREFIX),
 ];
 
 // ── Bundles in the account ──────────────────────────────────────────────────

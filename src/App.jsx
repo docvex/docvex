@@ -3,7 +3,7 @@ import { Outlet, useLocation, useMatch, useNavigate } from 'react-router-dom';
 import { ProjectProvider, useProject } from './context/ProjectContext';
 import { useSelectedProject } from './context/SelectedProjectContext';
 import { useAuth } from './context/AuthContext';
-import { isElectron, isAuxWindow, isTabWindow, reportTabWindowRoute } from './lib/platform';
+import { isElectron, isAuxWindow, isTabWindow, isTrayDropWindow } from './lib/platform';
 import { projectIndexApi } from './lib/localFolder';
 import { getProject } from './lib/projects';
 import { useNotify } from './context/NotificationsContext';
@@ -98,7 +98,7 @@ function ProjectPrefetch() {
   const { session } = useAuth();
   const userId = session?.user?.id || null;
   useEffect(() => {
-    // Main window only — a Doc Viewer / snip window will never open the Files
+    // Main window only — a Doc Viewer window will never open the Files
     // page, so warming it per window (times every open viewer) is pure waste.
     if (!isElectron || isAuxWindow || !selectedProjectId) return;
     prefetchProjectFiles({
@@ -160,8 +160,8 @@ function ProjectFileOpened() {
 }
 
 // Tray-menu → main-window bridge (Electron, main window only). The system-tray
-// menu (src/pages/TrayMenu.jsx) has no router of its own: it sends an action to
-// main, main raises this window and forwards the destination here.
+// menu is the OS's own (main.js buildTrayMenu): a row's action runs in main,
+// which raises this window and forwards the destination here.
 //   '/settings', '/projects/:id', … — plain routes
 //   '@report'                       — open the Report-a-problem modal
 // Also owns the Ctrl+, accelerator the menu advertises for Settings (the app
@@ -218,17 +218,6 @@ function LegalFeedSyncRunner() {
   return null;
 }
 
-// A TAB WINDOW reports its route (and title) to main whenever it moves, so
-// the main window's sidebar names it and docking it returns right there.
-function TabWindowRoute() {
-  const { pathname, search } = useLocation();
-  useEffect(() => {
-    const clean = search.replace(/[?&]_=\d+/, '').replace(/^&/, '?');
-    const t = setTimeout(() => reportTabWindowRoute(`${pathname}${clean}`, document.title), 120);
-    return () => clearTimeout(t);
-  }, [pathname, search]);
-  return null;
-}
 
 export default function App() {
   // Guard against the window navigating to a file when an OS file drag is
@@ -260,20 +249,10 @@ export default function App() {
     <ReportProblemProvider>
       <WindowTitle />
       <ProjectPrefetch />
-      {/* The tray "Extract text" windows are chromeless — the overlay's
-          (?snip=1) frozen screenshot must fill the display edge-to-edge, the
-          launcher panel (?snipPanel=1) draws its own mini title bar, and the
-          delayed-capture countdown badge (?snipCountdown=1) is a transparent
-          click-through circle. */}
-      {isElectron
-        && !['snip', 'snipPanel', 'snipCountdown', 'trayMenu'].some(
-          (k) => new URLSearchParams(window.location.search).get(k) === '1',
-        )
-        && <TitleBar />}
-      {/* A tab in a separate window runs neither (they belong to the main
-          window); it reports where it is instead, so its × in the main
-          window's sidebar can bring that back. */}
-      {isTabWindow ? <TabWindowRoute /> : (
+      {isElectron && !isTrayDropWindow && <TitleBar />}
+      {/* A tab in a separate window runs none of these (they belong to the
+          main window). */}
+      {isTabWindow || isTrayDropWindow ? null : (
         <>
           <TrayNavigation />
           <ProjectFileOpened />

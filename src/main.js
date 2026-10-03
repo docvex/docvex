@@ -1,16 +1,45 @@
-import { app, BrowserWindow, Menu, Tray, ipcMain, shell, autoUpdater, dialog, protocol, nativeImage, screen, session, desktopCapturer, safeStorage, utilityProcess } from 'electron';
+import { app, BrowserWindow, Menu, Tray, ipcMain, shell, autoUpdater, dialog, protocol, nativeImage, screen, session, safeStorage, utilityProcess } from 'electron';
 import path from 'node:path';
 import fs from 'node:fs';
 import fsp from 'node:fs/promises';
+import { fileURLToPath } from 'node:url';
 import crypto from 'node:crypto';
+import dns from 'node:dns/promises';
+import net from 'node:net';
 import { spawn } from 'node:child_process';
 import started from 'electron-squirrel-startup';
 import { updateElectronApp } from 'update-electron-app';
 import { registerPhoneUpload } from './phoneUploadServer';
 import { guessMimeFromName, isIgnoredLocalFilename, walkLocalDir } from './projectIndex/walk.js';
 import { createProjectIndexService } from './projectIndex/index.js';
-import { setIndexKey, sealBytes, openBytes } from './projectIndex/seal.js';
+import { setIndexKey, sealBytes, openBytes, hasIndexKey } from './projectIndex/seal.js';
 import releaseRepo from '../release-repo.json';
+
+// ── IPC: only the app's own windows may call main (security audit 2026-10-01) ─
+// Every channel below is registered through these wrappers: a message is
+// answered only when it comes from the MAIN FRAME of a window main made with
+// the preload (`appWindowContentIds`, filled by createAppWindow and the tray
+// drop window). A subframe (the Maps embed) or any other webContents — a
+// window that navigated somewhere it should not have — gets nothing.
+// `appWindowContentIds` is declared further down; it is read at call time.
+function ipcSenderAllowed(e) {
+  try {
+    return !!e?.sender && appWindowContentIds.has(e.sender.id)
+      && (!e.senderFrame || e.senderFrame === e.sender.mainFrame);
+  } catch { return false; }
+}
+{
+  const rawHandle = ipcMain.handle.bind(ipcMain);
+  const rawOn = ipcMain.on.bind(ipcMain);
+  ipcMain.handle = (channel, fn) => rawHandle(channel, (e, ...args) => {
+    if (!ipcSenderAllowed(e)) throw new Error('forbidden');
+    return fn(e, ...args);
+  });
+  ipcMain.on = (channel, fn) => rawOn(channel, (e, ...args) => {
+    if (!ipcSenderAllowed(e)) return undefined;
+    return fn(e, ...args);
+  });
+}
 
 // Resolve the path to Word's executable when Microsoft Word is
 // installed locally. Electron's `app.getApplicationNameForProtocol`
@@ -109,7 +138,9 @@ protocol.registerSchemesAsPrivileged([
       secure: true,
       supportFetchAPI: true,
       stream: true,
-      bypassCSP: true,
+      // No bypassCSP (security audit 2026-10-01): the app's CSP names
+      // localfile: in img-src / media-src / connect-src, which is every way
+      // the app loads it.
       corsEnabled: true,
     },
   },
@@ -131,9 +162,16 @@ protocol.registerSchemesAsPrivileged([
 
 // Content-Security-Policy of packaged builds — applied to every response in
 // whenReady below, and to the app origin's documents.
+// This project's Supabase host (from the build's .env), so the CSP names it
+// rather than every *.supabase.co project — any attacker's included.
+const SUPABASE_HOST = (() => {
+  try { return new URL(import.meta.env?.VITE_SUPABASE_URL || '').host; } catch { return ''; }
+})();
+const SB_HTTPS = SUPABASE_HOST ? `https://${SUPABASE_HOST}` : 'https://*.supabase.co';
+const SB_WSS = SUPABASE_HOST ? `wss://${SUPABASE_HOST}` : 'wss://*.supabase.co';
 const APP_CSP = app.isPackaged ? [
   "default-src 'self'",
-  "script-src 'self' 'wasm-unsafe-eval' blob:",
+  "script-src 'self' 'wasm-unsafe-eval'",
   "worker-src 'self' blob:",
   // Fonts are bundled (@fontsource) — no Google Fonts request (V14).
   "style-src 'self' 'unsafe-inline'",
@@ -141,9 +179,9 @@ const APP_CSP = app.isPackaged ? [
   // No `https:` wildcard for images (V3): an AI answer or a document could
   // otherwise name any server in an <img> and leak what the URL carries the
   // moment it renders. Only the hosts the app itself draws from.
-  "img-src 'self' localfile: data: blob: https://*.googleusercontent.com https://*.supabase.co https://legislatie.just.ro",
+  `img-src 'self' localfile: data: blob: https://*.googleusercontent.com ${SB_HTTPS} https://legislatie.just.ro`,
   "media-src 'self' localfile: blob: data:",
-  "connect-src 'self' https://*.supabase.co wss://*.supabase.co https://api.github.com https://*.githubusercontent.com localfile: data: blob:",
+  `connect-src 'self' ${SB_HTTPS} ${SB_WSS} https://api.github.com https://*.githubusercontent.com localfile: data: blob:`,
   // The ANAF record's map drawer (components/MapDrawer): Google Maps' embed.
   "frame-src https://www.google.com https://maps.google.com",
   "object-src 'none'",
@@ -166,11 +204,13 @@ const APP_CSP = app.isPackaged ? [
 // copied: in the desktop build it only holds caches that rebuild themselves
 // (the OCR models' copy).
 //
-// Escape hatch: DOCVEX_FILE_ORIGIN=1 in the environment loads from file:// as
-// before. A window whose docvex-app:// load fails falls back to file:// too.
+// Escape hatch (development only): DOCVEX_FILE_ORIGIN=1 loads from file:// as
+// before. A packaged build never does — see loadRendererBundle.
 const APP_SCHEME = 'docvex-app';
 const APP_ORIGIN = `${APP_SCHEME}://bundle`;
-const USE_APP_ORIGIN = !MAIN_WINDOW_VITE_DEV_SERVER_URL && process.env.DOCVEX_FILE_ORIGIN !== '1';
+// The env switches below are honoured in development only (security audit 2026-10-01).
+const DEV_ENV = !app.isPackaged;
+const USE_APP_ORIGIN = !MAIN_WINDOW_VITE_DEV_SERVER_URL && !(DEV_ENV && process.env.DOCVEX_FILE_ORIGIN === '1');
 const RENDERER_DIR = () => path.join(__dirname, `../renderer/${MAIN_WINDOW_VITE_NAME}`);
 const MIGRATE_PAGE = '/__docvex-migrate.html';
 // True while the migration's hidden windows exist: closing them must not read
@@ -188,18 +228,43 @@ const APP_MIME = {
 };
 
 // Load the app into an app window: the dev server, the app origin, or file://.
+// True once any app window runs from file:// (the fallback): only then does
+// localfile:// answer the "null" origin such a page sends.
+let fileOriginInUse = false;
 function loadRendererBundle(win, query) {
   const qs = query && Object.keys(query).length ? `?${new URLSearchParams(query).toString()}` : '';
   if (MAIN_WINDOW_VITE_DEV_SERVER_URL) return win.loadURL(`${MAIN_WINDOW_VITE_DEV_SERVER_URL}${qs}`);
-  const fromFile = () => win.loadFile(path.join(RENDERER_DIR(), 'index.html'), query ? { query } : undefined);
-  if (!USE_APP_ORIGIN) return fromFile();
-  // A broken app-origin load must not leave a blank window: fall back once.
+  const fromFile = () => { fileOriginInUse = true; return win.loadFile(path.join(RENDERER_DIR(), 'index.html'), query ? { query } : undefined); };
+  if (!USE_APP_ORIGIN) return fromFile();   // development only (DOCVEX_FILE_ORIGIN)
+  // The packaged app loads ONLY from the app origin (security audit
+  // 2026-10-01): file:// no longer has Electron's extra privileges (the
+  // GrantFileProtocolExtraPrivileges fuse is off — forge.config.js), and the
+  // bundle's ES modules don't load from file:// without them, so a fallback
+  // there would open a blank window. A failed load is retried once; a second
+  // failure says so and offers a restart instead of leaving a dead window.
+  let retried = false;
   const onFail = (_e, code, desc, url, isMainFrame) => {
     if (!isMainFrame || !String(url).startsWith(APP_ORIGIN) || code === -3 /* ABORTED: replaced by a navigation */) return;
-    console.warn(`[app-origin] ${url} failed (${code} ${desc}) — loading from file:// instead`);
-    fromFile();
+    if (!retried) {
+      retried = true;
+      console.warn(`[app-origin] ${url} failed (${code} ${desc}) — retrying`);
+      setTimeout(() => { if (!win.isDestroyed()) win.loadURL(`${APP_ORIGIN}/index.html${qs}`).catch(() => {}); }, 400);
+      return;
+    }
+    win.webContents.removeListener('did-fail-load', onFail);
+    console.error(`[app-origin] ${url} failed again (${code} ${desc})`);
+    const choice = dialog.showMessageBoxSync(win.isDestroyed() ? undefined : win, {
+      type: 'error',
+      buttons: [tm('Restart DocVex'), tm('Close')],
+      defaultId: 0,
+      cancelId: 1,
+      title: 'DocVex',
+      message: tm('DocVex could not load its window.'),
+      detail: tm('Restarting usually fixes this. If it keeps happening, reinstall DocVex.'),
+    });
+    if (choice === 0) { app.relaunch(); app.exit(0); } else if (!win.isDestroyed()) win.close();
   };
-  win.webContents.once('did-fail-load', onFail);
+  win.webContents.on('did-fail-load', onFail);
   win.webContents.once('did-finish-load', () => win.webContents.removeListener('did-fail-load', onFail));
   return win.loadURL(`${APP_ORIGIN}/index.html${qs}`);
 }
@@ -209,7 +274,7 @@ function loadRendererBundle(win, query) {
 function registerAppOrigin() {
   if (!USE_APP_ORIGIN) return;
   const root = path.resolve(RENDERER_DIR());
-  const debug = process.env.DOCVEX_ORIGIN_DEBUG === '1';
+  const debug = DEV_ENV && process.env.DOCVEX_ORIGIN_DEBUG === '1';
   protocol.handle(APP_SCHEME, async (request) => {
     if (debug) console.log('[app-origin] request', request.url);
     try {
@@ -254,9 +319,21 @@ async function migrateOriginStorage() {
     read = new BrowserWindow(hidden);
     await withTimeout(read.loadFile(blank), 8000);
     const dump = await withTimeout(read.webContents.executeJavaScript(
-      'JSON.stringify(Object.fromEntries(Object.keys(localStorage).map((k) => [k, localStorage.getItem(k)])))', true), 8000);
+      "(() => { try { return JSON.stringify(Object.fromEntries(Object.keys(localStorage).map((k) => [k, localStorage.getItem(k)]))); } catch (e) { return '__locked__'; } })()", true), 8000);
     read.destroy(); read = null;
     fsp.rm(blank, { force: true }).catch(() => {});
+    // The packaged build turns off file://'s extra privileges (the
+    // GrantFileProtocolExtraPrivileges fuse, security audit 2026-10-01), and
+    // with them a file:// page's localStorage: an install that never ran
+    // v11.0.1 (which made this copy) cannot be read any more. Recorded as done
+    // so it is not tried — and hidden windows opened — at every launch; such a
+    // user signs in again and keeps everything the encrypted store and the
+    // index hold.
+    if (dump === '__locked__') {
+      await fsp.writeFile(marker, JSON.stringify({ from: 'file://', to: APP_ORIGIN, skipped: 'file-origin-locked', at: new Date().toISOString() }));
+      console.warn('[app-origin] file:// storage is not readable (fuse) — nothing copied');
+      return;
+    }
     const count = Object.keys(JSON.parse(dump || '{}')).length;
     let copied = 0;
     if (count) {
@@ -433,7 +510,7 @@ if (process.defaultApp) {
 // lock entirely so each child electron-forge process can boot its
 // own window. OAuth callbacks won't be delivered between instances
 // in this mode — that's the trade-off for parallel testing.
-const allowMulti = Boolean(process.env.DOCVEX_ALLOW_MULTI);
+const allowMulti = !app.isPackaged && Boolean(process.env.DOCVEX_ALLOW_MULTI);
 if (!allowMulti) {
   const gotLock = app.requestSingleInstanceLock();
   if (!gotLock) {
@@ -708,7 +785,7 @@ function wireDevtoolsShortcuts(win) {
   wc.on('context-menu', (_event, params) => {
     const menu = Menu.buildFromTemplate([
       {
-        label: 'Inspect element',
+        label: tm('Inspect element'),
         click: () => {
           wc.inspectElement(params.x, params.y);
           if (!wc.isDevToolsOpened()) wc.openDevTools();
@@ -1018,19 +1095,42 @@ ipcMain.on('auth:completed', (e) => {
 // clicked. Each file gets its OWN dedicated window (one file = one window); the
 // window boots at /doc-viewer with the file in the query and shows just that
 // document. Opening more files spawns more windows side by side.
-// Registry of open doc-viewer windows so the main app's sidebar can list every
-// open document and refocus / close one on click. Keyed by BrowserWindow id →
-// { id, name, path, mime }. Kept in sync as viewer windows open and close; any
-// change is broadcast to every window via the `doc-viewer:tabs` channel.
+// The viewer window(s), keyed by BrowserWindow id → { id, name, path, mime,
+// aiBusy, background, unprompted }. Internal: nothing lists open files any
+// more. What other windows are told (`doc-viewer:state`) is only
+//   busy   — the paths the AI is writing right now (the Files tab draws a
+//            spinner on those files' icons), and
+//   hidden — new documents not yet prompted (the Files tab leaves them out
+//            until the first prompt; closed unprompted, they are deleted).
 const docViewerWindows = new Map();
-function docViewerTabList() {
-  return [...docViewerWindows.values()];
+function docViewerState() {
+  const metas = [...docViewerWindows.values()];
+  return {
+    busy: metas.filter((m) => m.aiBusy && m.path).map((m) => m.path),
+    hidden: metas.filter((m) => m.unprompted && m.path).map((m) => m.path),
+  };
 }
 function broadcastDocViewerTabs() {
-  const list = docViewerTabList();
+  const state = docViewerState();
   for (const w of BrowserWindow.getAllWindows()) {
-    if (!w.isDestroyed()) w.webContents.send('doc-viewer:tabs', list);
+    if (!w.isDestroyed()) w.webContents.send('doc-viewer:state', state);
   }
+}
+ipcMain.handle('doc-viewer:state', () => docViewerState());
+// A new document closed (or left for another file) before anything was asked
+// of the AI is an empty file nobody wanted: it goes, and the listings re-read.
+function dropUnpromptedFile(meta) {
+  if (!meta?.unprompted || !meta.path) return;
+  const target = meta.path;
+  meta.unprompted = false;
+  fsp.stat(target)
+    .then((st) => (st.isFile() && st.size < 256 * 1024 ? fsp.unlink(target) : null))
+    .catch(() => {})
+    .finally(() => {
+      for (const w of BrowserWindow.getAllWindows()) {
+        if (!w.isDestroyed()) w.webContents.send('files:changed');
+      }
+    });
 }
 
 // Normalise an on-disk path for comparison (Windows separators + drive-letter
@@ -1043,22 +1143,29 @@ function createDocViewerWindow(file) {
   // The viewer loads this file (and its WhatsApp media siblings) via
   // localfile:// — allow reads in its folder.
   if (file?.path) registerLocalfileFile(file.path);
-  // Never open the same file in two windows — if a viewer already shows this
-  // path, restore + focus it and reuse it instead of spawning a duplicate.
-  if (file?.path) {
-    const want = normDocPath(file.path);
-    for (const [winId, meta] of docViewerWindows) {
-      if (meta.path && normDocPath(meta.path) === want) {
-        const existing = BrowserWindow.fromId(winId);
-        if (existing && !existing.isDestroyed()) {
-          if (existing.isMinimized()) existing.restore();
-          existing.focus();
-          return existing;
-        }
-        // Stale registry entry (window already gone) — drop it and fall through.
-        docViewerWindows.delete(winId);
-      }
+  // ONE viewer window: while one is open, every file opens IN it (the
+  // renderer swaps its document in place, as it does for the warm window)
+  // instead of spawning another. The viewer steps through the project's files
+  // itself (its bottom strip / ← →) and reports the move on doc-viewer:set-file.
+  for (const [winId, meta] of docViewerWindows) {
+    const existing = BrowserWindow.fromId(winId);
+    if (!existing || existing.isDestroyed()) { docViewerWindows.delete(winId); continue; }
+    // A window finishing an AI turn in the background is not reused — the next
+    // file gets a window of its own.
+    if (meta.background) continue;
+    if (file?.path && !(meta.path && normDocPath(meta.path) === normDocPath(file.path))) {
+      dropUnpromptedFile(meta);
+      Object.assign(meta, {
+        name: file?.name || 'Document', path: file.path, mime: file?.mime || null,
+        isWhatsApp: !!file?.isWhatsApp, unprompted: !!file?.unprompted,
+      });
+      existing.webContents.send('doc-viewer:open-file', file);
+      broadcastDocViewerTabs();
     }
+    if (existing.isMinimized()) existing.restore();
+    existing.show();
+    existing.focus();
+    return existing;
   }
   // A warm viewer is already booted and idle — hand it the file instead of
   // paying for a whole new window + renderer + bundle parse (see below).
@@ -1128,11 +1235,28 @@ function registerDocViewerWindow(win, file) {
     // Recognised WhatsApp conversation → the sidebar shows the WhatsApp glyph.
     isWhatsApp: !!file?.isWhatsApp,
     aiBusy: false,
+    background: false,
+    unprompted: !!file?.unprompted,
   });
   broadcastDocViewerTabs();
+  // Closing while the AI is working does NOT stop it: the window is hidden
+  // and the turn runs on in its renderer; it closes itself when the AI is
+  // done (doc-viewer:ai-status). The file's icon in the Files tab spins
+  // meanwhile.
+  win.on('close', (e) => {
+    const meta = docViewerWindows.get(win.id);
+    if (!meta?.aiBusy || meta.allowClose) return;
+    e.preventDefault();
+    meta.background = true;
+    win.hide();
+    broadcastDocViewerTabs();
+  });
   win.on('closed', () => {
+    dropUnpromptedFile(docViewerWindows.get(win.id));
     docViewerWindows.delete(win.id);
     broadcastDocViewerTabs();
+    // The one viewer is gone — warm a replacement for the next open.
+    scheduleWarmDocViewer();
   });
 }
 
@@ -1147,6 +1271,8 @@ function scheduleWarmDocViewer(delayMs = WARM_REPLACEMENT_DELAY_MS) {
   clearTimeout(warmViewerTimer);
   warmViewerTimer = setTimeout(() => {
     if (warmViewer && !warmViewer.isDestroyed()) return;
+    // A viewer is open and every file goes into it: nothing to warm.
+    if (docViewerWindows.size) return;
     // Don't warm while the app is shutting down or before there's a main
     // window to take bounds from.
     if (!mainWindow || mainWindow.isDestroyed()) return;
@@ -1221,456 +1347,198 @@ function adoptWarmDocViewer(file) {
 
 ipcMain.on('window:open-doc-viewer', (_, file) => createDocViewerWindow(file));
 
-// ── Tray "Extract text" — Snipping-Tool-style capture ─────────────────────
-// The tray item opens a small launcher window (openSnipPanel, /snip-panel) —
-// a Snipping-Tool bar: New · Delay · a freeze-scope toggle (all screens vs
-// the screen the panel is on). "New" fires snip:new {mode, delay, allScreens}:
-// the panel hides, the optional delay elapses, then openScreenSnip screenshots
-// the target display(s) at full physical resolution, stages each to a temp
-// PNG (served via localfile://), and opens a frameless fullscreen overlay per
-// display showing its frozen shot. Each overlay boots the renderer at /snip
-// (?snip=1&shot=<path>&mode=<mode>) — a top pill switches the selection mode
-// live; the crop runs through the shared OCR pipeline (lib/ocr.js → doc-ai
-// Edge Function). Starting a selection on one display closes the other frozen
-// overlays (snip:selection-started); when the last overlay closes, the
-// launcher panel pops back up (like the real Snipping Tool after a capture).
-let snipWindows = [];
-let snipPanelWindow = null;
-const SNIP_MODES = new Set(['rect', 'free', 'full']);
-
-// Freeze target: every display, or the one the launcher panel sits on
-// (falling back to the cursor's display if the panel is gone).
-function snipTargetDisplays(allScreens) {
-  if (allScreens) return screen.getAllDisplays();
-  const panelDisplay = snipPanelWindow && !snipPanelWindow.isDestroyed()
-    ? screen.getDisplayMatching(snipPanelWindow.getBounds())
-    : screen.getDisplayNearestPoint(screen.getCursorScreenPoint());
-  return [panelDisplay];
-}
-
-async function openScreenSnip(mode = 'rect', { allScreens = false } = {}) {
-  const alive = snipWindows.filter((w) => !w.isDestroyed());
-  if (alive.length) { alive[0].focus(); return; }
-  snipWindows = [];
-
-  const displays = snipTargetDisplays(allScreens);
-
-  // desktopCapturer applies ONE thumbnailSize to every source, so capture
-  // per display — each shot is requested at exactly THAT display's physical
-  // resolution (CSS size × scale factor). A shared max-size box would
-  // aspect-fit smaller displays into it and their shots wouldn't match
-  // their screen's native resolution.
-  for (const [displayIndex, display] of displays.entries()) {
-    const sources = await desktopCapturer.getSources({
-      types: ['screen'],
-      thumbnailSize: {
-        width: Math.round(display.size.width * display.scaleFactor),
-        height: Math.round(display.size.height * display.scaleFactor),
-      },
-    });
-    const source = sources.find((s) => s.display_id === String(display.id))
-      || (displays.length === 1 ? sources[0] : null);
-    if (!source || source.thumbnail.isEmpty()) continue;
-    const shotPath = path.join(app.getPath('temp'), `docvex-snip-${display.id}-${Date.now()}.png`);
-    await fsp.writeFile(shotPath, source.thumbnail.toPNG());
-    registerLocalfileFile(shotPath);
-
-    const win = new BrowserWindow({
-      // Bounds place the window on the right display; `fullscreen` then snaps
-      // it to cover that display completely — sizing to display.bounds alone
-      // can leave the window a few px short on Windows (DPI rounding / Win11
-      // rounded-corner inset), letting the real desktop peek through.
-      x: display.bounds.x,
-      y: display.bounds.y,
-      width: display.bounds.width,
-      height: display.bounds.height,
-      fullscreen: true,
-      frame: false,
-      // NOTE: no `resizable: false` — on Windows a non-resizable window can't
-      // enter fullscreen, which left the overlay at its plain bounds with the
-      // desktop visible around it. Fullscreen itself blocks user resizing.
-      alwaysOnTop: true,
-      skipTaskbar: true,
-      hasShadow: false,
-      webPreferences: {
-        preload: path.join(__dirname, 'preload.js'),
-      },
-    });
-    // Above fullscreen apps / the taskbar, like a screenshot tool.
-    win.setAlwaysOnTop(true, 'screen-saver');
-    win.setFullScreen(true);
-    // Belt-and-suspenders: re-assert the display's full bounds once the page
-    // is ready, in case the WM applied the fullscreen transition to a stale
-    // rect.
-    win.webContents.once('did-finish-load', () => {
-      if (!win.isDestroyed()) win.setBounds(display.bounds);
-    });
-    // Pin to app content (navigation hardening) like every preload window.
-    const wcId = win.webContents.id;
-    appWindowContentIds.add(wcId);
-    win.removeMenu();
-    const query = { snip: '1', shot: shotPath, mode: SNIP_MODES.has(mode) ? mode : 'rect' };
-    // Multi-screen capture: number each overlay (w1, w2, …) — the overlay
-    // suffixes its saved screenshot with the number so every screen's capture
-    // + snippets can be kept side by side.
-    if (displays.length > 1) query.w = String(displayIndex + 1);
-    loadRendererBundle(win, query);
-    snipWindows.push(win);
-    win.on('closed', () => {
-      appWindowContentIds.delete(wcId);
-      snipWindows = snipWindows.filter((w) => w !== win);
-      fsp.unlink(shotPath).catch(() => { /* temp dir self-cleans */ });
-      // When the LAST overlay closes, bring the launcher panel back — like
-      // the real Snipping Tool returning after a capture.
-      if (!snipWindows.length && snipPanelWindow && !snipPanelWindow.isDestroyed()) {
-        snipPanelWindow.show();
-        snipPanelWindow.focus();
-      }
-    });
+// PRELOADING: the Files tab hovered / selected a file — hand it to the viewer
+// that the next open will land in (the reusable open viewer, else the warm
+// one) so it can prepare it (hydrate its data, parse a PDF, lay out a Word
+// file, decode a HEIC) before it is asked to show it. Nothing is shown.
+ipcMain.on('window:prepare-doc-viewer', (_, file) => {
+  if (!file?.path || typeof file.path !== 'string') return;
+  let target = null;
+  for (const [winId, meta] of docViewerWindows) {
+    const w = BrowserWindow.fromId(winId);
+    if (!w || w.isDestroyed() || meta.background) continue;
+    target = w; break;
   }
-}
+  if (!target && warmViewerReady && warmViewer && !warmViewer.isDestroyed()) target = warmViewer;
+  if (!target) return;
+  // The same allowance an open gives (its folder, never a protected one).
+  registerLocalfileFile(file.path);
+  target.webContents.send('doc-viewer:prepare-file', { path: file.path, name: file.name || '', mime: file.mime || '' });
+});
 
-// The Snipping-Tool-style launcher bar. A small, frameless, TRANSPARENT
-// window — the visible card paints itself in the renderer (/snip-panel); the
-// window is taller than the card so the Mode/Delay dropdowns have room to
-// open inside it (a child window can't overflow its own bounds).
-function openSnipPanel() {
-  if (snipPanelWindow && !snipPanelWindow.isDestroyed()) {
-    snipPanelWindow.show();
-    snipPanelWindow.focus();
+// The viewer moved to another file itself (its bottom strip, or ← / →):
+// allow reads in that file's folder and update the open-files registry.
+ipcMain.on('doc-viewer:set-file', (e, file) => {
+  const win = BrowserWindow.fromWebContents(e.sender);
+  const meta = win && docViewerWindows.get(win.id);
+  if (!meta || !file?.path) return;
+  registerLocalfileFile(file.path);
+  // A rename of the same document (the AI giving it its extension) keeps its
+  // state; another file leaves an unprompted new one behind — dropped.
+  if (!file.renamed) dropUnpromptedFile(meta);
+  Object.assign(meta, { name: file.name || 'Document', path: file.path, mime: file.mime || null, isWhatsApp: false });
+  broadcastDocViewerTabs();
+});
+
+// The first prompt sent about a new document: it is wanted, and now shows in
+// the Files tab.
+ipcMain.on('doc-viewer:prompted', (e) => {
+  const win = BrowserWindow.fromWebContents(e.sender);
+  const meta = win && docViewerWindows.get(win.id);
+  if (!meta?.unprompted) return;
+  meta.unprompted = false;
+  broadcastDocViewerTabs();
+  for (const w of BrowserWindow.getAllWindows()) {
+    if (!w.isDestroyed()) w.webContents.send('files:changed');
+  }
+});
+
+// ── Tray drop zone ──────────────────────────────────────────────────────────
+// Files dropped "on the tray" go into the selected project's folder. Windows
+// can't take a drop on a notification-area icon, so the tray menu's "Drop
+// files…" opens a small always-on-top window beside the tray (/tray-drop) that
+// is the drop target; on macOS the menu-bar icon itself also takes a drop
+// (Tray 'drop-files') and opens the same window with those files. It stays up
+// until closed (× / Escape) — hiding on blur would make it impossible to drag
+// from Explorer, which takes the focus.
+let trayDropWindow = null;
+function openTrayDropWindow(paths) {
+  const send = (win) => {
+    if (Array.isArray(paths) && paths.length) win.webContents.send('tray-drop:files', paths);
+  };
+  if (trayDropWindow && !trayDropWindow.isDestroyed()) {
+    trayDropWindow.show();
+    trayDropWindow.focus();
+    send(trayDropWindow);
     return;
   }
-  const display = screen.getDisplayNearestPoint(screen.getCursorScreenPoint());
-  const W = 560;
-  const H = 380;
-  const win = new BrowserWindow({
-    x: Math.round(display.workArea.x + (display.workArea.width - W) / 2),
-    y: Math.round(display.workArea.y + display.workArea.height * 0.16),
-    width: W,
-    height: H,
-    frame: false,
-    transparent: true,
-    backgroundColor: '#00000000',
-    resizable: false,
-    maximizable: false,
-    alwaysOnTop: true,
-    hasShadow: false,
-    webPreferences: {
-      preload: path.join(__dirname, 'preload.js'),
-    },
-  });
-  const wcId = win.webContents.id;
-  appWindowContentIds.add(wcId);
-  win.removeMenu();
-  const query = { snipPanel: '1' };
-  loadRendererBundle(win, query);
-  snipPanelWindow = win;
-  win.on('closed', () => {
-    appWindowContentIds.delete(wcId);
-    if (snipPanelWindow === win) snipPanelWindow = null;
-    // Closing the tool aborts a delayed capture that hasn't fired yet.
-    clearTimeout(snipDelayTimer);
-    snipDelayTimer = null;
-    closeSnipCountdowns();
-  });
-}
-
-// Panel "New" → optional delay → hide the panel → capture. The panel must be
-// hidden BEFORE desktopCapturer runs or the tool photographs itself; the tiny
-// wait lets the OS actually take it off screen.
-// Delayed-capture countdown — a small click-through, non-focusable window at
-// the centre of every target display showing the seconds tick down (/snip-
-// countdown route). Destroyed BEFORE the screenshot so it never captures
-// itself.
-let snipCountdownWindows = [];
-function closeSnipCountdowns() {
-  for (const w of [...snipCountdownWindows]) {
-    if (!w.isDestroyed()) w.destroy();
-  }
-  snipCountdownWindows = [];
-}
-function openSnipCountdowns(delaySec, allScreens) {
-  closeSnipCountdowns();
-  const S = 240;
-  for (const display of snipTargetDisplays(allScreens)) {
-    const wa = display.workArea;
-    const win = new BrowserWindow({
-      x: Math.round(wa.x + (wa.width - S) / 2),
-      y: Math.round(wa.y + (wa.height - S) / 2),
-      width: S,
-      height: S,
-      frame: false,
-      transparent: true,
-      backgroundColor: '#00000000',
-      resizable: false,
-      movable: false,
-      show: false,
-      // Never steal focus from whatever the user is arranging for the shot.
-      focusable: false,
-      alwaysOnTop: true,
-      skipTaskbar: true,
-      hasShadow: false,
-      webPreferences: {
-        preload: path.join(__dirname, 'preload.js'),
-      },
-    });
-    win.setAlwaysOnTop(true, 'screen-saver');
-    // Clicks fall through to whatever is underneath.
-    win.setIgnoreMouseEvents(true);
-    const wcId = win.webContents.id;
-    appWindowContentIds.add(wcId);
-    win.removeMenu();
-    const query = { snipCountdown: '1', n: String(delaySec) };
-    loadRendererBundle(win, query);
-    win.once('ready-to-show', () => { if (!win.isDestroyed()) win.showInactive(); });
-    snipCountdownWindows.push(win);
-    win.on('closed', () => {
-      appWindowContentIds.delete(wcId);
-      snipCountdownWindows = snipCountdownWindows.filter((w) => w !== win);
-    });
-  }
-}
-
-let snipDelayTimer = null;
-ipcMain.on('snip:new', (_e, opts) => {
-  const mode = SNIP_MODES.has(opts?.mode) ? opts.mode : 'rect';
-  const delaySec = Math.min(10, Math.max(0, Math.round(Number(opts?.delay) || 0)));
-  const allScreens = !!opts?.allScreens;
-  clearTimeout(snipDelayTimer);
-  const start = () => {
-    snipDelayTimer = null;
-    (async () => {
-      closeSnipCountdowns();
-      if (snipPanelWindow && !snipPanelWindow.isDestroyed()) {
-        snipPanelWindow.hide();
-      }
-      // Let the countdown/panel actually leave the screen before the shot.
-      await new Promise((resolve) => setTimeout(resolve, 150));
-      await openScreenSnip(mode, { allScreens });
-    })().catch(() => {
-      // Capture unavailable — bring the panel back so the tool isn't lost.
-      if (snipPanelWindow && !snipPanelWindow.isDestroyed()) snipPanelWindow.show();
-    });
-  };
-  if (delaySec > 0) {
-    openSnipCountdowns(delaySec, allScreens);
-    snipDelayTimer = setTimeout(start, delaySec * 1000);
-  } else {
-    start();
-  }
-});
-// Esc in the panel while a delayed capture is counting down — abort the
-// countdown (timer + badges) but leave the Extract Tool window open.
-ipcMain.on('snip:cancel-pending', () => {
-  clearTimeout(snipDelayTimer);
-  snipDelayTimer = null;
-  closeSnipCountdowns();
-});
-
-// Esc in any overlay → close every snip window from the main process.
-// destroy() (not close()) so the frozen shots vanish in one frame — a
-// fullscreen window's close() can lag through async teardown, and the other
-// displays' overlays wouldn't hear a renderer-side window.close() at all.
-// (The last overlay's 'closed' handler above re-shows the launcher panel.)
-ipcMain.on('snip:cancel', () => {
-  for (const w of [...snipWindows]) {
-    if (!w.isDestroyed()) w.destroy();
-  }
-  snipWindows = [];
-});
-
-// ── System-tray menu (app-drawn) ───────────────────────────────────────────
-// Clicking the tray icon opens /tray-menu (src/pages/TrayMenu.jsx) instead of
-// a native Menu: the app's themed card, a live status header, and a recent-
-// projects flyout can't be expressed in a Menu template. It rides in one
-// reusable transparent, frameless, always-on-top window that:
-//   • is anchored to the tray icon's bounds (clamped to the work area, so it
-//     never sits under the taskbar or off a display edge),
-//   • is sized by the RENDERER — the card measures itself and sends
-//     `tray:resize`, so the window is exactly as tall as the menu and only
-//     grows wider while the recent-projects flyout is open,
-//   • hides on blur / Esc / after any action, and toggles on tray click.
-// Every row's effect comes back over `tray:action`, handled at the bottom.
-let trayMenuWindow = null;
-// The window hides on blur, and clicking the tray icon blurs it first — so a
-// click that was meant to CLOSE the menu would immediately reopen it. Ignore
-// tray clicks that land right after a hide.
-let trayMenuHiddenAt = 0;
-// Where the tray sits, so the card animates from the right corner and clamps
-// its flyout on the correct side ('bottom' = Windows taskbar, 'top' = macOS
-// menu bar).
-let trayMenuAnchor = 'bottom';
-const TRAY_MENU_MARGIN = 8;
-// Pre-measurement fallback only — the renderer reports the real size (card +
-// the permanent flyout apron) as soon as it has laid the menu out, and the
-// window stays hidden until then so it can never appear clipped.
-const TRAY_MENU_DEFAULT = { width: 435, height: 460 };
-// Set while a freshly created menu window waits for its first size report.
-let trayMenuPendingReveal = null;
-// Coalesces a BURST of measurements into one reveal. The renderer re-measures
-// several times as the card settles (the recent-projects list, its relative
-// timestamps, the updater row), and each measurement used to move the window —
-// which on a transparent always-on-top window replays the OS show animation.
-// That's what read as the menu fading in twice.
-let trayMenuRevealTimer = null;
-const TRAY_MEASURE_SETTLE_MS = 40;
-// Last size the renderer reported. Reveal positions from THIS rather than
-// win.getBounds(): a setBounds applied while the window is still hidden isn't
-// always reflected back on Windows, and reading a stale (default) height there
-// is what left the menu clipped at the top on first open.
-let trayMenuSize = null;
-
-// Place the (already sized) menu next to the tray icon: right edge aligned to
-// the icon, above the taskbar when the tray is at the bottom, below the menu
-// bar when it's at the top. Falls back to the cursor's display when the
-// platform gives no tray bounds.
-function positionTrayMenu(width, height) {
-  const point = screen.getCursorScreenPoint();
-  let trayBounds = null;
+  const W = 340;
+  const H = 260;
+  let x;
+  let y;
   try {
-    const b = appTray?.getBounds?.();
-    if (b && b.width > 0 && b.height > 0) trayBounds = b;
-  } catch { /* no tray bounds on this platform — cursor fallback below */ }
-  const display = trayBounds
-    ? screen.getDisplayMatching(trayBounds)
-    : screen.getDisplayNearestPoint(point);
-  const wa = display.workArea;
-
-  const anchorX = trayBounds ? trayBounds.x + trayBounds.width / 2 : point.x;
-  // The card hugs the window's RIGHT edge (the flyout opens into the space on
-  // the left), so anchor the right edge just past the icon's centre.
-  let x = Math.round(anchorX - width + 24);
-  x = Math.min(Math.max(x, wa.x + TRAY_MENU_MARGIN), wa.x + wa.width - width - TRAY_MENU_MARGIN);
-
-  const atBottom = trayBounds ? trayBounds.y + trayBounds.height / 2 > wa.y + wa.height / 2 : true;
-  trayMenuAnchor = atBottom ? 'bottom' : 'top';
-  let y = atBottom
-    ? wa.y + wa.height - height - TRAY_MENU_MARGIN
-    : wa.y + TRAY_MENU_MARGIN;
-  y = Math.min(Math.max(y, wa.y + TRAY_MENU_MARGIN), Math.max(wa.y, wa.y + wa.height - height - TRAY_MENU_MARGIN));
-
-  return { x, y, width, height };
-}
-
-function createTrayMenuWindow() {
+    const tb = appTray?.getBounds?.();
+    const wa = screen.getDisplayNearestPoint(tb && tb.width ? { x: tb.x, y: tb.y } : screen.getCursorScreenPoint()).workArea;
+    const cx = tb && tb.width ? tb.x + tb.width / 2 : wa.x + wa.width;
+    x = Math.round(Math.min(Math.max(cx - W / 2, wa.x + 8), wa.x + wa.width - W - 8));
+    // Above the tray when it sits at the bottom (Windows), under it at the top (macOS).
+    y = tb && tb.y < wa.y + wa.height / 2 ? wa.y + 8 : wa.y + wa.height - H - 8;
+  } catch { /* let the OS place it */ }
   const win = new BrowserWindow({
-    ...positionTrayMenu(TRAY_MENU_DEFAULT.width, TRAY_MENU_DEFAULT.height),
-    show: false,
+    x, y, width: W, height: H,
     frame: false,
-    transparent: true,
-    backgroundColor: '#00000000',
     resizable: false,
-    movable: false,
-    minimizable: false,
     maximizable: false,
+    minimizable: false,
     fullscreenable: false,
-    skipTaskbar: true,
-    hasShadow: false,          // the card paints its own shadow
     alwaysOnTop: true,
+    skipTaskbar: true,
+    show: false,
+    backgroundColor: readWindowBackground(),
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
     },
   });
-  // Above the taskbar, like the native tray menu it replaces.
-  win.setAlwaysOnTop(true, 'pop-up-menu');
   const wcId = win.webContents.id;
   appWindowContentIds.add(wcId);
   win.removeMenu();
-  const query = { trayMenu: '1' };
-  loadRendererBundle(win, query);
-  // Click-away dismissal. DevTools focus counts as a blur too, so keep the
-  // menu out of the dev-tools flow (it's a plain route — open /tray-menu in
-  // the main window to inspect it).
-  win.on('blur', () => hideTrayMenu());
+  loadRendererBundle(win, { trayDrop: '1' });
+  win.once('ready-to-show', () => { if (!win.isDestroyed()) { win.show(); win.focus(); } });
+  win.webContents.once('did-finish-load', () => send(win));
+  trayDropWindow = win;
   win.on('closed', () => {
     appWindowContentIds.delete(wcId);
-    if (trayMenuWindow === win) trayMenuWindow = null;
+    if (trayDropWindow === win) trayDropWindow = null;
   });
-  trayMenuWindow = win;
-  return win;
 }
 
-function hideTrayMenu() {
-  // Drop any reveal still waiting on measurements — otherwise a menu dismissed
-  // during the settle window pops open again a frame later.
-  clearTimeout(trayMenuRevealTimer);
-  trayMenuRevealTimer = null;
-  trayMenuPendingReveal = null;
-  if (trayMenuWindow && !trayMenuWindow.isDestroyed() && trayMenuWindow.isVisible()) {
-    trayMenuWindow.hide();
-    trayMenuHiddenAt = Date.now();
+// Copy dropped files / folders INTO a project folder, each under a free name
+// ("scan.jpg" → "scan (2).jpg") — never over an existing file. The target goes
+// through refusePath like every other write.
+async function freeTargetIn(dir, name) {
+  const ext = path.extname(name);
+  const stem = ext ? name.slice(0, -ext.length) : name;
+  for (let n = 1; n < 1000; n += 1) {
+    const candidate = path.join(dir, n === 1 ? name : `${stem} (${n})${ext}`);
+    try { await fsp.access(candidate); } catch { return candidate; }
   }
+  return path.join(dir, `${stem} (${Date.now()})${ext}`);
 }
-
-function showTrayMenu() {
-  const existing = (trayMenuWindow && !trayMenuWindow.isDestroyed()) ? trayMenuWindow : null;
-  const win = existing || createTrayMenuWindow();
-  // Already up — a second show() would replay the OS window animation on a
-  // menu that's already on screen.
-  if (existing && win.isVisible()) return;
-  const reveal = () => {
-    if (win.isDestroyed() || win.isVisible()) return;
-    const size = trayMenuSize || win.getBounds();
-    win.setBounds(positionTrayMenu(size.width, size.height));
-    win.show();
-    // show() normally activates the window too; focusing an already-focused
-    // window is a SECOND activation, which Windows animates a second time.
-    // Keep the call only as the fallback for when show() didn't take focus
-    // (without it the blur-to-dismiss never arms).
-    if (!win.isFocused()) win.focus();
-  };
-
-  // Hold the window back until the renderer has MEASURED the menu — the
-  // pending reveal fires from the tray:resize handler. This runs on EVERY
-  // open, not just the first: the card's height changes between opens (the
-  // recent-projects list, the relative timestamps in it, the updater row), and
-  // resizing a transparent always-on-top window that's already on screen reads
-  // as the menu fading in a second time. Measure first, then show once.
-  trayMenuPendingReveal = reveal;
-  // Reused window: the renderer is alive and re-measures as soon as it handles
-  // tray:opened, so the safety net can be short. A cold window has to boot the
-  // bundle first.
-  const fallbackMs = existing ? 250 : 2000;
-  setTimeout(() => {
-    if (trayMenuPendingReveal !== reveal) return;
-    clearTimeout(trayMenuRevealTimer);
-    trayMenuRevealTimer = null;
-    trayMenuPendingReveal = null;
-    reveal();
-  }, fallbackMs);
-
-  // Tell the reused renderer it's opening again: reset the flyout, re-read the
-  // recent projects + updater state, and re-send its size (which is what
-  // releases the reveal above).
-  if (existing) win.webContents.send('tray:opened', { anchor: trayMenuAnchor });
-}
-
-function toggleTrayMenu() {
-  if (trayMenuWindow && !trayMenuWindow.isDestroyed() && trayMenuWindow.isVisible()) {
-    hideTrayMenu();
-    return;
+ipcMain.handle('tray-drop:copy-in', async (_e, payload) => {
+  const dir = payload?.dir;
+  const paths = Array.isArray(payload?.paths) ? payload.paths.filter((p) => typeof p === 'string' && p) : [];
+  if (!dir) return { results: [], error: 'No project folder' };
+  { const why = refusePath([dir]); if (why) return { results: [], error: why }; }
+  const results = [];
+  for (const src of paths) {
+    const name = sanitizeFilename(path.basename(src));
+    // The SOURCE is checked too, before anything touches it: no network or
+    // device path (a stat there authenticates to the server), nothing from the
+    // app's data, the system or a hidden folder of the home (keys, the index
+    // key…) — a drop is something the user can see on their desktop.
+    if (isUntrustedNetworkPath(src)) { results.push({ name, ok: false, error: 'Network paths are not copied' }); continue; }
+    { const why = protectedPathReason(src); if (why) { results.push({ name, ok: false, error: why }); continue; } }
+    try {
+      const st = await fsp.lstat(src);
+      if (st.isSymbolicLink()) { results.push({ name, ok: false, error: 'Links are not copied' }); continue; }
+      if (path.resolve(src) === path.resolve(dir) || path.resolve(dir).startsWith(path.resolve(src) + path.sep)) {
+        results.push({ name, ok: false, error: 'That folder holds the project' });
+        continue;
+      }
+      if (isReservedName(name)) { results.push({ name, ok: false, error: 'This name is reserved for DocVex' }); continue; }
+      const target = await freeTargetIn(dir, name);
+      if (st.isDirectory()) await fsp.cp(src, target, { recursive: true, errorOnExist: true, force: false, verbatimSymlinks: true, filter: (from) => !isUntrustedNetworkPath(from) && !protectedPathReason(from) });
+      else await fsp.copyFile(src, target, fs.constants.COPYFILE_EXCL);
+      results.push({ name: path.basename(target), path: target, ok: true, folder: st.isDirectory() });
+    } catch (err) {
+      results.push({ name, ok: false, error: err?.message || String(err) });
+    }
   }
-  // A click right after a blur-hide is the SAME click that closed the menu.
-  if (Date.now() - trayMenuHiddenAt < 250) return;
-  showTrayMenu();
+  for (const w of BrowserWindow.getAllWindows()) {
+    if (!w.isDestroyed()) w.webContents.send('files:changed');
+  }
+  return { results, error: null };
+});
+
+// ── System-tray menu ────────────────────────────────────────────────────────
+// The OPERATING SYSTEM's own menu (Menu.buildFromTemplate, popped up on the
+// tray icon) — no custom window, no custom styling. Built afresh on every
+// right-click so the update row and the language are current.
+const TRAY_DOCS_URL = 'https://docvex.ro/';
+function buildTrayMenu() {
+  const updateReady = app.isPackaged && updateStatus?.state === 'downloaded';
+  return Menu.buildFromTemplate([
+    { label: tm('Open DocVex'), click: () => runTrayAction('open') },
+    { label: tm('Account'), click: () => runTrayAction('navigate', '/account') },
+    { type: 'separator' },
+    { label: tm('Drop files…'), click: () => runTrayAction('drop') },
+    { label: tm('Settings'), accelerator: 'CmdOrCtrl+,', click: () => runTrayAction('navigate', '/settings') },
+    { label: tm('Report a problem'), click: () => runTrayAction('navigate', '@report') },
+    { label: tm('Documentation'), click: () => runTrayAction('external', TRAY_DOCS_URL) },
+    { label: tm('About DocVex'), click: () => runTrayAction('navigate', '/versions') },
+    { type: 'separator' },
+    updateReady
+      ? { label: tm('Restart & install update'), click: () => runTrayAction('install-update') }
+      : { label: tm('Check for updates'), click: () => runTrayAction('check-updates') },
+    { label: tm('Restart'), click: () => runTrayAction('restart') },
+    { label: tm('Quit DocVex'), click: () => runTrayAction('quit') },
+  ]);
 }
 
-// The menu window is HIDDEN, not closed, between uses — which would keep the
-// app alive after the user closes every real window, because
-// 'window-all-closed' only fires once the last window is DESTROYED. Watch for
-// the last real window going away and tear the menu down so the normal quit
-// path runs (the menu is rebuilt on the next tray click).
+// The pre-warmed viewer is HIDDEN, not closed — which would keep the app
+// alive after the user closes every real window, because 'window-all-closed'
+// only fires once the last window is DESTROYED. Watch for the last real
+// window going away and tear it down so the normal quit path runs.
 app.on('browser-window-created', (_e, created) => {
   created.on('closed', () => {
     setImmediate(() => {
-      // The tray menu and the pre-warmed viewer are infrastructure: neither is
-      // a window the user opened, so neither should hold the app open.
+      // The pre-warmed viewer is infrastructure, not a window the user
+      // opened, so it should not hold the app open.
       const alive = BrowserWindow.getAllWindows()
-        .filter((w) => !w.isDestroyed() && w !== trayMenuWindow && w !== warmViewer);
+        .filter((w) => !w.isDestroyed() && w !== warmViewer);
       if (alive.length || migratingOrigin) return;
       clearTimeout(warmViewerTimer);
       if (warmViewer && !warmViewer.isDestroyed()) warmViewer.destroy();
-      if (trayMenuWindow && !trayMenuWindow.isDestroyed()) trayMenuWindow.destroy();
       if (process.platform !== 'darwin') app.quit();
     });
   });
@@ -1709,50 +1577,8 @@ function navigateMainWindow(dest) {
   }
 }
 
-// The card's measured size (DIP) → resize + re-anchor. Clamped so a runaway
-// measurement can't paint a window across the whole screen.
-ipcMain.on('tray:resize', (e, size) => {
-  const win = BrowserWindow.fromWebContents(e.sender);
-  if (!win || win.isDestroyed() || win !== trayMenuWindow) return;
-  const width = Math.max(200, Math.min(900, Math.round(Number(size?.width) || 0)));
-  const height = Math.max(120, Math.min(1200, Math.round(Number(size?.height) || 0)));
-  if (!width || !height) return;
-  const changed = !trayMenuSize || trayMenuSize.width !== width || trayMenuSize.height !== height;
-  trayMenuSize = { width, height };
-  // Moving a window that's already on screen replays the OS window animation.
-  // A re-measurement that lands on the SAME size has nothing to apply, so
-  // skipping it is the difference between one fade and two.
-  if (changed || !win.isVisible()) win.setBounds(positionTrayMenu(width, height));
-  // Measurements arrive in bursts as the card settles. Wait out the burst
-  // before showing, so the window appears once, already at its final size,
-  // instead of appearing and then being resized into place.
-  if (trayMenuPendingReveal) {
-    clearTimeout(trayMenuRevealTimer);
-    trayMenuRevealTimer = setTimeout(() => {
-      trayMenuRevealTimer = null;
-      const pending = trayMenuPendingReveal;
-      trayMenuPendingReveal = null;
-      pending?.();
-    }, TRAY_MEASURE_SETTLE_MS);
-  }
-});
-
-ipcMain.on('tray:close', () => hideTrayMenu());
-
-ipcMain.handle('tray:state', () => ({
-  version: app.getVersion(),
-  isPackaged: app.isPackaged,
-  platform: process.platform,
-  updateState: updateStatus?.state || 'idle',
-  anchor: trayMenuAnchor,
-}));
-
-// Every menu row lands here. The menu always closes first — an action that
-// raises the main window shouldn't leave the menu floating over it.
-ipcMain.on('tray:action', (_e, msg) => {
-  const action = msg?.action;
-  const payload = msg?.payload;
-  hideTrayMenu();
+// Every tray menu row lands here.
+function runTrayAction(action, payload) {
   switch (action) {
     case 'open':
       showMainWindow();
@@ -1763,8 +1589,8 @@ ipcMain.on('tray:action', (_e, msg) => {
     case 'external':
       openExternalSafe(payload);
       break;
-    case 'extract':
-      try { openSnipPanel(); } catch { /* capture unavailable — non-fatal */ }
+    case 'drop':
+      try { openTrayDropWindow(); } catch { /* non-fatal */ }
       break;
     case 'check-updates':
       // Show the release history (which reports the result), and kick the
@@ -1788,22 +1614,8 @@ ipcMain.on('tray:action', (_e, msg) => {
     default:
       break;
   }
-});
+}
 
-// Sidebar "Open files" section IPC: snapshot the open viewers, and refocus /
-// close a specific one by its BrowserWindow id.
-ipcMain.handle('doc-viewer:list', () => docViewerTabList());
-ipcMain.on('doc-viewer:focus', (_e, id) => {
-  const w = BrowserWindow.fromId(id);
-  if (w && !w.isDestroyed()) {
-    if (w.isMinimized()) w.restore();
-    w.focus();
-  }
-});
-ipcMain.on('doc-viewer:close', (_e, id) => {
-  const w = BrowserWindow.fromId(id);
-  if (w && !w.isDestroyed()) w.close();
-});
 // "Back to app" from a doc-viewer window — surface the main app window (restore
 // if minimized, raise it to the front). The viewer window stays open behind it.
 // A secondary window (the Doc Viewer) asks the MAIN window to go somewhere — an
@@ -1812,29 +1624,15 @@ ipcMain.on('doc-viewer:close', (_e, id) => {
 // ── A tab in a SEPARATE WINDOW ─────────────────────────────────────────────
 // Any of the sidebar's tabs (and any Legislation tab) can be opened in a
 // window of its own: the same app booted at that route (`?tabWindow=1&route=…`).
-// The windows are listed in the main window's sidebar (`tab-windows:list`,
-// pushed on `tab-windows:changed`), each window reporting where it is
-// (`tab-window:route`), so its × can close it and bring what it showed back
-// into the main window (`tab-window:dock` → the main window navigates there).
-const tabWindows = new Map();   // BrowserWindow id → { id, route, title }
-function broadcastTabWindows() {
-  const list = [...tabWindows.values()];
-  for (const w of BrowserWindow.getAllWindows()) {
-    if (!w.isDestroyed()) w.webContents.send('tab-windows:changed', list);
-  }
-}
+// Opened and left alone — nothing tracks or lists them.
 ipcMain.on('window:open-tab-window', (_e, payload) => {
   const route = typeof payload?.route === 'string' && payload.route.startsWith('/') ? payload.route : null;
   if (!route) return;
-  const win = createAppWindow({
+  createAppWindow({
     query: { tabWindow: '1', route },
     bounds: centeredOnDisplayOf(mainWindow, 1200, 800),
   });
-  tabWindows.set(win.id, { id: win.id, route, title: String(payload?.title || '') });
-  win.on('closed', () => { tabWindows.delete(win.id); broadcastTabWindows(); });
-  broadcastTabWindows();
 });
-ipcMain.handle('tab-windows:list', () => [...tabWindows.values()]);
 
 // THE PSEUDONYMISATION VAULT (lib/pseudonymize): which token stands for which
 // real name / CNP / IBAN, per project. Kept ONLY here — <userData>/vault, never
@@ -1858,6 +1656,14 @@ function keystoreStatus() {
   const weak = process.platform === 'linux' && (backend === 'basic_text' || backend === 'unknown');
   return { available, strong: available && !weak, backend, platform: process.platform };
 }
+// Encryption DocVex will rely on: available AND not Linux's fixed-key
+// 'basic_text' fallback. Weak counts as none (security audit 2026-10-01): the
+// index key, the vault and the secure store are then not written at all —
+// the secure store runs memory-only, the index keeps nothing sensitive.
+function strongEncryption() {
+  const st = keystoreStatus();
+  return st.available && st.strong;
+}
 let keystoreWarned = false;
 function warnWeakKeystore() {
   if (keystoreWarned) return;
@@ -1868,14 +1674,96 @@ function warnWeakKeystore() {
   }
 }
 ipcMain.handle('app:keystore-status', () => keystoreStatus());
+// A key for a renderer-side CACHE (the Doc Viewer's Word render cache): derived
+// from the index key (HKDF-SHA256, per purpose and user), so it exists only
+// where the OS key store is strong, dies with Erase data (index-key.bin) and
+// differs between accounts. null = keep that cache in memory only.
+ipcMain.handle('app:cache-key', (_e, arg) => {
+  const purpose = String(arg?.purpose || '');
+  const user = String(arg?.userId || '');
+  if (!/^[a-z-]{1,40}$/.test(purpose) || !/^[A-Za-z0-9_-]{1,80}$/.test(user)) return null;
+  const k = ensureIndexKey();
+  if (!k) return null;
+  return new Uint8Array(crypto.hkdfSync('sha256', k, Buffer.from('docvex-cache'), Buffer.from(`${purpose}:${user}`), 32));
+});
 
 const VAULT_ID = /^[A-Za-z0-9_-]{1,80}$/;
 const vaultFile = (projectId) => path.join(app.getPath('userData'), 'vault', `${projectId}.bin`);
+// ── The sign-in session, encrypted (security audit 2026-10-01) ─────────────
+// supabase-js kept the session — the REFRESH TOKEN, i.e. the account — in
+// Chromium's localStorage, a plain LevelDB under userData. It now lives in
+// userData/auth-session.bin, one JSON map sealed with safeStorage, written
+// atomically, read and written only here (lib/supabaseClient's storage
+// adapter). Where the OS key store is weak (Linux basic_text) the renderer is
+// told to keep using localStorage: refusing would sign the user out at every
+// start and protect nothing.
+const AUTH_STORE_FILE = () => path.join(app.getPath('userData'), 'auth-session.bin');
+let authStore = null;
+function loadAuthStore() {
+  if (authStore) return authStore;
+  authStore = {};
+  try {
+    const raw = fs.readFileSync(AUTH_STORE_FILE());
+    const parsed = JSON.parse(safeStorage.decryptString(raw));
+    if (parsed && typeof parsed === 'object') authStore = parsed;
+  } catch { /* none yet, or unreadable — start empty */ }
+  return authStore;
+}
+let authStoreWrite = Promise.resolve();
+function saveAuthStore() {
+  const snapshot = JSON.stringify(authStore || {});
+  authStoreWrite = authStoreWrite.then(async () => {
+    const file = AUTH_STORE_FILE();
+    const tmp = `${file}.${process.pid}.tmp`;
+    await fsp.writeFile(tmp, safeStorage.encryptString(snapshot));
+    await fsp.rename(tmp, file);
+  }).catch(() => { /* the next change writes again */ });
+  return authStoreWrite;
+}
+const AUTH_KEY = /^sb-[A-Za-z0-9_-]{1,80}$/;
+ipcMain.handle('auth-store:get', (_e, key) => {
+  if (!strongEncryption()) return { fallback: true };
+  if (typeof key !== 'string' || !AUTH_KEY.test(key)) return { value: null };
+  const v = loadAuthStore()[key];
+  return { value: typeof v === 'string' ? v : null };
+});
+ipcMain.handle('auth-store:set', async (_e, key, value) => {
+  if (!strongEncryption()) return { fallback: true };
+  if (typeof key !== 'string' || !AUTH_KEY.test(key) || typeof value !== 'string' || value.length > 64 * 1024) return { ok: false };
+  loadAuthStore()[key] = value;
+  await saveAuthStore();
+  return { ok: true };
+});
+ipcMain.handle('auth-store:remove', async (_e, key) => {
+  if (!strongEncryption()) return { fallback: true };
+  if (typeof key !== 'string' || !AUTH_KEY.test(key)) return { ok: false };
+  const store = loadAuthStore();
+  if (key in store) { delete store[key]; await saveAuthStore(); }
+  return { ok: true };
+});
+// Is a session with a refresh token kept here? (The app window shows itself at
+// once when there is one — AuthWindowGate.)
+ipcMain.handle('auth-store:has-session', () => {
+  if (!strongEncryption()) return { fallback: true };
+  for (const [k, v] of Object.entries(loadAuthStore())) {
+    if (!/-auth-token$/.test(k)) continue;
+    try { const s = JSON.parse(v); if (s?.refresh_token && !s?.user?.is_anonymous) return { has: true }; } catch { /* skip */ }
+  }
+  return { has: false };
+});
+
+// A project's pseudonymisation vault (real names and CNPs ↔ their tokens)
+// goes with the project's file data (Clear file data) or the project.
+ipcMain.handle('vault:delete', async (_e, projectId) => {
+  if (typeof projectId !== 'string' || !VAULT_ID.test(projectId)) return { ok: false, error: 'bad_id' };
+  try { await fsp.rm(vaultFile(projectId), { force: true }); return { ok: true }; } catch (err) { return { ok: false, error: err?.message || String(err) }; }
+});
+
 ipcMain.handle('vault:get', async (_e, projectId) => {
   if (!VAULT_ID.test(String(projectId || ''))) return { error: 'bad_id' };
   // Asked first: a vault that could be read but never written back would hand
   // out tokens it forgets.
-  if (!safeStorage.isEncryptionAvailable()) return { error: 'no_encryption' };
+  if (!strongEncryption()) return { error: 'no_encryption' };
   try {
     const bytes = await fsp.readFile(vaultFile(projectId));
     return { data: safeStorage.decryptString(bytes) };
@@ -1886,7 +1774,7 @@ ipcMain.handle('vault:get', async (_e, projectId) => {
 ipcMain.handle('vault:put', async (_e, projectId, data) => {
   if (!VAULT_ID.test(String(projectId || ''))) return { error: 'bad_id' };
   if (typeof data !== 'string' || data.length > 20 * 1024 * 1024) return { error: 'bad_data' };
-  if (!safeStorage.isEncryptionAvailable()) return { error: 'no_encryption' };
+  if (!strongEncryption()) return { error: 'no_encryption' };
   try {
     const file = vaultFile(projectId);
     await fsp.mkdir(path.dirname(file), { recursive: true });
@@ -1924,14 +1812,16 @@ ipcMain.handle('app:wipe-local-data', async () => {
       failed.push(`${path.basename(target)}: ${err?.code || err?.message || err}`);
     }
   };
-  for (const name of ['project-index', 'vault', 'thumbnails', 'external-opens.json', 'index-key.bin', 'window-state.json']) {
+  authStore = {};
+  writeRoots = null; // write-roots.json goes below; the old trust must not linger in memory
+  for (const name of ['project-index', 'vault', 'thumbnails', 'external-opens.json', 'index-key.bin', 'window-state.json', 'auth-session.bin', 'write-roots.json', 'Crashpad', 'Crash Reports']) {
     await rm(path.join(userData, name));
   }
   try {
     const tmp = app.getPath('temp');
     await rm(path.join(tmp, 'docvex-open'));
     for (const n of await fsp.readdir(tmp)) {
-      if (/^docvex-(snip|wa)/.test(n)) await rm(path.join(tmp, n));
+      if (/^docvex-(snip|wa|docx-|update-)/.test(n)) await rm(path.join(tmp, n));
     }
   } catch { /* temp unreadable: nothing of ours to find */ }
   try {
@@ -1948,28 +1838,6 @@ ipcMain.handle('app:wipe-local-data', async () => {
   return { ok: failed.length === 0, removed, failed };
 });
 
-ipcMain.on('tab-window:route', (e, payload) => {
-  const w = BrowserWindow.fromWebContents(e.sender);
-  const entry = w && tabWindows.get(w.id);
-  if (!entry || typeof payload?.route !== 'string') return;
-  entry.route = payload.route;
-  if (payload.title) entry.title = String(payload.title);
-  broadcastTabWindows();
-});
-ipcMain.on('tab-window:focus', (_e, id) => {
-  const w = BrowserWindow.fromId(Number(id));
-  if (!w || w.isDestroyed()) return;
-  if (w.isMinimized()) w.restore();
-  w.show(); w.focus();
-});
-// The ×: close the window and bring what it showed back into the main window.
-ipcMain.on('tab-window:dock', (_e, id) => {
-  const w = BrowserWindow.fromId(Number(id));
-  const entry = tabWindows.get(Number(id));
-  if (entry?.route) navigateMainWindow(entry.route);
-  if (w && !w.isDestroyed()) w.close();
-});
-
 ipcMain.on('window:navigate-main', (_e, dest) => {
   if (typeof dest !== 'string' || !(dest.startsWith('/') || dest === '@logout')) return;
   navigateMainWindow(dest);
@@ -1981,9 +1849,9 @@ ipcMain.on('window:focus-main', () => {
     mainWindow.focus();
   }
 });
-// A doc-viewer window reports its AI advisor busy/idle state. Stamp it onto that
-// window's registry entry and re-broadcast so the main app's "Open files" list
-// can mark the row as "AI working".
+// A doc-viewer window reports its AI advisor busy/idle state: the Files tab's
+// spinner follows it, and a window hidden while the AI worked closes once it
+// has finished.
 ipcMain.on('doc-viewer:ai-status', (e, busy) => {
   const win = BrowserWindow.fromWebContents(e.sender);
   const meta = win && docViewerWindows.get(win.id);
@@ -1992,6 +1860,11 @@ ipcMain.on('doc-viewer:ai-status', (e, busy) => {
   if (meta.aiBusy === next) return; // no change → don't spam the broadcast
   meta.aiBusy = next;
   broadcastDocViewerTabs();
+  if (!next && meta.background && win && !win.isDestroyed()) {
+    meta.allowClose = true;
+    // A moment for the renderer to finish writing what the turn produced.
+    setTimeout(() => { if (!win.isDestroyed()) win.close(); }, 1500);
+  }
 });
 
 // A Files-tab instance just trashed/deleted some paths. Fan the event out to
@@ -2040,6 +1913,7 @@ ipcMain.handle('app:write-temp-file', async (_e, { name, bytes } = {}) => {
 
 ipcMain.handle('doc:extract-text', async (_e, filePath) => {
   if (typeof filePath !== 'string' || !filePath) return { error: 'no_path' };
+  if (refuseRead(filePath)) return { error: 'refused' };
   // Parsed in the background helper: a large .doc froze every window while
   // word-extractor worked through it on this process.
   const viaHelper = callBackground('extractDoc', { path: filePath });
@@ -2106,6 +1980,7 @@ async function looksLikeWhatsApp(filePath) {
 
 ipcMain.handle('whatsapp:prepare-zip', async (_e, zipPath) => {
   if (typeof zipPath !== 'string' || !/\.zip$/i.test(zipPath)) return { ok: false };
+  if (refuseRead(zipPath)) return { ok: false };
   try {
     const stat = await fsp.stat(zipPath);
     const { createHash } = await import('node:crypto');
@@ -2117,6 +1992,7 @@ ipcMain.handle('whatsapp:prepare-zip', async (_e, zipPath) => {
     if (!chatPath) {
       await fsp.rm(destDir, { recursive: true, force: true }).catch(() => {});
       await fsp.mkdir(destDir, { recursive: true });
+      { const why = await zipRefusal(zipPath, { maxBytes: 4 * 1024 ** 3 }); if (why) return { ok: false, error: why }; }
       const { default: extract } = await import('extract-zip');
       await extract(zipPath, { dir: destDir });
       // Drop any hostile symlink entries the archive planted before we serve it.
@@ -2145,6 +2021,7 @@ ipcMain.handle('whatsapp:prepare-zip', async (_e, zipPath) => {
 // open the reconstructed conversation directly — no extraction step.
 ipcMain.handle('whatsapp:prepare-folder', async (_e, dirPath) => {
   if (typeof dirPath !== 'string' || !dirPath) return { ok: false };
+  if (refuseRead(dirPath)) return { ok: false };
   try {
     const chatPath = await findChatTranscript(dirPath);
     if (!chatPath || !(await looksLikeWhatsApp(chatPath))) return { ok: false };
@@ -2211,7 +2088,7 @@ async function zipContainsWhatsAppChat(zipPath) {
 }
 
 ipcMain.handle('whatsapp:detect', async (_e, paths) => {
-  const list = Array.isArray(paths) ? paths.filter((p) => typeof p === 'string') : [];
+  const list = Array.isArray(paths) ? paths.filter((p) => typeof p === 'string' && !refuseRead(p)).slice(0, 500) : [];
   const out = {};
   await Promise.all(list.map(async (p) => {
     try {
@@ -2303,7 +2180,11 @@ ipcMain.handle('external-opens:list', () => loadExternalOpens().filter((e) => {
   try { return fs.statSync(e.path).isFile(); } catch { return false; }
 }));
 ipcMain.on('external-opens:open', (_, p) => {
-  if (typeof p === 'string') openExternalFile(p);
+  // Only a file the OS really opened with DocVex (it is in the list): reopening
+  // trusts that file's folder, so the renderer may not name any other file.
+  if (typeof p !== 'string') return;
+  if (!loadExternalOpens().some((e) => e.path === p)) return;
+  openExternalFile(p);
 });
 ipcMain.handle('external-opens:remove', (_, p) => {
   saveExternalOpens(loadExternalOpens().filter((e) => e.path !== p));
@@ -2372,8 +2253,8 @@ function broadcastToAllWindows(channel, payload) {
 // no encryption, nothing is sealed (as before).
 function loadIndexKey() {
   try {
-    if (!safeStorage.isEncryptionAvailable()) return null;
     warnWeakKeystore();
+    if (!strongEncryption()) return null;
     const file = path.join(app.getPath('userData'), 'index-key.bin');
     let wrapped = null;
     try { wrapped = fs.readFileSync(file); } catch { /* first run */ }
@@ -2410,7 +2291,7 @@ function ensureIndexKey() {
 // it), the service runs in-process as before.
 const PROJECT_INDEX_METHODS = [
   'projectOpen', 'projectLocate', 'projectFiles', 'projectReconcile', 'projectFileId', 'projectPathForId',
-  'knowledgeGet', 'knowledgePut', 'knowledgeClear', 'knowledgeList', 'settingsGet', 'settingsPut', 'projectFolderKey',
+  'knowledgeGet', 'knowledgePut', 'knowledgeClear', 'knowledgeList', 'knowledgeWipe', 'settingsGet', 'settingsPut', 'projectFolderKey',
   'privateGet', 'privatePut', 'privateList', 'registerProjectFile', 'projectIdOfFolder',
 ];
 let backgroundHelper = null; // { child, pending: Map, nextId, closing: Promise|null } | false once it failed
@@ -2523,6 +2404,7 @@ const PROJECT_INDEX_CALLS = {
   'knowledge:put': (s, a) => s.knowledgePut(a),
   'knowledge:clear': (s, a) => s.knowledgeClear(a),
   'knowledge:list': (s, a) => s.knowledgeList(a),
+  'knowledge:wipe': (s, a) => s.knowledgeWipe(a),
   'settings:get': (s, a) => s.settingsGet(a),
   'settings:put': (s, a) => s.settingsPut(a),
   'project:folder-key': (s, a) => s.projectFolderKey(a),
@@ -2532,6 +2414,16 @@ const PROJECT_INDEX_CALLS = {
 };
 for (const [channel, call] of Object.entries(PROJECT_INDEX_CALLS)) {
   ipcMain.handle(channel, async (_, arg) => {
+    // Opening a project AT A FOLDER links that folder (writes its project file,
+    // trusts it, a network share included) — so the folder must already be one
+    // the user put in front of the app: picked in the dialog, resolved by main,
+    // or holding a project file. Checked before anything touches it.
+    if (channel === 'project:open' && arg?.dir) {
+      const dir = String(arg.dir);
+      const why = isUntrustedNetworkPath(dir) ? 'Network paths are not allowed' : protectedPathReason(dir);
+      if (why) return { ok: false, error: why };
+      if (!isWritableLocation(dir)) return { ok: false, error: 'Choose this folder in the folder picker first' };
+    }
     try { return await call(projectIndexService(), arg ?? {}); } catch (err) {
       return { ok: false, error: err?.message || String(err) };
     }
@@ -2635,12 +2527,47 @@ app.on('open-url', (event, url) => {
 // content and route any external link to the system browser. window.open is
 // denied everywhere (the app never uses it — file windows are spawned via IPC).
 const appWindowContentIds = new Set();
+// What a preload-bearing window may show: the app's own bundle (the
+// docvex-app origin, the file:// fallback's index.html only) or the dev
+// server. Never another file:// page and never localfile:// — a page loaded
+// there would hold the whole bridge (security audit 2026-10-01).
 function isAppContentUrl(url) {
   if (typeof url !== 'string') return false;
-  if (/^localfile:\/\//i.test(url) || /^file:\/\//i.test(url) || /^devtools:\/\//i.test(url)) return true;
+  if (/^devtools:\/\//i.test(url)) return true;
   if (url.startsWith(`${APP_ORIGIN}/`)) return true;
+  if (/^file:\/\//i.test(url)) {
+    try {
+      const p = path.resolve(fileURLToPath(url.split('#')[0].split('?')[0]));
+      return p === path.join(path.resolve(RENDERER_DIR()), 'index.html');
+    } catch { return false; }
+  }
   return !!MAIN_WINDOW_VITE_DEV_SERVER_URL && url.startsWith(MAIN_WINDOW_VITE_DEV_SERVER_URL);
 }
+// ── Permissions (security audit 2026-10-01) ──────────────────────────────────
+// Electron grants every permission unless told otherwise. Only the app's own
+// pages get what the app uses — notifications, clipboard writes, the camera
+// for the phone-free capture flows, fullscreen (Focus), the pointer lock —
+// and nothing else gets anything: not the Maps embed, not a remote page in a
+// viewer window. Devices (HID / USB / serial / Bluetooth) are never granted.
+const APP_PERMISSIONS = new Set(['notifications', 'clipboard-sanitized-write', 'fullscreen', 'media', 'pointerLock', 'window-management']);
+function isAppOrigin(u) {
+  const url = String(u || '');
+  if (url.startsWith(`${APP_ORIGIN}/`) || url === APP_ORIGIN) return true;
+  if (MAIN_WINDOW_VITE_DEV_SERVER_URL && url.startsWith(new URL(MAIN_WINDOW_VITE_DEV_SERVER_URL).origin)) return true;
+  return url.startsWith('file://') && (fileOriginInUse || !USE_APP_ORIGIN);
+}
+function installPermissionHandlers(ses) {
+  ses.setPermissionRequestHandler((wc, permission, callback, details) => {
+    const from = details?.requestingUrl || wc?.getURL?.() || '';
+    const mainFrame = details?.isMainFrame !== false;
+    callback(mainFrame && APP_PERMISSIONS.has(permission) && isAppOrigin(from));
+  });
+  ses.setPermissionCheckHandler((_wc, permission, requestingOrigin) => APP_PERMISSIONS.has(permission) && isAppOrigin(requestingOrigin));
+  ses.setDevicePermissionHandler(() => false);
+  try { ses.setBluetoothPairingHandler?.((_d, cb) => cb({ confirmed: false })); } catch { /* not on this platform */ }
+}
+app.whenReady().then(() => installPermissionHandlers(session.defaultSession));
+
 app.on('web-contents-created', (_e, contents) => {
   // Backstop for DEVTOOLS_ALLOWED: whatever opens them outside the dev server
   // (a stray accelerator, a future menu entry), they close again at once.
@@ -2651,6 +2578,14 @@ app.on('web-contents-created', (_e, contents) => {
       event.preventDefault();
       if (/^https?:\/\//i.test(url)) shell.openExternal(url);
     }
+  });
+  // A server redirect is a navigation too: an app window is never redirected
+  // off the app (subframes — the Maps embed — are left to their own origin).
+  contents.on('will-redirect', (event, legacyUrl, _inPlace, legacyMain) => {
+    if (!appWindowContentIds.has(contents.id)) return;
+    const url = event?.url ?? legacyUrl;
+    const isMainFrame = event?.isMainFrame ?? legacyMain;
+    if (isMainFrame && !isAppContentUrl(url)) event.preventDefault();
   });
   contents.setWindowOpenHandler(({ url }) => {
     if (/^https?:\/\//i.test(url)) shell.openExternal(url);
@@ -2707,7 +2642,7 @@ ipcMain.on('window:set-background', (e, color) => {
   if (typeof color !== 'string' || !/^#[0-9a-f]{6}$/i.test(color)) return;
   rememberWindowBackground(color);
   for (const w of BrowserWindow.getAllWindows()) {
-    // The snip overlay and the tray menu are deliberately transparent.
+    // Transparent windows keep their own (clear) background.
     if (w.isDestroyed() || w.isTransparent?.()) continue;
     try { w.setBackgroundColor(color); } catch { /* not fatal */ }
   }
@@ -2742,22 +2677,30 @@ const manualFullscreen = new Map(); // win.id → { bounds, maximized }
 // mid-way through swapping one kind of fullscreen for the other.
 const hushFullscreen = new Set();
 
-function fillsItsDisplay(win) {
-  const b = win.getBounds();
-  const d = screen.getDisplayMatching(b).bounds;
-  // A couple of pixels of slack: Windows reports a window it has just resized
-  // a hair off now and then.
-  return Math.abs(b.width - d.width) <= 2 && Math.abs(b.height - d.height) <= 2;
-}
-
 function enterManualFullscreen(win) {
   if (manualFullscreen.has(win.id)) return;
-  manualFullscreen.set(win.id, { bounds: win.getBounds(), maximized: win.isMaximized() });
+  const display = screen.getDisplayMatching(win.getBounds()).bounds;
+  manualFullscreen.set(win.id, { bounds: win.getNormalBounds(), maximized: win.isMaximized() });
   win.once('closed', () => manualFullscreen.delete(win.id));
-  // Un-maximize FIRST: a maximized window ignores setBounds.
-  if (win.isMaximized()) win.unmaximize();
-  win.setBounds(screen.getDisplayMatching(win.getBounds()).bounds);
-  win.setAlwaysOnTop(true, 'screen-saver');
+  const fill = () => {
+    if (win.isDestroyed() || !manualFullscreen.has(win.id)) return;
+    win.setBounds(display);
+    win.setAlwaysOnTop(true, 'screen-saver');
+  };
+  // Un-maximize FIRST: a maximized window ignores setBounds. Windows restores
+  // the window in its own time, and a restore landing AFTER the setBounds put
+  // the window back to its old size — the first press of Focus then looked
+  // like it did nothing and only the second worked. So the bounds are set once
+  // the restore has happened (and again just after, in case it lands late).
+  if (win.isMaximized()) {
+    let done = false;
+    const go = () => { if (done) return; done = true; fill(); setTimeout(fill, 60); };
+    win.once('unmaximize', go);
+    win.unmaximize();
+    setTimeout(go, 120);
+  } else {
+    fill();
+  }
 }
 
 function leaveManualFullscreen(win) {
@@ -2776,26 +2719,28 @@ ipcMain.handle('window:set-fullscreen', (e, on) => {
   // to go fullscreen would throw on macOS.
   if (!w.isFullScreenable()) return false;
   try {
+    // WINDOWS: straight to presentation size by hand (2026-10-02). The native
+    // call was tried first and checked 150ms later, and on these frameless
+    // windows it almost never took — so every press paid the wait, the window
+    // jumped twice, and the native "left fullscreen" that undoing it fires
+    // could arrive after the hush and be read by the viewer as the user
+    // leaving Focus: the first press undid itself and only the second worked.
+    if (process.platform === 'win32') {
+      if (on) {
+        enterManualFullscreen(w);
+      } else {
+        leaveManualFullscreen(w);
+        if (w.isFullScreen()) {
+          hushFullscreen.add(w.id);
+          w.setFullScreen(false);
+          setTimeout(() => hushFullscreen.delete(w.id), 600);
+        }
+      }
+      return true;
+    }
     // Whichever way it got big, this is the way back down.
     if (!on) leaveManualFullscreen(w);
     w.setFullScreen(!!on);
-    if (process.platform !== 'win32' || !on) return true;
-    // Windows answers in its own time, so it is given a beat before the call is
-    // declared to have done nothing.
-    setTimeout(() => {
-      // The BOUNDS are the test, not `isFullScreen()`: Electron can believe a
-      // frameless window is fullscreen while it has not moved a pixel, which is
-      // exactly the case this exists for.
-      if (w.isDestroyed() || fillsItsDisplay(w)) return;
-      if (w.isFullScreen()) {
-        // Take that belief off it first, or `setBounds` is ignored — quietly,
-        // so the renderer does not read it as the user leaving Focus.
-        hushFullscreen.add(w.id);
-        w.setFullScreen(false);
-        setTimeout(() => hushFullscreen.delete(w.id), 300);
-      }
-      enterManualFullscreen(w);
-    }, 150);
     return true;
   } catch {
     return false;
@@ -2991,7 +2936,7 @@ ipcMain.on('app:open-file-window', (_, payload) => {
 // <img> tiles — a fire-and-forget send could lose the race against the
 // first thumbnail fetch.
 ipcMain.handle('localfile:allow-file', (_, p) => {
-  if (typeof p === 'string' && p) registerLocalfileFile(p);
+  if (typeof p === 'string' && p && !refuseRead(p)) registerLocalfileFile(p);
   return true;
 });
 
@@ -3136,6 +3081,131 @@ ipcMain.on('app:open-docx', (_, payload) => {
 });
 
 // Update IPC ---------------------------------------------------------------
+// ── Interface language for the few words main draws itself ──────────────
+// The windows translate themselves (lib/i18n); what main puts into native
+// dialogs and menus is translated here, following the same setting. The
+// renderer reports it (`app:set-language`) and it is kept in
+// userData/ui-language.json so a dialog shown before any window has loaded
+// is already in the right language. The OS-drawn parts of a dialog (the file
+// picker's own buttons) follow the system language, as everywhere.
+const MAIN_RO = {
+  'Choose download folder': 'Alegeți folderul de descărcare',
+  'Cancel': 'Anulați',
+  'Close': 'Închideți',
+  'Open anyway': 'Deschideți oricum',
+  'Open a program?': 'Deschideți un program?',
+  '"{0}" can run a program on this computer.': '„{0}” poate rula un program pe acest computer.',
+  'Only open it if you trust where it came from. Files from a phone, a teammate or an e-mail can be harmful.':
+    'Deschideți-l doar dacă aveți încredere în proveniența lui. Fișierele de pe un telefon, de la un coleg sau dintr-un e-mail pot fi dăunătoare.',
+  'Open DocVex': 'Deschideți DocVex',
+  'Quit DocVex': 'Închideți DocVex',
+  'Inspect element': 'Inspectați elementul',
+  'About DocVex': 'Despre DocVex',
+  'Services': 'Servicii',
+  'Hide DocVex': 'Ascundeți DocVex',
+  'Hide Others': 'Ascundeți celelalte',
+  'Show All': 'Afișați tot',
+  'Edit': 'Editare',
+  'Undo': 'Anulați acțiunea',
+  'Redo': 'Refaceți',
+  'Cut': 'Decupați',
+  'Copy': 'Copiați',
+  'Paste': 'Lipiți',
+  'Paste and Match Style': 'Lipiți și potriviți stilul',
+  'Delete': 'Ștergeți',
+  'Select All': 'Selectați tot',
+  'View': 'Vizualizare',
+  'Toggle Full Screen': 'Ecran complet',
+  'Toggle Developer Tools': 'Instrumente pentru dezvoltatori',
+  'Window': 'Fereastră',
+  'Minimize': 'Minimizați',
+  'Zoom': 'Zoom',
+  'Bring All to Front': 'Aduceți toate în față',
+  'Account': 'Cont',
+  'Settings': 'Setări',
+  'Restart DocVex': 'Reporniți DocVex',
+  'DocVex could not load its window.': 'DocVex nu și-a putut încărca fereastra.',
+  'Restarting usually fixes this. If it keeps happening, reinstall DocVex.': 'De obicei o repornire rezolvă problema. Dacă se repetă, reinstalați DocVex.',
+  'Drop files…': 'Adăugați fișiere…',
+  'Report a problem': 'Raportați o problemă',
+  'Documentation': 'Documentație',
+  'Restart & install update': 'Reporniți și instalați actualizarea',
+  'Check for updates': 'Căutați actualizări',
+  'Restart': 'Reporniți',
+};
+let uiLang = null;
+function uiLangFile() { return path.join(app.getPath('userData'), 'ui-language.json'); }
+function currentUiLang() {
+  if (uiLang) return uiLang;
+  try { uiLang = JSON.parse(fs.readFileSync(uiLangFile(), 'utf8')).lang === 'en' ? 'en' : 'ro'; } catch { uiLang = 'ro'; }
+  return uiLang;
+}
+function tm(text, ...args) {
+  const out = currentUiLang() === 'ro' ? (MAIN_RO[text] || text) : text;
+  return out.replace(/\{(\d+)\}/g, (_, n) => String(args[Number(n)] ?? ''));
+}
+ipcMain.on('app:set-language', (_e, lang) => {
+  const next = lang === 'en' ? 'en' : 'ro';
+  if (next === currentUiLang()) return;
+  uiLang = next;
+  try { fs.writeFileSync(uiLangFile(), JSON.stringify({ lang: next })); } catch { /* read-only profile — kept in memory */ }
+  if (process.platform === 'darwin' && app.isReady()) installMacMenu();
+});
+
+// The macOS menu bar, in the interface language. Each role item is given its
+// label, since Electron fills role menus in English; the roles keep the
+// standard shortcuts working. Rebuilt when the language is switched.
+function installMacMenu() {
+  const sep = { type: 'separator' };
+  Menu.setApplicationMenu(Menu.buildFromTemplate([
+    {
+      label: app.name,
+      submenu: [
+        { role: 'about', label: tm('About DocVex') },
+        sep,
+        { role: 'services', label: tm('Services') },
+        sep,
+        { role: 'hide', label: tm('Hide DocVex') },
+        { role: 'hideOthers', label: tm('Hide Others') },
+        { role: 'unhide', label: tm('Show All') },
+        sep,
+        { role: 'quit', label: tm('Quit DocVex') },
+      ],
+    },
+    {
+      label: tm('Edit'),
+      submenu: [
+        { role: 'undo', label: tm('Undo') },
+        { role: 'redo', label: tm('Redo') },
+        sep,
+        { role: 'cut', label: tm('Cut') },
+        { role: 'copy', label: tm('Copy') },
+        { role: 'paste', label: tm('Paste') },
+        { role: 'pasteAndMatchStyle', label: tm('Paste and Match Style') },
+        { role: 'delete', label: tm('Delete') },
+        { role: 'selectAll', label: tm('Select All') },
+      ],
+    },
+    {
+      label: tm('View'),
+      submenu: [
+        { role: 'togglefullscreen', label: tm('Toggle Full Screen') },
+        ...(DEVTOOLS_ALLOWED ? [sep, { role: 'toggleDevTools', label: tm('Toggle Developer Tools') }] : []),
+      ],
+    },
+    {
+      role: 'windowMenu',
+      label: tm('Window'),
+      submenu: [
+        { role: 'minimize', label: tm('Minimize') },
+        { role: 'zoom', label: tm('Zoom') },
+        sep,
+        { role: 'front', label: tm('Bring All to Front') },
+      ],
+    },
+  ]));
+}
+
 ipcMain.handle('app:get-version', () => app.getVersion());
 ipcMain.handle('app:is-packaged', () => app.isPackaged);
 // OS + CPU arch for the running build. The renderer uses this to pick the
@@ -3267,6 +3337,28 @@ async function downloadToFile(url, dest, onProgress) {
 // up itself, so a compromised renderer can neither point it at another host
 // nor at a tampered file.
 const UPDATE_REPO = `${releaseRepo.owner}/${releaseRepo.name}`;
+// major.minor.patch, a leading v and any pre-release suffix ignored.
+function versionNewer(a, b) {
+  const parse = (v) => String(v).replace(/^v/i, '').split(/[-+]/)[0].split('.').map((n) => parseInt(n, 10) || 0);
+  const [x, y] = [parse(a), parse(b)];
+  for (let i = 0; i < 3; i += 1) {
+    if ((x[i] || 0) !== (y[i] || 0)) return (x[i] || 0) > (y[i] || 0);
+  }
+  return false;
+}
+// The Team ID a bundle is signed with, or null (ad-hoc / unsigned / unreadable).
+function codesignTeam(appPath) {
+  return new Promise((resolve) => {
+    let err = '';
+    const child = spawn('/usr/bin/codesign', ['-dv', '--verbose=2', appPath], { stdio: ['ignore', 'ignore', 'pipe'] });
+    child.stderr.on('data', (d) => { err += d; });
+    child.on('error', () => resolve(null));
+    child.on('exit', () => {
+      const m = /TeamIdentifier=([A-Z0-9]{10})/.exec(err);
+      resolve(m ? m[1] : null);
+    });
+  });
+}
 async function resolveUpdateAsset(url) {
   let u;
   try { u = new URL(url); } catch { return { error: 'Invalid download URL.' }; }
@@ -3283,6 +3375,11 @@ async function resolveUpdateAsset(url) {
     if (r?.draft) continue;
     for (const a of r?.assets || []) {
       if (a?.browser_download_url === url) {
+        // Never back to an older build — it would bring back what a later
+        // release fixed (security audit 2026-10-01).
+        if (!versionNewer(String(r.tag_name || ''), app.getVersion())) {
+          return { error: 'That release is not newer than the installed DocVex.' };
+        }
         const m = /^sha256:([a-f0-9]{64})$/i.exec(String(a.digest || ''));
         if (!m) return { error: 'This update has no published checksum, so it cannot be verified.' };
         return { sha256: m[1].toLowerCase(), size: a.size };
@@ -3371,8 +3468,20 @@ ipcMain.handle('update:download-and-install', async (_evt, payload) => {
     //     this needs no Xcode install. Strip extended attributes first —
     //     codesign rejects FinderInfo / resource-fork "detritus" with
     //     "resource fork ... not allowed".
-    await runCommand('/usr/bin/xattr', ['-cr', stagedApp]);
-    await runCommand('/usr/bin/codesign', ['--force', '--deep', '--sign', '-', stagedApp]);
+    // An installed app signed with a Developer ID (a Team ID) takes only an
+    // update signed by the SAME team, verified as it is — re-signing it
+    // ad hoc would throw away its signature and notarization (security audit
+    // 2026-10-01). Only the ad-hoc channel is repaired by re-signing.
+    const team = await codesignTeam(currentApp);
+    if (team) {
+      await runCommand('/usr/bin/codesign', ['--verify', '--deep', '--strict', stagedApp]);
+      if ((await codesignTeam(stagedApp)) !== team) {
+        throw new Error('The update is not signed by DocVex; it was not installed.');
+      }
+    } else {
+      await runCommand('/usr/bin/xattr', ['-cr', stagedApp]);
+      await runCommand('/usr/bin/codesign', ['--force', '--deep', '--sign', '-', stagedApp]);
+    }
 
     // 5. Hand off to a detached script that waits for THIS process to quit,
     //    swaps the bundle, and relaunches. A running process can't reliably
@@ -3436,7 +3545,8 @@ ipcMain.handle('update:download-and-install', async (_evt, payload) => {
 // Replace with underscore so a stray character doesn't blow up the
 // whole batch.
 function sanitizeFilename(name) {
-  return name.replace(/[\\/:*?"<>|]/g, '_').slice(0, 240);
+  const clean = String(name).replace(/[\\/:*?"<>|\u0000-\u001f]/g, '_').replace(/[.\s]+$/, '').slice(0, 240);
+  return clean && clean !== '.' && clean !== '..' ? clean : '_';
 }
 
 // Open the native folder picker. Returns the chosen absolute path, or
@@ -3447,7 +3557,7 @@ ipcMain.handle('local-folder:pick', async () => {
   if (!mainWindow || mainWindow.isDestroyed()) return null;
   const result = await dialog.showOpenDialog(mainWindow, {
     properties: ['openDirectory', 'createDirectory'],
-    title: 'Choose download folder',
+    title: tm('Choose download folder'),
   });
   if (result.canceled) return null;
   const picked = result.filePaths?.[0] || null;
@@ -3509,6 +3619,9 @@ async function resolveProjectDir(arg) {
   if (!projectId) return { path: null, error: 'No project id' };
   // The projects folder comes from the renderer: never a protected location.
   if (baseDir && protectedPathReason(baseDir)) return { path: null, error: protectedPathReason(baseDir) };
+  // …and one the user picked in the dialog (or one already trusted) — never a
+  // folder the renderer simply names.
+  if (baseDir && !isWritableLocation(baseDir)) return { path: null, error: 'Choose the projects folder again in Settings' };
   try {
     const docvexRoot = path.join(app.getPath('documents'), 'Docvex');
     await fsp.mkdir(docvexRoot, { recursive: true });
@@ -3529,6 +3642,9 @@ async function resolveProjectDir(arg) {
     // 1. Already mapped → reuse that folder.
     if (registry[projectId]) {
       const dir = toAbs(registry[projectId]);
+      // The registry file lives in a folder the renderer can write to; a path
+      // in it is used only where the app may write anyway.
+      if (protectedPathReason(dir) || !isWritableLocation(path.dirname(dir))) return { path: null, error: 'The project folder on record is not allowed' };
       await fsp.mkdir(dir, { recursive: true });
       return { path: dir, error: null };
     }
@@ -3608,6 +3724,7 @@ async function mapLimit(items, limit, fn) {
 
 ipcMain.handle('local-folder:list', async (_, dir) => {
   if (!dir) return { files: [], dirs: [], error: 'No directory specified' };
+  { const why = refuseRead(dir); if (why) return { files: [], dirs: [], error: why }; }
   registerLocalfileRoot(dir); // the user is viewing this folder → its files are serveable
   try {
     const entries = await fsp.readdir(dir, { withFileTypes: true });
@@ -3675,6 +3792,7 @@ ipcMain.handle('local-folder:list', async (_, dir) => {
 // failure instead of losing the whole extraction.
 ipcMain.handle('local-folder:stat', async (_, filePath) => {
   if (!filePath) return { error: 'No path specified' };
+  { const why = refuseRead(filePath); if (why) return { error: why }; }
   try {
     const stat = await fsp.stat(filePath);
     return {
@@ -3702,6 +3820,7 @@ ipcMain.handle('local-folder:stat', async (_, filePath) => {
 
 ipcMain.handle('local-folder:list-recursive', async (_, dir) => {
   if (!dir) return { files: [], error: 'No directory specified' };
+  { const why = refuseRead(dir); if (why) return { files: [], error: why }; }
   registerLocalfileRoot(dir); // recursive listing → the whole subtree is serveable
   try {
     const files = [];
@@ -3947,14 +4066,61 @@ const refusePath = (...checks) => {
   for (const [p, opts] of checks) {
     const why = protectedPathReason(p, opts);
     if (why) return why;
+    if (!opts?.deleting && isReservedName(path.basename(String(p)))) return 'This name is reserved for DocVex';
     if (!isWritableLocation(p)) return 'DocVex only changes files inside your project folders or a folder you chose';
   }
   return null;
 };
+// Names only main writes: a project file makes its folder writable
+// (folderHasProjectFile) and the projects registry decides which folders
+// main creates and trusts — the renderer must not be able to plant either
+// (security audit 2026-10-01).
+function isReservedName(name) {
+  const n = String(name || '').replace(/[.\s]+$/, '').toLowerCase();
+  return n.endsWith('.docvex') || n === '.docvex-projects.json' || n === '.docvex.json';
+}
+// Why a path the renderer hands in may not be READ / listed / watched, or null.
+// Network and device paths are refused before anything touches them (a stat
+// or readdir there already authenticates to the server — an NTLM leak), as are
+// the system, app-data and hidden home locations. A drive root may be read.
+function refuseRead(p) {
+  if (!p || typeof p !== 'string') return 'No path';
+  if (isDevicePath(p) || isUntrustedNetworkPath(p)) return 'Network paths are not allowed';
+  const why = protectedPathReason(p);
+  if (why && why !== 'A drive or filesystem root is protected') return why;
+  return null;
+}
+// Writes a file without following a symlink planted where it goes (a link in
+// a synced folder would otherwise carry the write out of the project).
+async function writeFileNoFollow(target, data) {
+  try {
+    if ((await fsp.lstat(target)).isSymbolicLink()) throw new Error('Refusing to write through a link');
+  } catch (err) {
+    if (err?.code !== 'ENOENT') throw err;
+  }
+  await fsp.writeFile(target, data);
+}
 
 // Files that RUN something when opened. Opening one from DocVex asks first —
 // a synced teammate file or a phone upload must not execute on a click.
-const RUNNABLE_EXT = /\.(exe|com|bat|cmd|msi|msp|scr|pif|cpl|ps1|psm1|vbs|vbe|js|jse|wsf|wsh|hta|lnk|url|reg|jar|app|command|sh|py|pl|dll|appx|msix|appref-ms|gadget|inf|iso|img|vhd|vhdx)$/i;
+const RUNNABLE_EXT = /\.(exe|com|bat|cmd|msi|msp|scr|pif|cpl|ps1|psm1|psd1|vbs|vbe|js|jse|wsf|wsh|hta|lnk|url|reg|jar|app|command|sh|py|pyw|pl|rb|dll|ocx|sys|drv|appx|appxbundle|msix|msixbundle|appinstaller|application|appref-ms|gadget|inf|iso|img|vhd|vhdx|chm|hlp|msc|scf|search-ms|searchconnector-ms|library-ms|settingcontent-ms|website|xll|xbap|diagcab|mof|pkg|dmg|workflow|terminal)$/i;
+// Windows runs "x.exe." and "x.exe " as x.exe — the test sees the name it runs.
+const isRunnable = (p) => RUNNABLE_EXT.test(String(p || '').replace(/[.\s]+$/, ''));
+// Asks before a program is opened; resolves true when the user says go.
+async function confirmRunnable(sender, targetPath) {
+  if (!isRunnable(targetPath)) return true;
+  const owner = (sender && BrowserWindow.fromWebContents(sender)) || mainWindow;
+  const { response } = await dialog.showMessageBox(owner, {
+    type: 'warning',
+    buttons: [tm('Cancel'), tm('Open anyway')],
+    defaultId: 0,
+    cancelId: 0,
+    title: tm('Open a program?'),
+    message: tm('"{0}" can run a program on this computer.', path.basename(targetPath)),
+    detail: tm('Only open it if you trust where it came from. Files from a phone, a teammate or an e-mail can be harmful.'),
+  });
+  return response === 1;
+}
 
 // ── localfile:// read allow-list ──────────────────────────────────────────
 // The `localfile://` protocol streams file BYTES to the renderer. Without a
@@ -4024,6 +4190,35 @@ async function isLocalfileAllowed(filePath) {
 // verbatim, CWE-59); left in place a later read/write could follow it out of
 // containment. Dirent.isSymbolicLink()/isDirectory() come from lstat, so we
 // never traverse INTO a symlinked directory.
+// Checks a zip BEFORE anything is extracted (security audit 2026-10-01):
+// extract-zip follows symlink entries while writing (a link entry pointing out
+// of the folder, then a file written "through" it — GHSA, no fixed version),
+// so an archive holding a symlink is refused outright, as is one that would
+// unpack to an absurd size or entry count (a zip bomb). → null, or why not.
+async function zipRefusal(zipPath, { maxBytes = 8 * 1024 ** 3, maxEntries = 50000 } = {}) {
+  const { default: yauzl } = await import('yauzl');
+  return new Promise((resolve) => {
+    yauzl.open(zipPath, { lazyEntries: true, autoClose: true }, (err, zip) => {
+      if (err || !zip) { resolve('The archive could not be read'); return; }
+      let bytes = 0;
+      let count = 0;
+      let settled = false;
+      const done = (why) => { if (!settled) { settled = true; try { zip.close(); } catch { /* closed */ } resolve(why); } };
+      zip.on('entry', (entry) => {
+        count += 1;
+        bytes += Number(entry.uncompressedSize) || 0;
+        const mode = (entry.externalFileAttributes >>> 16) & 0o170000;
+        if (mode === 0o120000) { done('The archive contains links, which DocVex does not unpack'); return; }
+        if (count > maxEntries || bytes > maxBytes) { done('The archive is too large to unpack'); return; }
+        zip.readEntry();
+      });
+      zip.on('end', () => done(null));
+      zip.on('error', () => done('The archive could not be read'));
+      zip.readEntry();
+    });
+  });
+}
+
 async function stripSymlinks(dir) {
   let entries;
   try { entries = await fsp.readdir(dir, { withFileTypes: true }); }
@@ -4162,8 +4357,10 @@ ipcMain.handle('local-folder:download', async (_, payload) => {
         throw new Error('Path outside branch folder');
       }
       if (relDir) await fsp.mkdir(targetDir, { recursive: true });
-      const target = path.join(targetDir, sanitizeFilename(f.filename));
-      await fsp.writeFile(target, buf);
+      const name = sanitizeFilename(f.filename);
+      if (isReservedName(name)) throw new Error('This name is reserved for DocVex');
+      const target = path.join(targetDir, name);
+      await writeFileNoFollow(target, buf);
       results.push({ filename: f.filename, path: target, ok: true });
     } catch (err) {
       results.push({ filename: f.filename, ok: false, error: err?.message || String(err) });
@@ -4197,8 +4394,10 @@ ipcMain.handle('local-folder:write-files', async (_, payload) => {
     }
     try {
       const buf = Buffer.from(f.bytes);
-      const target = path.join(dir, sanitizeFilename(f.filename));
-      await fsp.writeFile(target, buf);
+      const name = sanitizeFilename(f.filename);
+      if (isReservedName(name)) throw new Error('This name is reserved for DocVex');
+      const target = path.join(dir, name);
+      await writeFileNoFollow(target, buf);
       results.push({ filename: f.filename, path: target, ok: true });
     } catch (err) {
       results.push({ filename: f.filename, ok: false, error: err?.message || String(err) });
@@ -4253,9 +4452,13 @@ ipcMain.handle('local-folder:write-tree', async (_, payload) => {
       results.push({ relPath: rel, ok: false, error: 'Path escapes the project folder' });
       continue;
     }
+    if (isReservedName(parts[parts.length - 1])) {
+      results.push({ relPath: rel, ok: false, error: 'This name is reserved for DocVex' });
+      continue;
+    }
     try {
       await fsp.mkdir(path.dirname(target), { recursive: true });
-      await fsp.writeFile(target, Buffer.from(f.bytes));
+      await writeFileNoFollow(target, Buffer.from(f.bytes));
       // Keep the copy's modified time: sync decides which copy is newer by it,
       // and everything saved about a file is stamped with it — a pulled file
       // dated "now" would be sent straight back up and orphan its synced data.
@@ -4338,19 +4541,7 @@ ipcMain.handle('local-folder:open-path', async (e, targetPath) => {
   if (!targetPath || typeof targetPath !== 'string') return '';
   if (isUntrustedNetworkPath(targetPath)) return 'Network paths are not opened from DocVex';
   // A file that runs something is opened only once the user says so.
-  if (RUNNABLE_EXT.test(targetPath)) {
-    const owner = BrowserWindow.fromWebContents(e.sender) || mainWindow;
-    const { response } = await dialog.showMessageBox(owner, {
-      type: 'warning',
-      buttons: ['Cancel', 'Open anyway'],
-      defaultId: 0,
-      cancelId: 0,
-      title: 'Open a program?',
-      message: `"${path.basename(targetPath)}" can run a program on this computer.`,
-      detail: 'Only open it if you trust where it came from. Files from a phone, a teammate or an e-mail can be harmful.',
-    });
-    if (response !== 1) return 'Cancelled';
-  }
+  if (!(await confirmRunnable(e.sender, targetPath))) return 'Cancelled';
   // shell.openPath returns an empty string on success, an error message
   // on failure. Pass it through so the renderer can surface failures.
   return shell.openPath(targetPath);
@@ -4361,6 +4552,7 @@ ipcMain.handle('local-folder:open-path', async (e, targetPath) => {
 ipcMain.handle('local-folder:save-as', async (_, srcPath) => {
   try {
     if (typeof srcPath !== 'string' || !srcPath) return { ok: false };
+    { const why = refuseRead(srcPath); if (why) return { ok: false, error: why }; }
     const st = await fsp.stat(srcPath);
     if (!st.isFile()) return { ok: false, error: 'Not a file' };
     const res = await dialog.showSaveDialog({ defaultPath: path.basename(srcPath) });
@@ -4381,6 +4573,14 @@ ipcMain.handle('local-folder:save-as', async (_, srcPath) => {
 ipcMain.handle('local-folder:extract-archive', async (_, srcPath) => {
   try {
     if (typeof srcPath !== 'string' || !srcPath) return { ok: false };
+    // Checked BEFORE the file is touched (a stat on a network path already
+    // authenticates to it).
+    if (isUntrustedNetworkPath(srcPath)) return { ok: false, error: 'Network paths are not opened from DocVex' };
+    { const why = protectedPathReason(srcPath); if (why) return { ok: false, error: why }; }
+    // Only ARCHIVES are handed to the OS archiver — never anything that runs.
+    if (!/\.(zip|rar|7z|tar|gz|tgz|bz2|tbz2|xz|txz|zst|cab)$/i.test(srcPath) || isRunnable(srcPath)) {
+      return { ok: false, error: 'Not an archive' };
+    }
     const st = await fsp.stat(srcPath);
     if (!st.isFile()) return { ok: false, error: 'Not a file' };
 
@@ -4403,6 +4603,7 @@ ipcMain.handle('local-folder:extract-archive', async (_, srcPath) => {
     let created = false;
     try { await fsp.stat(dest); } catch { created = true; }
     await fsp.mkdir(dest, { recursive: true });
+    { const why = await zipRefusal(srcPath); if (why) return { ok: false, error: why }; }
     const { default: extract } = await import('extract-zip');
     await extract(srcPath, { dir: dest });
     // Strip any hostile symlink entries the archive planted (CWE-59 link-follow).
@@ -4420,6 +4621,7 @@ ipcMain.handle('local-folder:extract-archive', async (_, srcPath) => {
 // and best-effort).
 ipcMain.handle('local-folder:show-in-folder', async (_, targetPath) => {
   if (!targetPath) return { ok: false, error: 'No path' };
+  { const why = refuseRead(targetPath); if (why) return { ok: false, error: why }; }
   try {
     shell.showItemInFolder(targetPath);
     return { ok: true };
@@ -4509,6 +4711,7 @@ const stopWatcher = () => {
 ipcMain.handle('local-folder:watch', (_, dir) => {
   stopWatcher();
   if (!dir) return { ok: true };
+  { const why = refuseRead(dir); if (why) return { ok: false, error: why }; }
   registerLocalfileRoot(dir); // active folder → serveable
   try {
     // recursive so changes inside synced subfolders are noticed too
@@ -4562,6 +4765,7 @@ ipcMain.handle('local-folder:unwatch', () => {
 // path can't escape and read/write arbitrary user files.
 ipcMain.handle('local-folder:read-sidecar', async (_, dir) => {
   if (!dir) return { json: null, error: 'No directory specified' };
+  { const why = refuseRead(dir); if (why) return { json: null, error: why }; }
   try {
     const target = path.join(dir, '.docvex.json');
     const raw = await fsp.readFile(target, 'utf8');
@@ -4833,6 +5037,9 @@ ipcMain.handle('local-folder:trash-folder', trashLocked(async (_, payload) => {
 // DEV-only: seed the bin with dummy files whose `deletedAt` is backdated so
 // each one is N days from its 30-day purge. Drives the countdown-ring UI.
 ipcMain.handle('local-folder:debug-seed-trash', async (_, payload) => {
+  // A developer tool: never in a packaged build, never outside a writable folder.
+  if (app.isPackaged) return { ok: false, error: 'not_available' };
+  { const why = refusePath([payload?.dir]); if (why) return { ok: false, error: why }; }
   const dir = payload?.dir;
   const days = Array.isArray(payload?.days) ? payload.days : [];
   if (!dir) return { ok: false, error: 'No directory specified' };
@@ -5137,8 +5344,11 @@ app.whenReady().then(() => {
 
   async function writeThumbToDisk(key, ext, buffer) {
     try {
-      await fsp.mkdir(thumbDir(), { recursive: true });
       ensureIndexKey();
+      // A thumbnail of an ID card in the clear is the thing not to leave on
+      // disk: without the key the cache is memory only.
+      if (!hasIndexKey()) return;
+      await fsp.mkdir(thumbDir(), { recursive: true });
       await fsp.writeFile(thumbCacheFile(key, ext), sealBytes(buffer));
       thumbWritesSinceSweep += 1;
       if (thumbWritesSinceSweep >= 500) {
@@ -5171,7 +5381,9 @@ app.whenReady().then(() => {
   // viewer starts producing thumbnails without anyone clearing a cache.
   const thumbExtStats = new Map();   // ext → { ok, fail, at }
   const THUMB_VERDICT_TTL_MS = 14 * 24 * 60 * 60 * 1000;
-  const thumbStatsFile = () => path.join(app.getPath('userData'), 'thumb-support.json');
+  // v2: the v1 verdicts were learned while every Windows call failed on a
+  // forward-slash path, marking every format unsupported — dropped, relearned.
+  const thumbStatsFile = () => path.join(app.getPath('userData'), 'thumb-support-v2.json');
   let thumbStatsTimer = null;
 
   (async () => {
@@ -5242,7 +5454,11 @@ app.whenReady().then(() => {
             // OS thumbnailer (Windows Shell / macOS QuickLook) — fast, and
             // renders HEIC/RAW/Office/PDF that Chromium can't. Absent on most
             // Linux setups, where this simply returns null.
-            const img = await nativeImage.createThumbnailFromPath(filePath, { width, height: width });
+            // path.normalize: on Windows the Shell only parses BACKSLASH paths —
+            // given the forward-slash paths the project index uses it failed
+            // every file ("Failed to create IShellItem"), which is why Windows
+            // showed no thumbnails while macOS (no such rule) did.
+            const img = await nativeImage.createThumbnailFromPath(path.normalize(filePath), { width, height: width });
             if (!img || img.isEmpty()) return null;
             const buffer = asPng ? img.toPNG() : img.toJPEG(82);
             return buffer?.length ? { buffer, mime: outMime } : null;
@@ -5296,9 +5512,18 @@ app.whenReady().then(() => {
       // page shown in a viewer window gets no CORS grant.
       const reqOrigin = request.headers.get('origin');
       const devOrigin = MAIN_WINDOW_VITE_DEV_SERVER_URL ? new URL(MAIN_WINDOW_VITE_DEV_SERVER_URL).origin : null;
-      const cors = reqOrigin && (reqOrigin === APP_ORIGIN || reqOrigin === devOrigin || reqOrigin === 'null')
-        ? { 'access-control-allow-origin': reqOrigin, vary: 'Origin' }
-        : (reqOrigin ? {} : { 'access-control-allow-origin': '*' });
+      const allowed = reqOrigin && (reqOrigin === APP_ORIGIN || reqOrigin === devOrigin
+        || (reqOrigin === 'null' && (fileOriginInUse || !USE_APP_ORIGIN)));
+      // Every answer: no MIME sniffing, and a file type that can carry script
+      // (SVG, HTML, XML) is served in a sandbox with nothing allowed to run —
+      // it is a file being shown, never a page (security audit 2026-10-01).
+      const cors = {
+        ...(allowed ? { 'access-control-allow-origin': reqOrigin, vary: 'Origin' } : {}),
+        'x-content-type-options': 'nosniff',
+        ...(/\.(svgz?|html?|xhtml|xml|xht|mht|mhtml)$/i.test(filePath)
+          ? { 'content-security-policy': "default-src 'none'; img-src data:; style-src 'unsafe-inline'; sandbox" }
+          : {}),
+      };
       // `?thumb=N` — serve a downscaled thumbnail instead of the original
       // bytes. The WhatsApp reconstruction asks for these: painting 167
       // full-resolution camera photos into ~300px bubbles re-rasters tens of
@@ -5425,24 +5650,7 @@ app.whenReady().then(() => {
   //    a null menu they silently break, so we install the standard roles. There
   //    is no File menu — the app is windowless-document by design.
   if (process.platform === 'darwin') {
-    Menu.setApplicationMenu(Menu.buildFromTemplate([
-      {
-        role: 'appMenu', // DocVex › About / Hide / Quit
-      },
-      {
-        role: 'editMenu', // Undo / Redo / Cut / Copy / Paste / Select All
-      },
-      {
-        label: 'View',
-        submenu: [
-          { role: 'togglefullscreen' },
-          ...(DEVTOOLS_ALLOWED ? [{ type: 'separator' }, { role: 'toggleDevTools' }] : []),
-        ],
-      },
-      {
-        role: 'windowMenu', // Minimize / Zoom / Close
-      },
-    ]));
+    installMacMenu();
   } else {
     Menu.setApplicationMenu(null);
   }
@@ -5473,39 +5681,28 @@ app.whenReady().then(() => {
 
   // ── System tray / menu-bar icon ─────────────────────────────────────────
   // Puts the app icon in the Windows notification area / macOS menu bar.
-  // Left- OR right-clicking opens the APP-DRAWN menu (showTrayMenu above) —
-  // themed like the rest of DocVex, with a status header, recent projects,
-  // and "Extract text" (which freezes the desktop and OCRs a selection, see
-  // openScreenSnip). A native Menu is kept as the fallback if that window
-  // can't be created, so the tray is never a dead icon.
+  // Left click raises the app; right click opens the operating system's own
+  // menu (buildTrayMenu above).
   try {
-    let trayIcon = nativeImage.createFromPath(path.join(__dirname, 'appicon_desktop.png'));
-    // Tray icons render at ~16px; macOS in particular shows a giant blurry
-    // icon without an explicit resize.
-    if (!trayIcon.isEmpty()) trayIcon = trayIcon.resize({ width: 16, height: 16 });
+    // A 16px icon of its own (appicon_tray.png; Electron picks up the @2x
+    // sibling on high-DPI screens) — not the 512px app icon shrunk at runtime.
+    // Falls back to that when the tray file is missing (an older build folder).
+    let trayIcon = nativeImage.createFromPath(path.join(__dirname, 'appicon_tray.png'));
+    if (trayIcon.isEmpty()) {
+      trayIcon = nativeImage.createFromPath(path.join(__dirname, 'appicon_desktop.png'));
+      if (!trayIcon.isEmpty()) trayIcon = trayIcon.resize({ width: 16, height: 16 });
+    }
     appTray = new Tray(trayIcon);
     appTray.setToolTip('DocVex');
     // macOS: don't wait out the double-click interval before reacting.
     try { appTray.setIgnoreDoubleClickEvents(true); } catch { /* Windows/Linux — no-op */ }
     // Left click raises the app, right click opens the menu — the Windows
     // convention, and what the user asked for.
-    appTray.on('click', () => { hideTrayMenu(); showMainWindow(); });
-    const openMenu = () => {
-      try {
-        toggleTrayMenu();
-      } catch {
-        // Custom window unavailable — fall back to a native menu with the
-        // essentials so the tray still works.
-        appTray.popUpContextMenu(Menu.buildFromTemplate([
-          { label: 'Open DocVex', click: () => showMainWindow() },
-          { label: 'Extract text', click: () => { try { openSnipPanel(); } catch { /* non-fatal */ } } },
-          { type: 'separator' },
-          { label: 'Quit DocVex', click: () => app.quit() },
-        ]));
-      }
-    };
-    appTray.on('right-click', openMenu);
-    appTray.on('double-click', () => { hideTrayMenu(); showMainWindow(); });
+    appTray.on('click', () => showMainWindow());
+    appTray.on('right-click', () => appTray.popUpContextMenu(buildTrayMenu()));
+    appTray.on('double-click', () => showMainWindow());
+    // macOS: files dropped on the menu-bar icon (Windows has no such event).
+    appTray.on('drop-files', (_e, files) => { try { openTrayDropWindow(files); } catch { /* non-fatal */ } });
   } catch { /* tray unavailable (some Linux DEs) — non-fatal */ }
 
   // Best-effort sweep of stale WhatsApp-zip extractions (temp/docvex-wa) on
@@ -5526,6 +5723,27 @@ app.whenReady().then(() => {
         } catch { /* skip */ }
       }
     } catch { /* no extractions yet — nothing to sweep */ }
+  })();
+
+  // Other temp leftovers holding document content (security audit 2026-10-01):
+  // a Word file's HTML copy (docvex-docx-*.html, normally deleted once shown —
+  // left behind by a crash) after a day, and the copies made to open a file in
+  // another app (docvex-open) after a week. The OS does not sweep temp on
+  // Windows.
+  (async () => {
+    const tmp = app.getPath('temp');
+    const sweep = async (dir, test, maxAgeMs) => {
+      let names = [];
+      try { names = await fsp.readdir(dir); } catch { return; }
+      const cutoff = Date.now() - maxAgeMs;
+      for (const n of names) {
+        if (!test(n)) continue;
+        const full = path.join(dir, n);
+        try { if ((await fsp.stat(full)).mtimeMs < cutoff) await fsp.rm(full, { recursive: true, force: true }); } catch { /* in use */ }
+      }
+    };
+    await sweep(tmp, (n) => /^docvex-docx-.*\.html$/i.test(n) || /^docvex-update-/i.test(n), 24 * 60 * 60 * 1000);
+    await sweep(path.join(tmp, 'docvex-open'), () => true, 7 * 24 * 60 * 60 * 1000);
   })();
 
   // Periodic bin auto-sweep — purge the active folder's `.docvex-trash`
@@ -5552,16 +5770,36 @@ app.whenReady().then(() => {
 // the legislation service: a 2000s-era asmx endpoint with no CORS headers.
 // A search by party name can answer with hundreds of files at a few kilobytes
 // each, so the answer is capped and the count of the whole is reported.
-const COURTS_ENDPOINT = 'http://portalquery.just.ro/query.asmx';
+// HTTPS first (security fix, 2026-10-01): over plain HTTP anyone on the path
+// could rewrite a court file's hearings or parties in transit. The service has
+// long been published on http:// only, so when the HTTPS endpoint cannot be
+// reached at all (no TLS listener, a certificate error) the HTTP one is used
+// for the rest of the session and every answer says so (`insecure: true`).
+const COURTS_ENDPOINTS = ['https://portalquery.just.ro/query.asmx', 'http://portalquery.just.ro/query.asmx'];
+let courtsEndpointAt = 0;
 const COURTS_NS = 'portalquery.just.ro';
 const COURTS_TIMEOUT_MS = 60000;
 const COURTS_MAX = 400;
 
 async function courtsPost(action, body) {
+  for (let i = courtsEndpointAt; i < COURTS_ENDPOINTS.length; i++) {
+    const out = await courtsPostTo(COURTS_ENDPOINTS[i], action, body);
+    // Only a connection that never got an answer moves on to the next
+    // endpoint; a timeout or an HTTP error is the service's answer.
+    if (out.error === 'unreachable' && i + 1 < COURTS_ENDPOINTS.length) {
+      courtsEndpointAt = i + 1;
+      continue;
+    }
+    return { ...out, insecure: COURTS_ENDPOINTS[i].startsWith('http:') };
+  }
+  return { ok: false, error: 'unreachable' };
+}
+
+async function courtsPostTo(endpoint, action, body) {
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), COURTS_TIMEOUT_MS);
   try {
-    const res = await fetch(COURTS_ENDPOINT, {
+    const res = await fetch(endpoint, {
       method: 'POST',
       signal: ctrl.signal,
       headers: {
@@ -5653,10 +5891,16 @@ ipcMain.handle('courts:search', async (_e, query) => {
     + opt('dataStart', soapDateArg(q.dataStart))
     + opt('dataStop', soapDateArg(q.dataStop));
   if (!body) return { ok: false, error: 'empty_query' };
+  // A party's NAME is personal data: it is sent only over HTTPS. When the
+  // portal can be reached over plain HTTP alone, a search by name is refused
+  // rather than sent in clear (security audit 2026-10-01, GDPR Art. 32);
+  // searches by file number, object or court still run, marked insecure.
+  if (String(q.numeParte || '').trim() && courtsEndpointAt > 0) return { ok: false, error: 'insecure_party_search' };
   const res = await courtsPost('CautareDosare', body);
+  if (res.insecure && String(q.numeParte || '').trim()) return { ok: false, error: 'insecure_party_search' };
   if (!res.ok) return res;
   const blocks = xmlBlocks(res.xml, 'Dosar');
-  return { ok: true, total: blocks.length, dosare: blocks.slice(0, COURTS_MAX).map(courtsParseDosar) };
+  return { ok: true, insecure: res.insecure, total: blocks.length, dosare: blocks.slice(0, COURTS_MAX).map(courtsParseDosar) };
 });
 
 // A court's hearings on a day: `{ institutie, dataSedinta }` (both required).
@@ -5680,7 +5924,7 @@ ipcMain.handle('courts:hearings', async (_e, query) => {
       stadiu: xmlField(d, 'stadiuProcesualNume') || xmlField(d, 'stadiuProcesual'),
     })),
   }));
-  return { ok: true, sedinte };
+  return { ok: true, insecure: res.insecure, sedinte };
 });
 
 // ── ANAF: a company's fiscal record ──────────────────────────────────────
@@ -5749,6 +5993,109 @@ ipcMain.handle('anaf:bilant', async (_e, payload) => {
   } finally {
     clearTimeout(timer);
   }
+});
+
+// ── Where a link lands, and its site's icon (the Doc Viewer's code tooltip) ──
+// A QR code / barcode holding a web address shows, on hover, the site a press
+// would land on and that site's icon. Fetched HERE: the window's CSP admits no
+// image from an arbitrary site, so the icon comes back as a data: URL. The
+// redirects are followed by hand (a short link names the site it ends on),
+// and EVERY hop is refused when its host is this machine or a private network
+// — a code in a photo must never make the app knock on a router or a NAS.
+const LINK_PREVIEW_TIMEOUT_MS = 6000;
+const LINK_ICON_MAX = 256 * 1024;
+const linkPreviewCache = new Map();   // url → Promise<answer>
+function privateAddress(ip) {
+  if (net.isIPv4(ip)) {
+    const [a, b] = ip.split('.').map(Number);
+    return a === 10 || a === 127 || a === 0 || (a === 169 && b === 254) || (a === 172 && b >= 16 && b <= 31)
+      || (a === 192 && b === 168) || (a === 100 && b >= 64 && b <= 127) || a >= 224;
+  }
+  const v = ip.toLowerCase();
+  if (v.startsWith('::ffff:')) return privateAddress(v.slice(7));
+  return v === '::1' || v === '::' || v.startsWith('fc') || v.startsWith('fd') || v.startsWith('fe80');
+}
+async function publicUrl(raw) {
+  let u;
+  try { u = new URL(raw); } catch { return null; }
+  if (u.protocol !== 'https:' && u.protocol !== 'http:') return null;
+  const host = u.hostname.replace(/^\[|\]$/g, '');
+  if (!host || host === 'localhost' || /\.(local|localhost|internal|lan|home)$/i.test(host)) return null;
+  try {
+    const ips = net.isIP(host) ? [host] : (await dns.lookup(host, { all: true })).map((r) => r.address);
+    if (!ips.length || ips.some(privateAddress)) return null;
+  } catch { return null; }
+  return u;
+}
+async function fetchCapped(url, signal, max) {
+  const res = await fetch(url, { signal, redirect: 'follow', headers: { 'User-Agent': LEGIS_UA } });
+  if (!res.ok || !res.body) return null;
+  const chunks = []; let size = 0;
+  for await (const c of res.body) { size += c.length; if (size > max) return null; chunks.push(c); }
+  return { type: String(res.headers.get('content-type') || ''), buf: Buffer.concat(chunks) };
+}
+async function linkPreview(raw) {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), LINK_PREVIEW_TIMEOUT_MS);
+  try {
+    // Follow the redirects to where the link really lands (≤5 hops), each
+    // hop's host checked before it is asked.
+    let u = await publicUrl(raw);
+    if (!u) return { ok: false, error: 'not_public' };
+    for (let hop = 0; hop < 5; hop++) {
+      const res = await fetch(u, { method: 'GET', redirect: 'manual', signal: ctrl.signal, headers: { 'User-Agent': LEGIS_UA } });
+      try { res.body?.cancel?.(); } catch { /* nothing to drop */ }
+      const loc = res.status >= 300 && res.status < 400 ? res.headers.get('location') : null;
+      if (!loc) break;
+      const next = await publicUrl(new URL(loc, u).href);
+      if (!next) break;
+      u = next;
+    }
+    const host = u.hostname.replace(/^www\./i, '');
+    // The icon: the page's own <link rel=icon>, else /favicon.ico — the site's
+    // own server only, never a third-party favicon service.
+    let icon = null;
+    const candidates = [];
+    try {
+      const page = await fetchCapped(`${u.origin}/`, ctrl.signal, 512 * 1024);
+      const html = page && /html/i.test(page.type) ? page.buf.toString('utf8') : '';
+      for (const m of html.matchAll(/<link\b[^>]*>/gi)) {
+        const tag = m[0];
+        if (!/\brel\s*=\s*["']?[^"'>]*\bicon\b/i.test(tag)) continue;
+        const href = /\bhref\s*=\s*["']([^"']+)["']/i.exec(tag)?.[1];
+        if (href) candidates.push(new URL(href, `${u.origin}/`).href);
+      }
+    } catch { /* no page — the default icon address is still tried */ }
+    candidates.push(`${u.origin}/favicon.ico`);
+    for (const c of candidates.slice(0, 4)) {
+      if (c.startsWith('data:image/')) { icon = c.length < LINK_ICON_MAX * 1.4 ? c : null; if (icon) break; continue; }
+      const safe = await publicUrl(c);
+      if (!safe) continue;
+      try {
+        const got = await fetchCapped(safe, ctrl.signal, LINK_ICON_MAX);
+        if (!got || !got.buf.length) continue;
+        let type = got.type.split(';')[0].trim();
+        if (!/^image\//i.test(type)) type = /\.svg(\?|$)/i.test(c) ? 'image/svg+xml' : /\.png(\?|$)/i.test(c) ? 'image/png' : 'image/x-icon';
+        if (!/^image\//i.test(type) || /html/i.test(got.type)) continue;
+        icon = `data:${type};base64,${got.buf.toString('base64')}`;
+        break;
+      } catch { /* the next candidate */ }
+    }
+    return { ok: true, url: u.href, host, icon };
+  } catch (e) {
+    return { ok: false, error: e?.name === 'AbortError' ? 'timeout' : 'unreachable' };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+ipcMain.handle('link:preview', async (_e, payload) => {
+  const raw = String(payload?.url || '').slice(0, 2048);
+  if (!raw) return { ok: false, error: 'empty' };
+  if (!linkPreviewCache.has(raw)) {
+    if (linkPreviewCache.size > 200) linkPreviewCache.delete(linkPreviewCache.keys().next().value);
+    linkPreviewCache.set(raw, linkPreview(raw));
+  }
+  return linkPreviewCache.get(raw);
 });
 
 // ── The national legislation portal, and the copy this machine keeps ───────

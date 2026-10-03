@@ -6,7 +6,6 @@ import { prefetchProjects } from '../lib/projectListPrefetch';
 import Sidebar from './Sidebar';
 import UpdateProgressBar from './UpdateProgressBar';
 import PhoneIncomingNotifier from './PhoneIncomingNotifier';
-import LiveNetworkRunner from './LiveNetworkRunner';
 import UpdateRestartModal from './UpdateRestartModal';
 import SwitchProjectLoader from './SwitchProjectLoader';
 import ContentShell from './SplitView';
@@ -32,12 +31,6 @@ import { hydrateProject } from '../lib/projectIndexClient';
 // project the generic page is about.
 export function isProjectScopedRoute(pathname) {
   if (pathname === '/files' || pathname.startsWith('/files/')) return true;
-  if (pathname === '/clients' || pathname.startsWith('/clients/')) return true;
-  if (pathname === '/todos' || pathname.startsWith('/todos/')) return true;
-  if (pathname === '/chat' || pathname.startsWith('/chat/')) return true;
-  if (pathname === '/network' || pathname.startsWith('/network/')) return true;
-  if (pathname === '/generate' || pathname.startsWith('/generate/')) return true;
-  if (pathname === '/automate' || pathname.startsWith('/automate/')) return true;
   if (pathname === '/projects' || pathname === '/projects/') return false;
   if (pathname === '/projects/new') return false;
   if (pathname.startsWith('/projects/')) {
@@ -57,7 +50,7 @@ export function isProjectScopedRoute(pathname) {
 // '/projects' (the Hub) is here too: it's a full-screen launcher with the rail
 // slid out, so a rounded card frame around it read as a floating panel inside
 // an empty window rather than the surface filling it.
-const FLUSH_CONTENT_ROUTES = new Set(['/', '/research', '/newsletter', '/legislation', '/caen', '/portal-just', '/anaf', '/firme', '/bpi', '/ancpi', '/rejust', '/unbr', '/eurlex', '/roadmap', '/playbook', '/versions', '/mail', '/admin', '/settings', '/design', '/debug', '/files', '/chat', '/network', '/projects']);
+const FLUSH_CONTENT_ROUTES = new Set(['/', '/research', '/newsletter', '/legislation', '/caen', '/portal-just', '/anaf', '/firme', '/bpi', '/ancpi', '/rejust', '/unbr', '/eurlex', '/playbook', '/versions', '/settings', '/design', '/debug', '/files', '/projects']);
 
 // The project Overview / settings page (/projects/:id, no further segment)
 // also renders full-bleed — it carries its own Versions-style masthead, so it
@@ -414,8 +407,6 @@ export default function AppShell() {
         <UpdateProgressBar />
         {/* Files a phone sent while Import was closed, posted as toasts to accept or reject. */}
         <PhoneIncomingNotifier />
-        {/* The live neural network: new files understood as they arrive (lib/liveNetwork). */}
-        {!isTabWindow && <LiveNetworkRunner />}
         {/* Once the update finishes downloading + staging ('downloaded'),
             prompt for the restart that actually applies it. Shell-level so
             it appears wherever the user is, not only on /versions. */}

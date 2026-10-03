@@ -137,6 +137,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   courtsHearings: (query) => ipcRenderer.invoke('courts:hearings', query),
   anafLookup: (payload) => ipcRenderer.invoke('anaf:lookup', payload),
   anafBilant: (payload) => ipcRenderer.invoke('anaf:bilant', payload),
+  linkPreview: (payload) => ipcRenderer.invoke('link:preview', payload),
 
   // Upload from a phone over the local network (main's phoneUploadServer):
   // start a session for a folder, stop it, and hear each file arrive.
@@ -201,26 +202,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
     return () => ipcRenderer.removeListener('doc-viewer:add-file', listener);
   },
 
-  // Open doc-viewer windows registry — the main app's "Open files" sidebar
-  // section lists every open document viewer and can refocus / close one.
-  // `onDocViewerTabs` pushes the current list whenever a viewer opens/closes.
-  listDocViewerTabs: () => ipcRenderer.invoke('doc-viewer:list'),
-  focusDocViewerTab: (id) => ipcRenderer.send('doc-viewer:focus', id),
-  closeDocViewerTab: (id) => ipcRenderer.send('doc-viewer:close', id),
   // "Back to app" from a doc-viewer window — raise the main app window.
   focusMainWindow: () => ipcRenderer.send('window:focus-main'),
   navigateMainWindow: (dest) => ipcRenderer.send('window:navigate-main', dest),
-  // A tab in a separate window (main.js tabWindows).
+  // A tab in a separate window (opened, not tracked).
   openTabWindow: (route, title) => ipcRenderer.send('window:open-tab-window', { route, title }),
-  listTabWindows: () => ipcRenderer.invoke('tab-windows:list'),
-  onTabWindows: (cb) => {
-    const listener = (_e, list) => cb(list);
-    ipcRenderer.on('tab-windows:changed', listener);
-    return () => ipcRenderer.removeListener('tab-windows:changed', listener);
-  },
-  reportTabWindowRoute: (route, title) => ipcRenderer.send('tab-window:route', { route, title }),
-  focusTabWindow: (id) => ipcRenderer.send('tab-window:focus', id),
-  dockTabWindow: (id) => ipcRenderer.send('tab-window:dock', id),
 
   // ── Pre-warmed doc-viewer window ────────────────────────────────────────
   // A viewer window boots hidden and empty (?warm=1), says it's ready, and is
@@ -229,41 +215,31 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // can show the window with content already on screen.
   notifyDocViewerWarmReady: () => ipcRenderer.send('doc-viewer:warm-ready'),
   notifyDocViewerFilePainted: () => ipcRenderer.send('doc-viewer:file-painted'),
+  // The viewer stepped to another file on its own (bottom strip / arrows).
+  setDocViewerFile: (file) => ipcRenderer.send('doc-viewer:set-file', file),
   onDocViewerOpenFile: (handler) => {
     const listener = (_, file) => handler(file);
     ipcRenderer.on('doc-viewer:open-file', listener);
     return () => ipcRenderer.removeListener('doc-viewer:open-file', listener);
   },
-  // Tray "Extract text" overlay: Esc → main destroys every snip window
-  // (instant, no async close teardown).
-  snipCancel: () => ipcRenderer.send('snip:cancel'),
-  // Snipping-Tool launcher panel (/snip-panel): "New" starts a capture with
-  // the chosen mode + delay + freeze scope ({ allScreens }).
-  snipNew: (opts) => ipcRenderer.send('snip:new', opts),
-  // Abort a delayed capture that hasn't fired yet (Esc during the countdown)
-  // — kills the timer + countdown badges, keeps the panel open.
-  snipCancelPending: () => ipcRenderer.send('snip:cancel-pending'),
-
-  // ── System-tray menu (/tray-menu, src/pages/TrayMenu.jsx) ───────────────
-  // The tray menu is drawn by the app, not the OS, so every row hands its
-  // effect back to main: 'open' | 'navigate' | 'external' | 'extract' |
-  // 'check-updates' | 'install-update' | 'restart' | 'quit'. Main runs the
-  // action and hides the menu window.
-  trayMenuAction: (action, payload) => ipcRenderer.send('tray:action', { action, payload }),
-  // The card measures itself and main resizes + re-anchors the window to the
-  // tray icon (sizes are DIP — the renderer multiplies out its zoom factor).
-  trayMenuResize: (size) => ipcRenderer.send('tray:resize', size),
-  trayMenuClose: () => ipcRenderer.send('tray:close'),
-  // App facts the menu shows: { version, isPackaged, platform, updateState }.
-  getTrayMenuState: () => ipcRenderer.invoke('tray:state'),
-  // Fired each time the tray re-opens the (reused) window, with the edge the
-  // tray sits on ({ anchor: 'bottom' | 'top' }) so the card animates from the
-  // right corner. Returns an unsubscribe fn.
-  onTrayMenuOpened: (handler) => {
-    const listener = (_, payload) => handler(payload);
-    ipcRenderer.on('tray:opened', listener);
-    return () => ipcRenderer.removeListener('tray:opened', listener);
+  // Preloading: the Files tab asks the viewer to get a file ready ahead of an
+  // open (main forwards it to the viewer the open would use).
+  prepareDocViewerFile: (file) => ipcRenderer.send('window:prepare-doc-viewer', file),
+  onDocViewerPrepareFile: (handler) => {
+    const listener = (_, file) => handler(file);
+    ipcRenderer.on('doc-viewer:prepare-file', listener);
+    return () => ipcRenderer.removeListener('doc-viewer:prepare-file', listener);
   },
+
+  // The tray's drop window (/tray-drop): copy dropped paths into a project
+  // folder, and hear files dropped on the macOS menu-bar icon.
+  trayDropCopyIn: (payload) => ipcRenderer.invoke('tray-drop:copy-in', payload),
+  onTrayDropFiles: (handler) => {
+    const listener = (_, paths) => handler(paths);
+    ipcRenderer.on('tray-drop:files', listener);
+    return () => ipcRenderer.removeListener('tray-drop:files', listener);
+  },
+
   // Main → main-window navigation, driven by the tray menu's rows. Payload is
   // a route path, or '@report' for the Report-a-problem modal. Returns an
   // unsubscribe fn.
@@ -272,13 +248,17 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.on('app:navigate', listener);
     return () => ipcRenderer.removeListener('app:navigate', listener);
   },
-  // A doc-viewer window reports whether its AI advisor is currently working, so
-  // the main app's "Open files" list can show an AI-busy marker on that row.
+  // A doc-viewer window reports whether its AI is working (the Files tab's
+  // spinner; a window closed meanwhile finishes in the background).
   setDocViewerAiStatus: (busy) => ipcRenderer.send('doc-viewer:ai-status', busy),
-  onDocViewerTabs: (cb) => {
-    const listener = (_e, list) => cb(list);
-    ipcRenderer.on('doc-viewer:tabs', listener);
-    return () => ipcRenderer.removeListener('doc-viewer:tabs', listener);
+  // The first prompt about a new document — it shows in the Files tab from now.
+  docViewerPrompted: () => ipcRenderer.send('doc-viewer:prompted'),
+  // { busy: [paths the AI is writing], hidden: [new documents not yet prompted] }
+  getDocViewerState: () => ipcRenderer.invoke('doc-viewer:state'),
+  onDocViewerState: (cb) => {
+    const listener = (_e, state) => cb(state);
+    ipcRenderer.on('doc-viewer:state', listener);
+    return () => ipcRenderer.removeListener('doc-viewer:state', listener);
   },
 
   // Announce that some local paths were just trashed/deleted, and subscribe to
@@ -355,6 +335,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   // Updates
   getAppVersion: () => ipcRenderer.invoke('app:get-version'),
+  // The interface language (lib/i18n), so main's dialogs and menus follow it.
+  setUiLanguage: (lang) => ipcRenderer.send('app:set-language', lang),
   isPackaged: () => ipcRenderer.invoke('app:is-packaged'),
   // { platform, arch } of the running build — lets the renderer pick the
   // correct release asset for the manual-download update fallback on
@@ -389,6 +371,14 @@ contextBridge.exposeInMainWorld('electronAPI', {
   projectLocate: (projectId) => ipcRenderer.invoke('project:locate', projectId),
   // The pseudonymisation vault (lib/pseudonymize/storage), encrypted in main.
   vaultGet: (projectId) => ipcRenderer.invoke('vault:get', projectId),
+  vaultDelete: (projectId) => ipcRenderer.invoke('vault:delete', projectId),
+  // The sign-in session, kept encrypted by main (lib/supabaseClient's storage).
+  authStoreGet: (key) => ipcRenderer.invoke('auth-store:get', key),
+  authStoreSet: (key, value) => ipcRenderer.invoke('auth-store:set', key, value),
+  authStoreRemove: (key) => ipcRenderer.invoke('auth-store:remove', key),
+  authStoreHasSession: () => ipcRenderer.invoke('auth-store:has-session'),
+  // A per-user key for a renderer cache (null = memory only). main.js app:cache-key.
+  cacheKey: (arg) => ipcRenderer.invoke('app:cache-key', arg),
   vaultPut: (projectId, data) => ipcRenderer.invoke('vault:put', projectId, data),
   wipeLocalData: () => ipcRenderer.invoke('app:wipe-local-data'),
   projectFiles: (args) => ipcRenderer.invoke('project:files', args),
@@ -399,6 +389,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   knowledgePut: (args) => ipcRenderer.invoke('knowledge:put', args),
   knowledgeClear: (args) => ipcRenderer.invoke('knowledge:clear', args),
   knowledgeList: (args) => ipcRenderer.invoke('knowledge:list', args),
+  knowledgeWipe: (args) => ipcRenderer.invoke('knowledge:wipe', args),
   settingsGet: (args) => ipcRenderer.invoke('settings:get', args),
   settingsPut: (args) => ipcRenderer.invoke('settings:put', args),
   // The project's folder key (projectIndex/folderSeal.js), from the server.

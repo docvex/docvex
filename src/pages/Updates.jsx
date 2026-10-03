@@ -5,9 +5,16 @@ import { useUpdates, versionTagFor } from '../context/UpdatesContext';
 import ConfirmModal from '../components/ConfirmModal';
 import Tooltip from '../components/Tooltip';
 import { isElectron, openExternal as platformOpenExternal } from '../lib/platform';
-import { useMiniGlowSpot } from '../lib/pointerSpots';
-import MiniHeaderFade from '../components/MiniHeaderFade';
 import './Updates.css';
+
+// When a release was really published. A release copied over from the source
+// repo (scripts/migrate-releases.mjs) carries its original date as a hidden
+// `<!-- docvex-published: … -->` comment in its notes — GitHub stamps a copy
+// with the day it was copied and won't let that be changed.
+function releaseDate(release) {
+  const m = /<!--\s*docvex-published:\s*([^\s>]+)\s*-->/.exec(release?.body || '');
+  return (m && m[1]) || release?.published_at;
+}
 
 function formatDate(iso) {
   if (!iso) return '';
@@ -325,7 +332,7 @@ function ReleaseCard({ release, tag, kind, isLatest, isCurrent, expanded, onTogg
           </div>
         </div>
         <div className="card-meta">
-          <span className="meta-date">{formatDate(release.published_at)}</span>
+          <span className="meta-date">{formatDate(releaseDate(release))}</span>
           <a
             href={release.html_url}
             className="ghlink"
@@ -392,50 +399,10 @@ function ReleaseCard({ release, tag, kind, isLatest, isCurrent, expanded, onTogg
   );
 }
 
-// Compact-header-on-scroll, mirroring the launch hub. The page scrolls inside
-// the single-window pane's `.sv-single-scroll` (falling back to `.main-content`
-// if the structure ever changes); we listen there and toggle a fixed, blurred
-// bar in once the big title has scrolled away. Hysteresis (show past 32px,
-// hide under 8px) prevents flicker at the edge. Its own component so a flip
-// re-renders only the bar and its fade.
-function VersionsCompactBar({ children }) {
-  useMiniGlowSpot(); // the .mini-glow bar's spotlight (lib/pointerSpots)
-  const barRef = useRef(null);
-  const [scrolled, setScrolled] = useState(false);
-  useEffect(() => {
-    const scroller = barRef.current?.closest('.sv-single-scroll, .main-content');
-    if (!scroller) return undefined;
-    const onScroll = () => {
-      const top = scroller.scrollTop;
-      setScrolled((s) => (s ? top > 8 : top > 32));
-    };
-    onScroll();
-    scroller.addEventListener('scroll', onScroll, { passive: true });
-    return () => scroller.removeEventListener('scroll', onScroll);
-  }, []);
-  return (
-    <>
-      <MiniHeaderFade visible={scrolled} />
-      <div ref={barRef} className={`versions-compact mini-glow${scrolled ? ' is-visible' : ''}`} aria-hidden={!scrolled}>
-        {children}
-      </div>
-    </>
-  );
-}
-
 export default function Updates() {
   const { releases, currentVersion, latestVersion, hasUpdate, loading, error } = useUpdates();
 
-  // The compact header's scroll tracking lives in VersionsCompactBar (above),
-  // so a show/hide flip re-renders only the bar, not every release card.
   const pageRef = useRef(null);
-
-  // Clicking the compact-header status pill jumps back to the top (smooth),
-  // which also fades the compact bar back out as the big header reappears.
-  const scrollToTop = () => {
-    const scroller = pageRef.current?.closest('.sv-single-scroll, .main-content');
-    scroller?.scrollTo({ top: 0, behavior: 'smooth' });
-  };
 
   // Revert-confirmation modal state. `pendingRevert` holds the release the
   // user is about to roll back to (null when no modal). One state object for
@@ -496,39 +463,8 @@ export default function Updates() {
   // The newest release (releases[0], already semver-sorted desc) is "Latest".
   const latestId = releases[0]?.id ?? null;
 
-  // Update status for the compact header's chip — colour-coded by bump kind
-  // when an update is available, gray when up to date (mirrors the status
-  // banner + the title-bar pill).
-  const compactKind = hasUpdate ? releaseKind(latestVersion, currentVersion) : null;
-  const compactStatusClass = hasUpdate
-    ? `versions-compact-status is-update${compactKind ? ` is-${compactKind}` : ''}`
-    : 'versions-compact-status is-uptodate';
-
   return (
     <div className="updates-page" ref={pageRef}>
-      {/* Compact header — fades/slides in once the big "Versions" title has
-          scrolled away, like the launch hub. Fixed to the content area. Carries
-          the same up-to-date / update-available status as the banner below. */}
-      <VersionsCompactBar>
-        <span className="mini-head-text">
-          <span className="versions-compact-title">Versions</span>
-          <span className="versions-compact-sep" aria-hidden="true">·</span>
-          <span className="versions-compact-eyebrow">Release history</span>
-        </span>
-        {/* Status pill pinned to the right of the mini header (back-to-top). */}
-        <Tooltip content="Back to top">
-          <button
-            type="button"
-            className={`${compactStatusClass} mini-head-status`}
-            onClick={scrollToTop}
-          >
-            <span className="versions-compact-dot" aria-hidden="true" />
-            {hasUpdate
-              ? `Update available${latestVersion ? ` — v${latestVersion}` : ''}`
-              : `Up to date${currentVersion ? ` · v${currentVersion}` : ''}`}
-          </button>
-        </Tooltip>
-      </VersionsCompactBar>
       <div className="page">
         {/* Masthead — mirrors the Projects page: accent eyebrow + muted kicker,
             big display title, then a stat line summarising the release history
@@ -539,7 +475,7 @@ export default function Updates() {
               <span>Release history</span>
               <span className="updates-mh-muted">· Every build, newest first</span>
             </div>
-            <h1 className="updates-mh-title">Versions</h1>
+            <h1 className="updates-mh-title">Updates</h1>
             <p className="updates-mh-kicker">
               {releases.length > 0 ? (
                 <>
@@ -586,7 +522,7 @@ export default function Updates() {
                         <span className="rail-node" aria-hidden="true" />
                         <div className="rail-label">
                           <span className="rail-tag">{tag}</span>
-                          <span className="rail-date">{formatDate(release.published_at)}</span>
+                          <span className="rail-date">{formatDate(releaseDate(release))}</span>
                         </div>
                       </div>
                       <ReleaseCard

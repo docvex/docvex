@@ -301,7 +301,7 @@ Deno.serve(async (req: Request) => {
     if (!resendResp.ok) {
       email_status = "rejected";
       email_error = (await resendResp.text()).slice(0, 500);
-      console.warn("[send-support-report] resend rejected", resendResp.status, email_error);
+      console.warn("[send-support-report] resend rejected", resendResp.status); // status only: the error body can echo the address
       return jsonResponse(
         { ok: false, error: "resend_rejected", detail: email_error, resend_status },
         502,

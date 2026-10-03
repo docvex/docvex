@@ -27,7 +27,7 @@ const OTHER = { score: 1, label: 'Other document' };
 
 // `f` = { name, u } (a scanned file: its name and what the scan understood).
 export function documentAuthority(f) {
-  const u = f?.u || f?.understanding || {};
+  const u = f?.u || {};
   if (u.idDocument || u.roId?.document_type) return AUTHORITY_LEVELS[0];
   const hay = fold(`${u.documentType || ''} ${u.subject || ''} ${f?.name || ''}`);
   return AUTHORITY_LEVELS.find((l) => l.re.test(hay)) || OTHER;

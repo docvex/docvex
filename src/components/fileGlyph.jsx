@@ -118,9 +118,6 @@ export function glyphForFile(mime, name) {
 // File-type → category for the colored ext-label glyph (from the design).
 export function extCategory(ext) {
   const e = (ext || '').toLowerCase();
-  // A Data collection (`.dvc`) — what the Files tab's AI scan gathered about
-  // one subject across the files (lib/dataCollections).
-  if (e === 'dvc') return 'collection';
   if (e === 'pdf') return 'pdf';
   // Word and everything it can save/export to (incl. templates, macro-enabled,
   // RTF and the OpenDocument / Pages equivalents).
@@ -168,22 +165,6 @@ export function ExtGlyph({ ext }) {
             <path d="M13.5 8.5v7" />
             <path d="M17 6v12" />
             <path d="M20.5 9.5v5" />
-          </g>
-        </svg>
-      </span>
-    );
-  }
-  // A Data collection reads as a web of sources: three linked nodes.
-  if (cat === 'collection') {
-    return (
-      <span className="fx-glyph fx-glyph-icon fx-glyph-identity fx-glyph-collection">
-        <svg className="fx-type-icon" viewBox="0 0 24 24" aria-hidden="true">
-          <rect className="fx-type-base" x="4.4" y="3.6" width="15.2" height="16.8" rx="2.4" />
-          <g className="fx-idn-mark">
-            <path d="M9.4 9.6l5 1.6M9.2 11.2l2.4 4.2M14.8 12.6l-2.2 3" />
-            <circle cx="8.6" cy="9.2" r="1.5" />
-            <circle cx="15.6" cy="11.6" r="1.5" />
-            <circle cx="12" cy="16.4" r="1.5" />
           </g>
         </svg>
       </span>

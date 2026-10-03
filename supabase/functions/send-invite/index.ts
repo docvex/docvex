@@ -282,7 +282,7 @@ Deno.serve(async (req: Request) => {
         // the raw body through so the dev sees the actual reason
         // ("Domain not verified", "API key invalid", etc.).
         email_error = (await resendResp.text()).slice(0, 500);
-        console.warn("[send-invite] resend rejected", resendResp.status, email_error);
+        console.warn("[send-invite] resend rejected", resendResp.status); // status only: the error body can echo the address
       }
     } catch (err) {
       email_status = 'failed';

@@ -45,7 +45,7 @@ const NotificationsApiContext = createContext(null);
 const MIRROR_CHAINS = new Map();
 
 // `sourcesEnabled: false` mounts the provider without its event-source hooks
-// (auth sign-in/out, updater, social). Auxiliary windows (Doc Viewer, snip
+// (auth sign-in/out, updater, social). Auxiliary windows (Doc Viewer, tray drop
 // overlay) share the renderer and restore the cached Supabase session on
 // boot — without the gate every one of them re-toasts "Signed in as …".
 // Those toasts belong to the main window only; aux windows keep notify()
@@ -104,7 +104,7 @@ export function NotificationsProvider({ children, sourcesEnabled = true }) {
     // localStorage parse + React render. The local cache still hydrates
     // synchronously — what changes is that the server response is already
     // in flight by the time React commits the cached state.
-    // Aux windows (Doc Viewer, snip) hydrate from the localStorage cache only:
+    // Aux windows (Doc Viewer, tray drop) hydrate from the localStorage cache only:
     // they render no history UI, so the per-window Supabase fetch (times every
     // open viewer window) buys nothing. The main window owns server sync.
     let cancelled = false;
@@ -120,7 +120,12 @@ export function NotificationsProvider({ children, sourcesEnabled = true }) {
         if (Array.isArray(parsed)) {
           // Mark hydrated rows as toastShown so the UI never re-animates them
           // and the source-hooks aren't tricked into re-emitting toasts.
-          hydrated = parsed.map((n) => ({ ...n, toastShown: true }));
+          // Older than a year goes, as on the server (retention job: 12
+          // months) — the local copy must not outlive it (GDPR Art. 5(1)(e)).
+          const cutoff = Date.now() - 365 * 24 * 60 * 60 * 1000;
+          hydrated = parsed
+            .filter((n) => !n?.created_at || Date.parse(n.created_at) >= cutoff)
+            .map((n) => ({ ...n, toastShown: true }));
         }
       }
     } catch { /* corrupted JSON — start fresh */ }
@@ -312,7 +317,11 @@ export function NotificationsProvider({ children, sourcesEnabled = true }) {
     // server write is fire-and-forget — local state is already authoritative
     // for this device; the row eventually lands in the cloud (or doesn't, in
     // which case the user still sees it locally).
-    if (userId) {
+    // A FILE notification (created, renamed, exported, a phone upload…) names
+    // files and folders on THIS computer — it means nothing on another device
+    // and does not belong on the server (security audit 2026-10-01, GDPR
+    // Art. 5(1)(c)): it stays in this device's history only.
+    if (userId && fresh.category !== 'file') {
       const write = async () => {
         try {
           if (strategy === 'replace' && dedupeKey) {

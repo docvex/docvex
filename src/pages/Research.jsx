@@ -1,15 +1,14 @@
-import React, { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
-import { createPortal } from 'react-dom';
-import PageMasthead from '../components/PageMasthead';
-import LegalTabs, { RailToggle } from '../components/LegalTabs';
-import { BarPicker } from '../components/LegalBar';
+import React, { useEffect, useRef, useState, useSyncExternalStore } from 'react';
+import { LegislationMasthead } from '../components/LegalWorkspace';
+import AskRail, { ASK_RAIL_WIDTH_KEY as RAIL_WIDTH_KEY, ASK_RAIL_MIN as RAIL_MIN, ASK_RAIL_MAX as RAIL_MAX, ASK_RAIL_DEFAULT as RAIL_DEFAULT, readAskRailWidth, useAskRailState, AskRailToggle } from '../components/AskRail';
+import LegalTabs from '../components/LegalTabs';
 import Tooltip from '../components/Tooltip';
 import { useAuth } from '../context/AuthContext';
 import { useSelectedProject } from '../context/SelectedProjectContext';
-import { askProjectAi } from '../lib/projectAi';
-import { exactMatchPage, chooseModel, projectContext, prepareTurn, askAi, historyTurns, withData, withStyle, warmTurn, withLimit, TIMEOUT, aiModel, modelName, viewForRef, AI_PROMPTS, AI_MANNERS } from '../lib/aiEngine';
+import { exactMatchPage, projectContext, prepareTurn, askAi, historyTurns, withData, withStyle, warmTurn, withLimit, TIMEOUT, aiModel, modelName, viewForRef, AI_PROMPTS } from '../lib/aiEngine';
 import AiControls, { useAiSettings } from '../components/AiControls';
 import AiAnswer, { AiRefPill } from '../components/AiAnswer';
+import { SourcesReviewed, searchLabel } from '../components/WebSources';
 import { useMultilinePills } from '../components/AiChoices';
 import SourcesModal from '../components/SourcesModal';
 import { localFolderApi } from '../lib/localFolder';
@@ -21,12 +20,10 @@ import ResearchDrawer, { viewForRow, recordText } from './ResearchDrawer';
 import { setLawRefOpener } from '../lib/lawDrawer';
 import RuleOptions from '../components/RuleOptions';
 import ThinkingStatus from '../components/AiThinking';
-import { useItemSpots } from '../components/DocRibbon';
-import { useRailSpotlight } from '../lib/pointerSpots';
 import { useChatFind } from '../lib/useChatFind';
 import '../lib/useChatFind.css';
-import { researchStore, RESEARCH_SCOPE } from '../lib/researchChats';
-import { subscribeRunner, runnerState, setTurn, setSummarizing, setTyping, setStream, beginTurn, isLive, stopTurn, isThreadBusy, turnSignal } from '../lib/researchRunner';
+import { researchStore, bindResearch } from '../lib/researchChats';
+import { subscribeRunner, runnerState, setTurn, setSummarizing, setTyping, setStream, beginTurn, isLive, stopTurn, turnSignal } from '../lib/researchRunner';
 import { isBlankChat } from '../lib/advisorChats';
 import { ICONS as I } from './Projects/aiHub';
 import '../components/LegalTabs.css';
@@ -71,12 +68,7 @@ const ROWS_SHOWN = 3;
 const ACT_BLOCKS = 18;          // an act's first blocks shown in the answer
 const ACT_CHARS = 9000;
 
-const RAIL_WIDTH_KEY = 'docvex.research.railWidth';
-const RAIL_HIDDEN_KEY = 'docvex.research.railHidden';
 const RAIL_DIVIDER_W = 9.6;
-const RAIL_MIN = 168;
-const RAIL_MAX = 384;
-const RAIL_DEFAULT = 216;
 
 const STARTERS = [
   'Care este termenul de prescripție pentru o factură neplătită?',
@@ -92,14 +84,7 @@ const STARTERS = [
 const withTimeout = (p, ms) => Promise.race([p, new Promise((r) => setTimeout(() => r(null), ms))]);
 const platformOfRoute = (route) => Object.values(PLATFORMS).find((p) => p.route === route) || null;
 
-// The Advisor's helpers: the rail's search highlight, the thread's day dividers.
-function highlightMatch(text, q) {
-  const t = String(text || '');
-  if (!q) return t;
-  const i = t.toLowerCase().indexOf(q);
-  if (i === -1) return t;
-  return <>{t.slice(0, i)}<mark>{t.slice(i, i + q.length)}</mark>{t.slice(i + q.length)}</>;
-}
+// The Advisor's helpers: the thread's day dividers.
 function sameLocalDay(a, b) {
   if (!a || !b) return false;
   const da = new Date(a); const db = new Date(b);
@@ -226,7 +211,7 @@ const fixedSummary = (m, idx) => m?.summaries?.[idx] || (idx === 0 ? m?.summary 
 // "all N results"), each colour-coded to its platform, and AI summary
 // summarises the result last picked. `mode` = 'item:<n>' | 'ai' ('portal', the
 // first version's value, = the first result).
-function FixedAnswer({ legal, onOpen, mode = 'portal', pick = 0, onMode, summary = null, summarizing = false, typing = false, onTyped, onTick }) {
+function FixedAnswer({ legal, onOpen, mode = 'portal', pick = 0, onMode, summary = null, summarizing = false, streamText = '', revealKey, onTick }) {
   const pl = platformOfRoute(legal.direct?.route);
   const a = legal.answers?.[pl?.id];
   const act = legal.act;
@@ -270,12 +255,20 @@ function FixedAnswer({ legal, onOpen, mode = 'portal', pick = 0, onMode, summary
         <RuleOptions field={field} value={view} onPick={onMode} className="lgb-scopes rs-fixed-switch" />
       </div>
       {mode === 'ai' ? (
+        // Being written: the text streams in as a composer answer does, the
+        // status line under it while it searches or before the first words.
         summarizing ? (
-          <ThinkingStatus query="summary" label={summarizing === true ? '' : String(summarizing).replace(/…$/, '')} />
+          <>
+            {streamText ? <AiAnswer text={streamText} sources={summarizing.sources} streaming revealKey={revealKey} onTick={onTick} onRef={(hit) => onOpen(viewForRef(hit))} className="rs-summary" /> : null}
+            {!streamText || /^Searching/.test(summarizing.label || '') ? <ThinkingStatus query="summary" label={summarizing.label || ''} /> : null}
+          </>
         ) : summary?.error ? (
           <p className="rs-error">{summary.error}</p>
         ) : summary?.text ? (
-          <AiAnswer text={summary.text} typing={typing} onTyped={onTyped} onTick={onTick} onRef={(hit) => onOpen(viewForRef(hit))} className="rs-summary" />
+          <>
+            <AiAnswer text={summary.text} sources={summary.sources} revealKey={revealKey} onTick={onTick} onRef={(hit) => onOpen(viewForRef(hit))} className="rs-summary" />
+            <SourcesReviewed sources={summary.sources} />
+          </>
         ) : (
           <p className="rs-muted">No summary yet.</p>
         )
@@ -362,16 +355,15 @@ export default function Research() {
   const { session } = useAuth();
   const user = session?.user || null;
   const userKey = user?.id || '_anonymous';
-  const { selectedProject } = useSelectedProject();
+  const { selectedProject, selectedProjectId } = useSelectedProject();
   const projectId = selectedProject?.id || null;
-
-  useEffect(() => { researchStore.bind(userKey, RESEARCH_SCOPE); }, [userKey]);
+  // The chats are the PROJECT's (lib/researchChats).
+  useEffect(() => { bindResearch(userKey, selectedProjectId || null); }, [userKey, selectedProjectId]);
   const chats = useSyncExternalStore(researchStore.subscribe, researchStore.getState);
   const threads = chats.threads;
   const activeId = chats.active;
   const activeThread = threads.find((t) => t.id === activeId) || null;
   const messages = activeThread?.messages || [];
-  const listed = threads.filter((t) => !isBlankChat(t));
 
   const [val, setVal] = useState('');
   // The model and the Project files switch are ONE setting shared with the
@@ -390,12 +382,10 @@ export default function Research() {
   const [sourcesOpen, setSourcesOpen] = useState(false);
   // The starter pills: one line fully rounded, two or more half the radius.
   const startersRef = useRef(null);
-  const [chatMenu, setChatMenu] = useState(null); // { id, x, y } — a chat's right-click menu
   const filesRef = useRef([]);
   const pageRef = useRef(null);
   const threadRef = useRef(null);
   const taRef = useRef(null);
-  const listRef = useRef(null);
   // The drawer's views, a stack (Back returns).
   const [drawer, setDrawer] = useState([]);
   const openView = (v) => { if (v) setDrawer((st) => [...st, v]); };
@@ -411,13 +401,8 @@ export default function Research() {
   }), []);
 
   // ── The rail (the Advisor's): width, hidden, handed to the app sidebar ──
-  const [railWidth, setRailWidth] = useState(() => {
-    const n = Number(localStorage.getItem(RAIL_WIDTH_KEY));
-    return Number.isFinite(n) && n >= RAIL_MIN && n <= RAIL_MAX ? n : RAIL_DEFAULT;
-  });
+  const [railWidth, setRailWidth] = useState(readAskRailWidth);
   const [railResizing, setRailResizing] = useState(false);
-  const [railHidden, setRailHidden] = useState(() => { try { return localStorage.getItem(RAIL_HIDDEN_KEY) === '1'; } catch { return false; } });
-  const toggleRail = () => setRailHidden((v) => { const n = !v; try { localStorage.setItem(RAIL_HIDDEN_KEY, n ? '1' : '0'); } catch { /* quota */ } return n; });
   const startRailResize = (e) => {
     e.preventDefault();
     setRailResizing(true);
@@ -438,16 +423,8 @@ export default function Research() {
     document.body.style.cursor = 'col-resize';
     document.body.style.userSelect = 'none';
   };
-  const [sidebarLists, setSidebarLists] = useState(() => window.__docvexResearchListed === true && window.__docvexSidebarCollapsed !== true);
-  useEffect(() => {
-    const read = () => setSidebarLists(window.__docvexResearchListed === true && window.__docvexSidebarCollapsed !== true);
-    window.addEventListener('docvex:research-listed', read);
-    window.addEventListener('docvex:sidebar-state', read);
-    read();
-    return () => { window.removeEventListener('docvex:research-listed', read); window.removeEventListener('docvex:sidebar-state', read); };
-  }, []);
-  const railOff = railHidden || sidebarLists;
-  const [chatDrag, setChatDrag] = useState(null);
+  // Shown / hidden: one setting for every Legislation tab (components/AskRail).
+  const { off: railOff } = useAskRailState();
 
   // The app sidebar's Research row, clicked on this page: a new chat, caret in the composer.
   useEffect(() => {
@@ -548,7 +525,8 @@ export default function Research() {
   }, [val]);
 
   // ── A message into a chat ──
-  const patchThread = (id, fn) => researchStore.setChats((ts) => ts.map((t) => (t.id === id ? fn(t) : t)));
+  // Into the chat's OWN list, even after a switch to another project.
+  const patchThread = (id, fn) => researchStore.patchChat(id, fn);
   const patchMessage = (id, index, patch) => patchThread(id, (t) => ({
     ...t,
     messages: (t.messages || []).map((m, k) => (k === index ? { ...m, ...(typeof patch === 'function' ? patch(m) : patch) } : m)),
@@ -567,7 +545,7 @@ export default function Research() {
     if (!query) return;
     const tid = activeThread?.id || researchStore.openNew();
     if (runnerState().busy[tid]) return; // one turn at a time in a chat
-    const before = (researchStore.getState().threads.find((t) => t.id === tid)?.messages) || [];
+    const before = researchStore.getChat(tid)?.messages || [];
     setVal('');
     push(tid, { who: 'me', text: query, at: Date.now() });
     const mine = beginTurn(tid);
@@ -592,7 +570,12 @@ export default function Research() {
           legal.act = act === TIMEOUT ? null : act;
           if (!live()) return;
         }
-        push(tid, { who: 'ai', fixed: true, legal, q: query, view: 'portal', at: Date.now() });
+        const msg = { who: 'ai', fixed: true, legal, q: query, view: 'portal', at: Date.now() };
+        push(tid, msg);
+        // The AI summary of the first result starts now, in the background
+        // (its own runner key — the chat is free for the next question).
+        const at = (researchStore.getChat(tid)?.messages?.length || 1) - 1;
+        if (session && (legal.answers?.[pl?.id]?.rows?.length || legal.act)) summarize(tid, at, msg, 0);
         return;
       }
 
@@ -623,6 +606,10 @@ export default function Research() {
         context: prep.context,
         messages: [...history, { role: 'user', content: withStyle(withData(query, prep.data), ai.style) }],
         signal: turnSignal(tid),
+        // Claude's web search (lib/aiEngine webSearch): the status names the
+        // query while it runs; the sources arrive with its results.
+        onSearch: (q) => { if (live()) setTurn(tid, { ...(runnerState().busy[tid] || {}), phase: 'search', search: q }); },
+        onSources: (list) => { if (live()) setTurn(tid, { ...(runnerState().busy[tid] || {}), phase: 'answer', sources: list }); },
         onText: (_d, all) => {
           if (!live()) return;
           const now = performance.now();
@@ -645,7 +632,7 @@ export default function Research() {
       else if (!String(res.text || '').trim()) push(tid, { who: 'ai', text: '', isError: true, errorText: 'The AI sent back an empty answer.', model: prep.info, timing, at: Date.now() });
       else {
         // Already shown as it streamed — no typewriter replay.
-        push(tid, { who: 'ai', text: String(res.text).trim(), model: prep.info, withFiles: prep.withFiles, portals, note, timing, at: Date.now() });
+        push(tid, { who: 'ai', text: String(res.text).trim(), model: prep.info, withFiles: prep.withFiles, portals, note, timing, at: Date.now(), ...(res.sources?.length ? { sources: res.sources, searches: res.searches } : {}) });
       }
     } catch (e) {
       if (live()) push(tid, { who: 'ai', text: '', isError: true, errorText: e?.message || 'Something went wrong.', at: Date.now() });
@@ -653,14 +640,23 @@ export default function Research() {
       if (live()) { setStream(tid, null); setTurn(tid, null); }
     }
   };
-  // AI SUMMARY of a fixed answer — made once, kept in the message.
-  // One summary per RESULT (`summaries[idx]`), for the result picked last.
+  // AI SUMMARY of a fixed answer — made once, kept in the message. One summary
+  // per RESULT (`summaries[idx]`). It STARTS AS SOON AS THE PORTAL HAS ANSWERED
+  // (send → summarize(…, 0)), so it is usually ready when AI summary is
+  // pressed, and it is written by THE SAME ENGINE as a question typed in the
+  // composer (lib/aiEngine prepareTurn + askAi, surface 'research'): Auto, the
+  // project's files, the manners and answer style, STREAMED, with Claude's web
+  // search and its numbered sources. The record itself is read WHOLE
+  // (recordText) and handed over as its portal record.
+  // Runner keys: `summarizing[<tid>:<i>:<idx>]` = { label, sources } while it
+  // runs; `stream[<same>]` = the text so far.
   const summarize = async (tid, i, m, idx = 0) => {
-    const key = `${tid}:${i}`;
+    const key = `${tid}:${i}:${idx}`;
     if (runnerState().summarizing[key] || fixedSummary(m, idx)?.text) return;
     const keep = (val) => patchMessage(tid, i, (cur) => ({ summaries: { ...(cur.summaries || {}), [idx]: val } }));
     if (!session) { keep({ error: 'Sign in to get an AI summary.' }); return; }
-    const say = (v) => setSummarizing(key, v);
+    let live = { label: '', sources: [] };
+    const say = (patch) => { live = { ...live, ...patch }; setSummarizing(key, live); };
     try {
       const legal = m.legal || {};
       const pl = platformOfRoute(legal.direct?.route);
@@ -670,31 +666,44 @@ export default function Research() {
         ? { type: 'act', row, q: row ? null : { tip: qs.get('tip') || '', numar: qs.get('nr') || '', an: qs.get('an') || '', titlu: '' } }
         : viewForRow(row);
       if (!view) { keep({ error: 'There is nothing to summarise.' }); return; }
-      say(pl?.id === 'legislation' ? 'Reading the whole act…' : 'Reading the record…');
-      const rec = await withLimit(recordText(view), 30_000);
+      const question = (m.q || legal.q || '').trim();
+      say({ label: pl?.id === 'legislation' ? 'Reading the whole act' : 'Reading the record' });
+      // The record read whole, and the turn prepared, side by side.
+      const [rec, prep] = await Promise.all([
+        withLimit(recordText(view), 30_000),
+        prepareTurn({
+          surface: 'research', question, choice: model,
+          project: selectedProject, files: filesRef.current, withFiles: useProject && !!projectId,
+        }),
+      ]);
       if (rec === TIMEOUT) { keep({ error: 'The record took too long to read.' }); return; }
       if (rec.error) { keep({ error: rec.error }); return; }
       const ask = `Summarise this ${pl?.id === 'legislation' ? 'Romanian normative act' : pl?.id === 'portal-just' ? 'Romanian court file' : pl?.id === 'anaf' ? 'company\'s ANAF fiscal record' : 'CAEN code'} for a lawyer`;
-      if (aiModel(model).id === 'auto') say('Auto is picking a model…');
-      const { run, info } = await chooseModel(model, `${ask}: ${rec.label || legal.q || ''}`);
-      say(`Writing the summary with ${modelName(run)}…`);
-      const question = (m.q || legal.q || '').trim();
-      const res = await withLimit(askProjectAi({
-        messages: [{ role: 'user', content: AI_PROMPTS.summary({ ask, question, site: pl?.site || '', text: rec.text }) }],
-        model: run,
-        tools: false,
-        context: AI_MANNERS,
+      say({ label: `Writing the summary with ${modelName(prep.run)}` });
+      let last = 0;
+      // The record is the summary's own text (AI_PROMPTS.summary), so the
+      // portal blocks prepareTurn read for the same question are not repeated.
+      const res = await askAi({
+        surface: 'research', model: prep.run, projectName: selectedProject?.name,
+        context: prep.context,
         usageAction: 'research-summary',
-      }), 120_000);
-      if (res === TIMEOUT) keep({ error: 'The summary took more than two minutes and was stopped. Try again, or pick a faster model.' });
-      else if (res?.error) keep({ error: typeof res.error === 'string' ? res.error : (res.error?.message || 'The AI did not answer.') });
-      else {
-        keep({ text: res.text || '', model: info, at: Date.now() });
-        setTyping(`${tid}:${i}:summary`);
-      }
+        messages: [{ role: 'user', content: withStyle(AI_PROMPTS.summary({ ask, question, site: pl?.site || '', text: rec.text }), ai.style) }],
+        onSearch: (q) => say({ label: searchLabel(q) }),
+        onSources: (list) => say({ label: `Writing the summary with ${modelName(prep.run)}`, sources: list }),
+        onText: (_d, all) => {
+          const now = performance.now();
+          if (now - last < 60) return;
+          last = now;
+          setStream(key, all);
+        },
+      });
+      if (res?.error) keep({ error: res.error });
+      else if (!String(res.text || '').trim()) keep({ error: 'The AI sent back an empty summary.' });
+      else keep({ text: String(res.text).trim(), model: prep.info, withFiles: prep.withFiles, at: Date.now(), ...(res.sources?.length ? { sources: res.sources, searches: res.searches } : {}) });
     } catch (e) {
       keep({ error: e?.message || 'The summary could not be written.' });
     } finally {
+      setStream(key, null);
       setSummarizing(key, null);
     }
   };
@@ -770,8 +779,7 @@ export default function Research() {
   // and narrows the chat list; Ctrl/⌘+F focuses it (LegalTabs).
   const find = useChatFind({ containerRef: threadRef, query: chatSearch, name: 'aichat', scope: '.bubble-msg' });
   // The rail's pointer lights — the Advisor's / the Legislation rail's.
-  const tabRailRef = useItemSpots('.lg-rail-item', true);
-  useRailSpotlight(tabRailRef);
+  const tabRailRef = useRef(null);
   // The tabs' keys — the Advisor's: Ctrl+T new, Ctrl+W close, Ctrl+Shift+T
   // reopen, Ctrl+Tab / Ctrl+Shift+Tab step, Ctrl+1…9 go to.
   useEffect(() => {
@@ -800,64 +808,19 @@ export default function Research() {
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   });
-  // A chat's right-click menu — the Advisor's (the Legislation tabs' .lgb-menu).
-  const chatMenuEl = (() => {
-    if (!chatMenu) return null;
-    const t = threads.find((x) => x.id === chatMenu.id);
-    if (!t) return null;
-    const close = () => setChatMenu(null);
-    const others = threads.some((x) => x.id !== t.id && !x.pinned && !isBlankChat(x));
-    const item = (label, kbd, fn, { disabled = false } = {}) => (
-      <button type="button" role="menuitem" className="lgb-menu-item" disabled={disabled} onClick={() => { fn(); close(); }}>
-        <span>{label}</span>{kbd ? <span className="lgb-menu-kbd">{kbd}</span> : null}
-      </button>
-    );
-    return createPortal(
-      <>
-        <div style={{ position: 'fixed', inset: 0, zIndex: 9998 }} onMouseDown={close} onContextMenu={(e) => { e.preventDefault(); close(); }} />
-        <div role="menu" className="lgb-menu" style={{ left: Math.min(chatMenu.x, window.innerWidth - 240), top: Math.min(chatMenu.y, window.innerHeight - 240), zIndex: 9999 }}>
-          {item('New research', 'Ctrl+T', newChat)}
-          {item(t.pinned ? 'Unpin' : 'Pin', '', () => researchStore.togglePin(t.id))}
-          <div className="lgb-menu-sep" />
-          {item('Close', 'Ctrl+W', () => researchStore.close(t.id))}
-          {item('Close other chats', '', () => researchStore.closeOthers(t.id), { disabled: !others })}
-          {item('Reopen closed chat', 'Ctrl+Shift+T', () => researchStore.reopenClosed(), { disabled: !researchStore.getState().closed.length })}
-        </div>
-      </>,
-      document.body,
-    );
-  })();
-
   const searchQ = chatSearch.trim().toLowerCase();
-  const visibleThreads = searchQ ? listed.filter((t) => String(t.title || '').toLowerCase().includes(searchQ)) : listed;
 
   // ── The pieces ──
   const header = (
     <>
-      <PageMasthead eyebrow="DocVex" eyebrowMuted="Law + your case" title="Research" compact={false}>
-        {`One search over Romanian law and your case · ${listed.length} ${listed.length === 1 ? 'conversation' : 'conversations'}${projectId ? ` · ${selectedProject?.name}` : ''}`}
-      </PageMasthead>
+      <LegislationMasthead />
+      {/* The Legislation entry's tab row: Ask (this page) first, then every
+          source (components/LegalTabs LEGISLATION_ROW). */}
       <LegalTabs
-        standalone
         className="aichat-bar"
         tools={(
           <>
-          <RailToggle
-            shown={!railOff}
-            what="chats"
-            onToggle={() => {
-              // ONE SWITCH with the app sidebar's Research dropdown (as the
-              // Legislation tab's): hiding the chats here hands the list to the
-              // sidebar (its dropdown opens); showing them takes it back.
-              if (!railOff) {
-                toggleRail();
-                window.dispatchEvent(new CustomEvent('docvex:research-list-set', { detail: { open: true } }));
-                return;
-              }
-              if (railHidden) toggleRail();
-              window.dispatchEvent(new CustomEvent('docvex:research-list-set', { detail: { open: false } }));
-            }}
-          />
+          <AskRailToggle />
           </>
         )}
         search={{
@@ -893,7 +856,9 @@ export default function Research() {
           maxLength={4000}
         />
         <div className="dvx-composer-toolbar">
-          <AiControls settings={ai} projectName={projectId ? (selectedProject?.name || 'the project') : ''} withStyle />
+          {/* No Project files switch here: the setting is shared with the file
+              viewer's advisor, where it is still switched. */}
+          <AiControls settings={ai} />
           <div className="dvx-composer-toolbar-spacer" />
           {busy ? (
             <Tooltip content="Stop"><button type="button" className="dvx-composer-btn dvx-composer-send" onClick={stop} aria-label="Stop">{I.stop({ width: 16, height: 16 })}</button></Tooltip>
@@ -908,7 +873,8 @@ export default function Research() {
   // A fixed step names itself; the answer itself cycles the Advisor's words.
   const busyLabel = !busy ? '' : busy.phase === 'portals' ? 'Searching the portals'
     : busy.phase === 'act' ? 'Reading the act'
-      : busy.phase === 'route' ? 'Auto is picking a model' : '';
+      : busy.phase === 'search' ? searchLabel(busy.search)
+        : busy.phase === 'route' ? 'Auto is picking a model' : '';
 
   // Which model answered — under every AI result.
   const modelLine = (m) => {
@@ -935,9 +901,9 @@ export default function Research() {
           pick={m.pick || 0}
           onMode={(v) => setFixedMode(activeId, i, m, v)}
           summary={fixedSummary(m, m.pick || 0)}
-          summarizing={summarizing[key] || false}
-          typing={typing === `${key}:summary`}
-          onTyped={() => setTyping(null)}
+          summarizing={summarizing[`${key}:${m.pick || 0}`] || false}
+          streamText={runner.stream[`${key}:${m.pick || 0}`] || ''}
+          revealKey={`rs:sum:${key}:${m.pick || 0}`}
           onTick={i === messages.length - 1 ? scrollToBottom : undefined}
         />
       );
@@ -950,6 +916,7 @@ export default function Research() {
           : (
             <AiAnswer
               text={body}
+              sources={m.sources}
               typing={isTyping}
               revealKey={i === messages.length - 1 ? `rs:${activeId}` : undefined}
               onTyped={() => setTyping(null)}
@@ -957,55 +924,12 @@ export default function Research() {
               onRef={(hit) => openFresh(viewForRef(hit))}
             />
           )}
+        {!m.isError && !isTyping ? <SourcesReviewed sources={m.sources} /> : null}
         {m.note && !isTyping ? <p className="rs-muted rs-note">{m.note}</p> : null}
       </>
     );
   };
 
-  const tabEl = (t) => {
-    const tBusy = isThreadBusy(runner, t.id);
-    const m = researchStore.meta(t, { busy: tBusy });
-    const on = t.id === activeId;
-    return (
-      <div
-        key={t.id}
-        role="tab"
-        aria-selected={on}
-        tabIndex={0}
-        className={`lg-rail-item lgb-rtab${on ? ' is-active' : ''}${chatDrag?.id === t.id ? ' is-dragging' : ''}${chatDrag?.over === t.id && chatDrag?.id !== t.id ? ' is-drop' : ''}`}
-        onClick={() => researchStore.select(t.id)}
-        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); researchStore.select(t.id); } }}
-        onAuxClick={(e) => { if (e.button === 1) { e.preventDefault(); researchStore.close(t.id); } }}
-        onMouseDown={(e) => { if (e.button === 1) e.preventDefault(); }}
-        onContextMenu={(e) => { e.preventDefault(); setChatMenu({ id: t.id, x: e.clientX, y: e.clientY }); }}
-        draggable
-        onDragStart={(e) => { e.dataTransfer.effectAllowed = 'move'; try { e.dataTransfer.setData('text/plain', t.id); } catch { /* ignore */ } setChatDrag({ id: t.id, over: null }); }}
-        onDragOver={(e) => { e.preventDefault(); if (chatDrag?.over !== t.id) setChatDrag((d) => (d ? { ...d, over: t.id } : d)); }}
-        onDrop={(e) => { e.preventDefault(); researchStore.move(chatDrag?.id, t.id); setChatDrag(null); }}
-        onDragEnd={() => setChatDrag(null)}
-      >
-        <Tooltip content={t.title}>
-          <span className="lg-rail-title">
-            <span className="lg-rail-kind lgb-rtab-kind">
-              {tBusy ? <span className="lgb-spin" style={{ '--tone': m.tone }} /> : <span className="lgb-dot" style={{ '--tone': m.tone }} />}
-              <span className="lgb-rtab-kindtext">{m.kind}</span>
-            </span>
-            <span className="lg-rail-num">{highlightMatch(t.title, searchQ)}</span>
-          </span>
-        </Tooltip>
-        <span className="lg-rail-actions">
-          {!t.pinned ? (
-            <Tooltip content="Close chat">
-              <button type="button" aria-label="Close chat" onClick={(e) => { e.stopPropagation(); researchStore.close(t.id); }}>{I.x({ width: 12, height: 12 })}</button>
-            </Tooltip>
-          ) : null}
-        </span>
-      </div>
-    );
-  };
-  const pinned = visibleThreads.filter((t) => t.pinned);
-  const rest = visibleThreads.filter((t) => !t.pinned);
-  const blankOn = !activeThread || isBlankChat(activeThread);
 
   return (
     // THE ADVISOR'S FRAME: the app wraps project pages (the Advisor
@@ -1017,59 +941,26 @@ export default function Research() {
     <div className="project-page-frame">
     <div ref={pageRef} className={`ai-hub ai-chat-page rs-page${emptyChat ? ' is-empty-chat' : ''}`}>
       <ResearchDrawer stack={drawer} onClose={closeDrawer} onBack={backDrawer} onOpen={openView} />
-      {chatMenuEl}
       <div className="dvx-scroll-area">
         {header}
         <div className={`aichat-shell aichat-fill${railOff ? ' rail-hidden' : ''}${railResizing ? ' is-resizing' : ''}`}>
-          <aside
-            ref={tabRailRef}
-            className="aichat-rail is-tabrail"
-            aria-hidden={railOff}
+          {/* THE one sidebar of the Legislation entry (components/AskRail) —
+              the same list on every tab. */}
+          <AskRail
+            railRef={tabRailRef}
+            askOn
+            activeId={activeId}
+            onNew={newChat}
+            searchQ={searchQ}
+            searchText={chatSearch.trim()}
+            hidden={railOff}
             style={{
               flexBasis: `calc(${railWidth}px + var(--ds-divider-pull, 11.2px))`,
               marginLeft: railOff
                 ? `calc(${-(railWidth + RAIL_DIVIDER_W)}px - 2 * var(--ds-divider-pull, 11.2px))`
                 : 'calc(-1 * var(--ds-divider-pull, 11.2px))',
             }}
-            inert={railOff || undefined}
-          >
-            <div className="lgb-rail-head">
-              <span className="lgb-rail-label">Open · {listed.length}</span>
-              <span className="lgb-rail-headbtns">
-                <Tooltip content="Show these chats in the app sidebar">
-                  <button type="button" className="lgb-rail-add" aria-label="Show these chats in the app sidebar" onClick={() => window.dispatchEvent(new CustomEvent('docvex:research-list-set', { detail: { open: true } }))}>
-                    <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2" /><path d="M9 4v16" /><path d="m15 10-2 2 2 2" /></svg>
-                  </button>
-                </Tooltip>
-              </span>
-            </div>
-            <div className="lgb-rail-list" role="tablist" aria-orientation="vertical" ref={listRef}>
-              <div
-                role="tab"
-                aria-selected={blankOn}
-                tabIndex={0}
-                className={`lg-rail-item lgb-rtab lgb-searchtab${blankOn ? ' is-active' : ''}`}
-                onClick={newChat}
-                onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); newChat(); } }}
-              >
-                <Tooltip content="New research">
-                  <span className="lg-rail-title">
-                    <span className="lg-rail-kind lgb-rtab-kind">
-                      <span className="lgb-searchtab-ico">{I.plus({ width: 11, height: 11 })}</span>
-                      <span className="lgb-rtab-kindtext">New research</span>
-                    </span>
-                    <span className="lg-rail-num">The law and your case</span>
-                  </span>
-                </Tooltip>
-              </div>
-              {visibleThreads.length ? <div className="lgb-rail-div" aria-hidden="true" /> : null}
-              {pinned.map(tabEl)}
-              {pinned.length && rest.length ? <div className="lgb-rail-div" aria-hidden="true" /> : null}
-              {rest.map(tabEl)}
-              {searchQ && !visibleThreads.length ? <div className="aichat-rail-noresults">No chats match “{chatSearch.trim()}”.</div> : null}
-              <div className="lgb-rail-end" onDragOver={(e) => { e.preventDefault(); setChatDrag((d) => (d ? { ...d, over: '__end' } : d)); }} onDrop={(e) => { e.preventDefault(); researchStore.move(chatDrag?.id, null); setChatDrag(null); }} />
-            </div>
-          </aside>
+          />
 
           <div
             className={`aichat-resizer${railResizing ? ' is-active' : ''}`}
@@ -1139,7 +1030,13 @@ export default function Research() {
                     <div className="bubble-c">
                       <div className="bubble-msg">
                         {runner.stream[activeId]
-                          ? <AiAnswer text={runner.stream[activeId]} streaming revealKey={`rs:${activeId}`} onTick={scrollToBottom} onRef={(hit) => openFresh(viewForRef(hit))} />
+                          ? (
+                            <>
+                              <AiAnswer text={runner.stream[activeId]} sources={busy.sources} streaming revealKey={`rs:${activeId}`} onTick={scrollToBottom} onRef={(hit) => openFresh(viewForRef(hit))} />
+                              {/* A search started mid-answer says so under what is written. */}
+                              {busy.phase === 'search' ? <ThinkingStatus query="search" label={busyLabel} /> : null}
+                            </>
+                          )
                           : <ThinkingStatus query={messages.length ? messages[messages.length - 1]?.text : ''} label={busyLabel} />}
                       </div>
                     </div>

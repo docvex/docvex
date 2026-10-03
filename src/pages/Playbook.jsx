@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { ExtGlyph } from '../components/fileGlyph';
 import { createPortal } from 'react-dom';
 import PageMasthead from '../components/PageMasthead';
 import Tooltip from '../components/Tooltip';
@@ -340,11 +341,6 @@ const DRAWER_W_DEFAULT = 836;   // one A4 sheet, snug
 const DRAWER_MIN = 420;
 const DRAWER_MAX = 1400;
 const clampDrawerW = (w) => Math.round(Math.min(DRAWER_MAX, Math.max(DRAWER_MIN, w)));
-const IconWordDoc = (
-  <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-    <path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z" /><path d="M14 3v5h5" /><path d="m8.5 12 1.2 5 1.3-4 1.3 4 1.2-5" />
-  </svg>
-);
 // A REMEMBERED document (see buildWordDoc) is in the panel as it slides in.
 // One never built waits for the slide to end before it is built — building
 // is heavy main-thread work that would stall the slide and make it snap.
@@ -435,7 +431,7 @@ function WordDrawer({ open, onClose, rules, hoverKey = null, enter = null }) {
         onKeyDown={gripKey}
       />
       <header className="pbk-drawer-head">
-        <span className="pbk-drawer-title">{IconWordDoc} In Word</span>
+        <span className="pbk-drawer-title"><span className="pbk-drawer-ext"><ExtGlyph ext="docx" /></span> In Word</span>
         <Tooltip content="Close (Esc)">
           <button type="button" className="pbk-drawer-close" aria-label="Close" onClick={onClose}>{IconX}</button>
         </Tooltip>

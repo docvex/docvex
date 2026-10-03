@@ -344,7 +344,9 @@ export default function PhotoEditor({ url, name, fromRect = null, onCancel, onSa
   const stepZoom = useCallback((req) => {
     const z = zoomRef.current;
     const raw = z * zoomFactorOf(req, ZOOM_STEP);
-    const floor = floorRef.current;
+    // 15% of the fit at least, as every viewer's zoom (lower still when the
+    // picture arrived placed smaller than that).
+    const floor = Math.min(floorRef.current, 0.15);
     // Zooming out to the floor no longer calls resetView — that threw the pan
     // away with the zoom. The floor below clamps the ZOOM; the pan is scaled
     // with it like any other step, so the picture stays where it was dragged.
@@ -714,14 +716,23 @@ export default function PhotoEditor({ url, name, fromRect = null, onCancel, onSa
         if (!flat) throw new Error('Those four points don’t make a shape that can be flattened — spread them out.');
         await new Promise((resolve) => { window.setTimeout(resolve, 0); });
         const clean = enhanceScan(flat, scanFilter);
+        // The page's TEXT goes with the scan: read off the clean, flattened
+        // page (the photo's own reading no longer fits it), on this computer.
+        // A PDF carries it as an invisible text layer; a picture as its saved
+        // reading (onSave's `reading`). A page that cannot be read is still saved.
+        let reading = null;
+        try {
+          const { readCanvasText } = await import('../lib/textRegions');
+          reading = await readCanvasText(clean);
+        } catch { reading = null; }
         if (as === 'pdf') {
-          await onSave?.({ blob: await scanToPdf(clean), ext: 'pdf', replace: false, suffix: 'scan' });
+          await onSave?.({ blob: await scanToPdf(clean, { regions: reading?.data?.regions }), ext: 'pdf', replace: false, suffix: 'scan' });
           return;
         }
         const png = scanFilter === 'bw';   // black & white compresses far better losslessly
         const blob = await new Promise((resolve) => { clean.toBlob(resolve, png ? 'image/png' : 'image/jpeg', 0.9); });
         if (!blob) throw new Error('The scan couldn’t be encoded.');
-        await onSave?.({ blob, ext: png ? 'png' : 'jpg', replace: false, suffix: 'scan' });
+        await onSave?.({ blob, ext: png ? 'png' : 'jpg', replace: false, suffix: 'scan', reading });
         return;
       }
       if (mode === 'points') {
@@ -932,7 +943,7 @@ export default function PhotoEditor({ url, name, fromRect = null, onCancel, onSa
           {img && !loadError && (
             <div className="phe-zoom">
               <div className="dv-zoom-controls is-doc">
-                <Tooltip content="Zoom out"><button type="button" className="dv-zoom-btn" onClick={() => stepZoom('out')} disabled={zoom <= 1} aria-label="Zoom out">−</button></Tooltip>
+                <Tooltip content="Zoom out"><button type="button" className="dv-zoom-btn" onClick={() => stepZoom('out')} disabled={zoom <= Math.min(floorRef.current, 0.15) + 0.001} aria-label="Zoom out">−</button></Tooltip>
                 <Tooltip content="Back to how the picture was being viewed"><button type="button" className="dv-zoom-pct" onClick={resetView}>{Math.round(zoom * 100)}%</button></Tooltip>
                 <Tooltip content="Zoom in"><button type="button" className="dv-zoom-btn" onClick={() => stepZoom('in')} aria-label="Zoom in">+</button></Tooltip>
               </div>

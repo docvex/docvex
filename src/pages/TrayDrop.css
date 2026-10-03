@@ -1,0 +1,32 @@
+/* The system tray's drop window (pages/TrayDrop). The window itself is small
+   and frameless; the head is its drag handle. */
+.tdz {
+  height: 100%;
+  display: flex; flex-direction: column; gap: 10px;
+  padding: 0 12px 12px;
+  background: var(--bg-backdrop, var(--bg-page));
+  color: var(--text-primary);
+  overflow: hidden;
+}
+.tdz-head {
+  flex: none; display: flex; align-items: center; justify-content: space-between;
+  height: 36px;
+  border-bottom: 1px solid var(--ds-hairline, var(--border));
+  -webkit-app-region: drag;
+}
+.tdz-title {
+  font-size: var(--ds-label-size, 11px); letter-spacing: var(--ds-label-tracking, 0.06em);
+  text-transform: uppercase; font-weight: 600; color: var(--text-secondary);
+}
+.tdz-close {
+  -webkit-app-region: no-drag;
+  width: 24px; height: 24px; display: grid; place-items: center;
+  border: 0; border-radius: var(--ds-row-radius, 8px);
+  background: transparent; color: var(--text-secondary); cursor: pointer;
+}
+.tdz-close:hover { background: color-mix(in srgb, var(--text-primary) 8%, transparent); color: var(--text-primary); }
+.tdz .cto-dropzone { flex: 1; min-height: 0; justify-content: center; }
+.tdz-note { margin: 0; font-size: 12px; line-height: 1.4; }
+.tdz-note.is-success { color: var(--success); }
+.tdz-note.is-warning { color: var(--warning); }
+.tdz-note.is-danger { color: var(--danger-text, var(--danger)); }

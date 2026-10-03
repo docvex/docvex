@@ -3,60 +3,19 @@
 // built on), one step at a time, each question answered by picking, typing or
 // handing it to the AI. Generate is offered once every question is answered.
 //
-// It reads, once, from the project folder: every Data collection (the facts a
-// draft may draw on, and — where the AI scan filled one — a party's record)
-// and the Playbook presets. A company can also be filled from ANAF by its CUI.
-//
-// And it is ANSWERED FROM THE NEURAL NETWORK first (lib/briefFromNetwork):
-// once the collections are in, what the live network understood of the files
-// fills the parties, the collections to draw on and every question the files
-// answer — marked "From your files" with the files it came from, so the user
-// reviews instead of typing. A question the user has touched is never
-// overwritten; editing an answer takes its mark off.
+// It reads the Playbook presets. A company can also be filled from ANAF by its CUI.
+
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import Tooltip from './Tooltip';
-import { localFolderApi, readLocalBlob } from '../lib/localFolder';
-import { readProjectsDir } from '../lib/projectsDir';
-import { useSelectedProject } from '../context/SelectedProjectContext';
-import { useAuth } from '../context/AuthContext';
-import { isCollectionFile, parseCollection } from '../lib/dataCollections';
-import { parseIdentity } from '../lib/identities';
 import { loadRulePresets, loadActivePresetId, loadDocRules, presetInUse } from '../lib/docRules';
 import {
   BRIEF_STEPS, PARTY_FIELDS, questionsFor, briefFamily, initialAnswers, isAnswered, partyDone,
   newParty, fieldsFromAnaf, buildBriefPrompt,
 } from '../lib/docBrief';
 import { checkText, groundingBlock } from '../lib/sourceChecks';
-import { projectDirFor, loadNetwork, networkIsEmpty, prefillBrief } from '../lib/briefFromNetwork';
 import './DocBrief.css';
 
-const COLLECTION_MAX = 200;
-
-// Every Data collection in the project, and the party record inside any of them.
-async function loadProjectCollections(projectId, projectName, userId) {
-  if (!projectId) return { collections: [], records: [] };
-  const baseDir = readProjectsDir(userId || '_anonymous') || undefined;
-  const { path } = await localFolderApi.projectDir(projectId, projectName, baseDir);
-  if (!path) return { collections: [], records: [] };
-  const { files } = await localFolderApi.listAll(path);
-  const dvcs = (files || []).filter((f) => f?.name && !f.name.startsWith('.') && isCollectionFile(f.name)).slice(0, COLLECTION_MAX);
-  const collections = [];
-  const records = [];
-  for (const f of dvcs) {
-    const p = f.path || f.name;
-    try {
-      const text = await (await readLocalBlob(p)).text();
-      const col = parseCollection(text);
-      if (!col) continue;
-      const rec = col.record && (col.record.kind === 'person' || col.record.kind === 'org') ? parseIdentity(text) : null;
-      collections.push({ ...col, path: p, fileName: f.name, hasRecord: !!rec });
-      if (rec) records.push({ ...rec, _path: p, _title: col.title });
-    } catch { /* an unreadable collection is left out */ }
-  }
-  collections.sort((a, b) => a.title.localeCompare(b.title));
-  return { collections, records };
-}
 
 const Check = () => (
   <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5" /></svg>
@@ -64,17 +23,6 @@ const Check = () => (
 const Spark = () => (
   <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8z" /></svg>
 );
-
-// "From your files": an answer the neural network gave, with the files it came from.
-function AutoMark({ auto }) {
-  if (!auto) return null;
-  const names = (auto.from || []).map((r) => String(r).split('/').pop());
-  return (
-    <Tooltip content={names.length ? `From ${names.join(', ')}` : 'From what the neural network read in your files'}>
-      <span className="dbr-auto"><Spark /> From your files</span>
-    </Tooltip>
-  );
-}
 
 function Pill({ on, onClick, children, tone, disabled }) {
   return (
@@ -100,7 +48,7 @@ function Question({ q, a, done, onChange, extra }) {
       <header className="dbr-q-head">
         <span className="dbr-q-mark" aria-hidden="true">{done ? <Check /> : null}</span>
         <div className="dbr-q-titles">
-          <h3 className="dbr-q-title">{q.title} <AutoMark auto={a.auto} /></h3>
+          <h3 className="dbr-q-title">{q.title}</h3>
           {q.hint && <p className="dbr-q-hint">{q.hint}</p>}
         </div>
       </header>
@@ -153,14 +101,12 @@ function Question({ q, a, done, onChange, extra }) {
 }
 
 // One party: its role, individual or company, and where its details come from.
-function PartyCard({ party, index, records, canRemove, onChange, onRemove }) {
+function PartyCard({ party, index, canRemove, onChange, onRemove }) {
   const [anafBusy, setAnafBusy] = useState(false);
   const [anafNote, setAnafNote] = useState('');
   const done = partyDone(party);
   const set = (patch) => onChange({ ...party, ...patch, auto: undefined });
   const setField = (key, v) => set({ fields: { ...party.fields, [key]: v } });
-  const ofKind = records.filter((r) => !party.kind || r.kind === party.kind);
-  const picked = party.source === 'collection' ? records.find((r) => r._path === party.path) : null;
 
   const lookUp = async () => {
     const cui = String(party.fields?.taxId || '').trim();
@@ -184,7 +130,6 @@ function PartyCard({ party, index, records, canRemove, onChange, onRemove }) {
     <div className={`dbr-party${done ? ' is-done' : ''}`}>
       <div className="dbr-party-head">
         <span className="dbr-party-n">{index + 1}</span>
-        <AutoMark auto={party.auto} />
         <input
           className="dbr-input dbr-party-role" type="text" value={party.role}
           placeholder="Role — Vânzător, Reclamant…" aria-label="Party role"
@@ -202,30 +147,18 @@ function PartyCard({ party, index, records, canRemove, onChange, onRemove }) {
       <div className="dbr-party-row">
         <span className="dbr-label">Is it</span>
         <div className="dbr-pills">
-          <Pill on={party.kind === 'person'} onClick={() => set({ kind: 'person', source: party.source === 'collection' ? null : party.source, path: null })}>Persoană fizică</Pill>
-          <Pill on={party.kind === 'org'} onClick={() => set({ kind: 'org', source: party.source === 'collection' ? null : party.source, path: null })}>Persoană juridică</Pill>
+          <Pill on={party.kind === 'person'} onClick={() => set({ kind: 'person', path: null })}>Persoană fizică</Pill>
+          <Pill on={party.kind === 'org'} onClick={() => set({ kind: 'org', path: null })}>Persoană juridică</Pill>
         </div>
       </div>
 
       <div className="dbr-party-row">
         <span className="dbr-label">Details</span>
         <div className="dbr-pills">
-          {ofKind.map((r) => (
-            <Pill key={r._path} on={party.source === 'collection' && party.path === r._path} onClick={() => set({ source: 'collection', path: r._path, kind: r.kind })}>
-              <span className="dbr-coll-dot" aria-hidden="true" />{r.legalName || r.name || r._title}
-            </Pill>
-          ))}
           <Pill on={party.source === 'typed'} disabled={!party.kind} onClick={() => set({ source: 'typed', path: null })}>Type them</Pill>
           <Pill on={party.source === 'blank'} disabled={!party.kind} onClick={() => set({ source: 'blank', path: null })}>Leave blanks</Pill>
         </div>
       </div>
-      {!records.length && (
-        <p className="dbr-note">No Data collection in this project holds a person’s or a company’s details yet — tag files and run the AI scan in the Files tab to fill parties from them.</p>
-      )}
-      {picked && (
-        <p className="dbr-note">From the Data collection “{picked._title}”{picked.kind === 'org' ? (picked.taxId ? ` · CUI ${picked.taxId}` : '') : (picked.nationalId ? ` · CNP ${picked.nationalId}` : '')}.</p>
-      )}
-
       {party.source === 'typed' && party.kind && (
         <div className="dbr-fields">
           {PARTY_FIELDS[party.kind].map((f) => (
@@ -252,55 +185,18 @@ function PartyCard({ party, index, records, canRemove, onChange, onRemove }) {
   );
 }
 
-// What the neural network did for this brief, under the title.
-function NetworkNote({ net, left }) {
-  if (net.state === 'loading') {
-    return <p className="dbr-network is-busy"><span className="dbr-network-spin" aria-hidden="true" />Reading what the neural network knows about this case…</p>;
-  }
-  if (net.state === 'none') {
-    return <p className="dbr-network is-quiet">Tag files for the AI scan in the Files tab and the neural network fills this brief from them.</p>;
-  }
-  if (net.state === 'error') {
-    return <p className="dbr-network is-quiet">The neural network could not fill the brief this time — answer the questions below.</p>;
-  }
-  return (
-    <div className="dbr-network">
-      <p>
-        <Spark /> {net.filled
-          ? `Filled ${net.filled} answer${net.filled === 1 ? '' : 's'} from the ${net.files} file${net.files === 1 ? '' : 's'} the neural network read — check the ones marked “From your files”.`
-          : `The ${net.files} file${net.files === 1 ? '' : 's'} the neural network read say nothing this document needs.`}
-        {left ? ` ${left} still open.` : ''}
-      </p>
-      {!!net.missing.length && (
-        <p className="dbr-network-missing">Not in the files: {net.missing.join(' · ')}</p>
-      )}
-    </div>
-  );
-}
-
 export default function DocBrief({ template, custom, hint, onBack, onGenerate, busy }) {
-  const { selectedProject } = useSelectedProject();
-  const { session } = useAuth();
   const presets = useMemo(() => loadRulePresets(), []);
   const activePresetId = useMemo(() => presetInUse(presets, loadDocRules(), loadActivePresetId())?.id || null, [presets]);
   const ctx = useMemo(() => ({ family: briefFamily(template), template }), [template]);
   const questions = useMemo(() => questionsFor(ctx), [ctx]);
   const [answers, setAnswers] = useState(() => initialAnswers(template, { presetId: activePresetId || presets[0]?.id, custom }));
   const [stepIdx, setStepIdx] = useState(0);
-  const [data, setData] = useState({ loading: true, collections: [], records: [] });
   const scrollRef = useRef(null);
 
-  useEffect(() => {
-    let cancelled = false;
-    loadProjectCollections(selectedProject?.id, selectedProject?.name, session?.user?.id)
-      .then((d) => { if (!cancelled) setData({ loading: false, ...d }); })
-      .catch(() => { if (!cancelled) setData({ loading: false, collections: [], records: [] }); });
-    return () => { cancelled = true; };
-  }, [selectedProject?.id, selectedProject?.name, session?.user?.id]);
 
   const setAnswer = useCallback((id, a) => setAnswers((prev) => ({ ...prev, [id]: a })), []);
 
-  // What the user has answered themselves — the network never writes over it.
   const touched = useRef(new Set());
   const userSet = useCallback((id, a) => {
     touched.current.add(id);
@@ -308,40 +204,6 @@ export default function DocBrief({ template, custom, hint, onBack, onGenerate, b
     setAnswers((prev) => ({ ...prev, [id]: rest }));
   }, []);
 
-  // ── Answered from the neural network ──
-  // { state: 'loading' | 'done' | 'none' | 'error', filled, missing, files }
-  const [net, setNet] = useState({ state: 'loading', filled: 0, missing: [], files: 0 });
-  useEffect(() => {
-    if (data.loading) return undefined;
-    let cancelled = false;
-    (async () => {
-      const dir = await projectDirFor(selectedProject, session?.user?.id);
-      const network = dir ? await loadNetwork(dir, selectedProject?.id).catch(() => null) : null;
-      if (cancelled) return;
-      if (networkIsEmpty(network)) { setNet({ state: 'none', filled: 0, missing: [], files: 0 }); return; }
-      const res = await prefillBrief(network, {
-        template, custom, hint, questions, records: data.records, collections: data.collections, projectId: selectedProject?.id,
-      }).catch((err) => ({ error: err?.message || String(err) }));
-      if (cancelled) return;
-      if (!res || res.error) { setNet({ state: 'error', filled: 0, missing: [], files: network.files.length }); return; }
-      // Counted outside the updater: React may run an updater twice.
-      const ids = Object.keys(res.answers).filter((id) => !touched.current.has(id));
-      const withParties = !touched.current.has('parties') && res.parties.length > 0;
-      const withCollections = !touched.current.has('collections') && res.collections.length > 0;
-      setAnswers((prev) => {
-        const next = { ...prev };
-        for (const id of ids) if (next[id]) next[id] = res.answers[id];
-        if (withParties) next.parties = { ...next.parties, parties: res.parties.map((p) => ({ ...newParty(p.role), ...p })) };
-        if (withCollections) next.collections = { ai: false, text: '', choice: res.collections, auto: { from: [] } };
-        return next;
-      });
-      const filled = ids.filter((id) => answers[id]).length + (withParties ? 1 : 0) + (withCollections ? 1 : 0);
-      setNet({ state: 'done', filled, missing: res.missing, files: network.files.length });
-    })();
-    return () => { cancelled = true; };
-    // Once per brief, when the project's collections are in.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [data.loading]);
   const answered = (q) => isAnswered(q, answers[q.id]);
   const stepQs = (id) => questions.filter((q) => q.step === id);
   const stepDone = (id) => stepQs(id).every(answered);
@@ -386,10 +248,10 @@ export default function DocBrief({ template, custom, hint, onBack, onGenerate, b
     if (!allDone || busy || grounding) { if (!allDone) showFirstOpen(); return; }
     const out = buildBriefPrompt({
       template, custom, answers,
-      records: data.records, collections: data.collections, presets, activePresetId,
+      presets, activePresetId,
     });
     const cuis = (answers.parties?.parties || []).map((p) => (
-      p.source === 'typed' ? p.fields?.taxId : data.records.find((r) => r._path === p.path)?.taxId
+      p.source === 'typed' ? p.fields?.taxId : null
     )).filter(Boolean).map((c) => `CUI ${String(c).replace(/\D/g, '')}`);
     setGrounding(true);
     let block = '';
@@ -422,7 +284,7 @@ export default function DocBrief({ template, custom, hint, onBack, onGenerate, b
           <div className="dbr-q-body">
             {partiesA.parties.map((p, i) => (
               <PartyCard
-                key={p.id} party={p} index={i} records={data.records}
+                key={p.id} party={p} index={i}
                 canRemove={partiesA.parties.length > 1}
                 onChange={(np) => setParties(partiesA.parties.map((x) => (x.id === p.id ? np : x)))}
                 onRemove={() => setParties(partiesA.parties.filter((x) => x.id !== p.id))}
@@ -433,30 +295,6 @@ export default function DocBrief({ template, custom, hint, onBack, onGenerate, b
             </button>
           </div>
         </section>
-      );
-    }
-    if (q.type === 'collections') {
-      const toggle = (path) => {
-        const has = a.choice.includes(path);
-        userSet(q.id, { ...a, text: '', choice: has ? a.choice.filter((x) => x !== path) : [...a.choice, path] });
-      };
-      return (
-        <Question key={q.id} q={q} a={a} done={answered(q)} onChange={(v) => userSet(q.id, v)} extra={(
-          <div className="dbr-pills">
-            {data.loading && <span className="dbr-note">Reading the project’s Data collections…</span>}
-            {data.collections.map((c) => (
-              <Tooltip key={c.path} content={c.summary ? c.summary.slice(0, 220) : c.title}>
-                <Pill on={a.choice.includes(c.path)} onClick={() => toggle(c.path)}>
-                  <span className="dbr-coll-dot" aria-hidden="true" />{c.title}
-                  <span className="dbr-pill-meta">{c.sources.length}</span>
-                </Pill>
-              </Tooltip>
-            ))}
-            <Pill on={a.text === 'none'} onClick={() => userSet(q.id, { ...a, choice: [], text: a.text === 'none' ? '' : 'none' })}>
-              {data.collections.length ? 'None' : 'None — there are no Data collections yet'}
-            </Pill>
-          </div>
-        )} />
       );
     }
     if (q.type === 'preset') {
@@ -484,7 +322,6 @@ export default function DocBrief({ template, custom, hint, onBack, onGenerate, b
         </button>
         <p className="dbr-eyebrow">{template ? template.label : 'Something else'}</p>
         <h1 className="dbr-title">Tell us about the document</h1>
-        <NetworkNote net={net} left={left.length} />
 
         {/* The five steps. Each is a button: the steps can be taken in any order. */}
         <ol className="dbr-steps">

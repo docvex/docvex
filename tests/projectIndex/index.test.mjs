@@ -15,6 +15,12 @@ import { IndexDb } from '../../src/projectIndex/db.js';
 import { shardPath, sealedShardPath, hashFile } from '../../src/projectIndex/knowledge.js';
 import { openFromFolder, isSealedFolderJson } from '../../src/projectIndex/folderSeal.js';
 import crypto from 'node:crypto';
+import { setIndexKey } from '../../src/projectIndex/seal.js';
+
+// The app always runs the index with its key (main.js ensureIndexKey); without
+// one, sensitive rows are not persisted at all (see the keyless test below).
+const INDEX_KEY = crypto.randomBytes(32);
+setIndexKey(INDEX_KEY);
 
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'docvex-index-'));
 const userData = path.join(tmp, 'userData');
@@ -373,6 +379,53 @@ test('loose files: knowledge in _loose.db, no shard', async () => {
   assert.equal((await svc.projectFileId({ path: outside })).id, null);
   await svc.privatePut({ projectId: null, userId: 'u', key: 'k', value: 1 });
   assert.equal((await svc.privateGet({ projectId: null, userId: 'u', key: 'k' })).value, 1);
+});
+
+test('no index key: knowledge, private rows and the clear wipe (security audit 2026-10-01)', async () => {
+  const doc = write('keyless.txt', 'a keyless note');
+  setIndexKey(null);
+  try {
+    // Without the key nothing sensitive is written to the index in the clear.
+    assert.equal((await svc.knowledgePut({ path: doc, kind: 'ocr', facet: { at: 1, data: 'CNP 2900101223344' } })).ok, true);
+    assert.equal((await svc.knowledgeGet({ path: doc })).facets?.ocr, undefined);
+    await svc.privatePut({ projectId: PID, userId: 'u1', key: 'k', value: { s: 'secret' } });
+    assert.equal((await svc.privateGet({ projectId: PID, userId: 'u1', key: 'k' }))?.value ?? null, null);
+  } finally {
+    setIndexKey(INDEX_KEY);
+  }
+  // With it: written, and Clear file data takes every facet and the shards.
+  assert.equal((await svc.knowledgePut({ path: doc, kind: 'ocr', facet: { at: 2, data: 'kept' } })).ok, true);
+  assert.equal((await svc.knowledgeGet({ path: doc })).facets.ocr.data, 'kept');
+  const wiped = await svc.knowledgeWipe({ projectId: PID });
+  assert.equal(wiped.ok, true);
+  assert.ok(wiped.cleared >= 1);
+  assert.equal((await svc.knowledgeGet({ path: doc })).facets?.ocr, undefined);
+  assert.equal(fs.existsSync(path.join(caseDir, '.docvex', 'knowledge')), false);
+});
+
+test('orphan sweep: a deleted file reading goes after the grace period, a touched file keeps its own', async () => {
+  const gone = write('gc-gone.txt', 'reading of a file that will be deleted');
+  const kept = write('gc-kept.txt', 'reading of a file that stays');
+  await svc.projectReconcile({ projectId: PID });
+  assert.equal((await svc.knowledgePut({ path: gone, kind: 'ocr', facet: { at: 1, data: 'old' } })).ok, true);
+  assert.equal((await svc.knowledgePut({ path: kept, kind: 'ocr', facet: { at: 1, data: 'mine' } })).ok, true);
+  const goneSha = await hashFile(gone);
+  fs.rmSync(gone);
+  // The kept file's modified time moves (a sync client, an antivirus): the
+  // index forgets its hash — the sweep must hash it again, not delete.
+  const t = new Date(Date.now() + 5000);
+  fs.utimesSync(kept, t, t);
+  await svc.projectReconcile({ projectId: PID });
+  const now = Date.now();
+  const first = await svc.knowledgeGc({ projectId: PID, now });
+  assert.equal(first.ok, true);
+  assert.equal(first.removed, 0, 'nothing goes on first sight');
+  assert.equal((await svc.knowledgeGet({ path: kept })).facets.ocr.data, 'mine');
+  const later = await svc.knowledgeGc({ projectId: PID, now: now + 46 * 24 * 60 * 60 * 1000 });
+  assert.equal(later.complete, true);
+  assert.ok(later.removed >= 1, 'the orphan goes after the grace period');
+  assert.equal((await svc.knowledgeGet({ path: kept })).facets.ocr.data, 'mine', 'a touched file keeps its reading');
+  assert.equal(fs.existsSync(sealedShardPath(caseDir, goneSha)) || fs.existsSync(shardPath(caseDir, goneSha)), false);
 });
 
 test('calls never throw', async () => {

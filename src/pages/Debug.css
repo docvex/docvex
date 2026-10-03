@@ -435,3 +435,22 @@ details.debug-arc-code[open] > summary { margin-bottom: 8px; }
 .debug-set-facts { display: grid; grid-template-columns: max-content 1fr; gap: 6px 16px; margin: 0 0 16px; font-size: 12px; }
 .debug-set-facts dt { color: var(--text-muted); }
 .debug-set-facts dd { margin: 0; color: var(--text-primary); }
+
+/* The danger zone's typed confirmation (DebugDangerZone). */
+.dbg-danger-input {
+  width: 100%; box-sizing: border-box; margin: 4px 0 16px;
+  height: var(--ds-control-h, 24px); padding: 0 10px;
+  border: 1px solid var(--border); border-radius: var(--ds-control-radius, 8px);
+  background: var(--bg-input); color: var(--text-primary);
+  font: inherit; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+.dbg-danger-input:focus { outline: none; border-color: var(--danger); }
+.dbg-danger-done { flex-shrink: 0; font-size: 0.656rem; font-weight: 600; color: var(--text-muted); }
+.modal-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+
+/* FPS counter card: the live meter under its text. */
+.debug-fps-preview { margin-top: 10px; display: flex; }
+.debug-segmented[aria-label="FPS counter"] .debug-seg.is-active {
+  background: color-mix(in srgb, var(--accent) 15%, transparent);
+  color: var(--accent);
+}

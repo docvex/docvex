@@ -36,15 +36,6 @@
 .drb-quick-block { flex: 1 1 0; min-width: 0; }
 .drb-quick-block + .drb-quick-block { border-left: 1px solid var(--border); }
 
-/* The Theme / Add tabs' bodies (inside the panel's own scroller). */
-.drb-panel { padding: 11.2px; }
-.drb-panel-note {
-  margin: 0 0 9.6px; padding: 7.2px 9.6px;
-  border-radius: 7.2px;
-  background: var(--warning-soft); color: var(--text-primary);
-  font-size: 10.4px; line-height: 1.4;
-}
-
 /* ── Quick actions ──────────────────────────────────────────────────────
    The app sidebar's tab buttons (.nav-item in Sidebar.css), to the letter: a
    tile — icon, label — with a transparent 1.5px ring reserved so
@@ -74,7 +65,7 @@
   border: 1.5px solid transparent;
   box-sizing: border-box;
   cursor: pointer;
-  transition: background 150ms, border-color 150ms;
+  transition: border-color 150ms;
 }
 /* The divider between two tiles: a hairline centred in the 4.8px gap, faded out
    at both ends so it reads as a hint rather than a rule. `is-rowend` is set by
@@ -126,12 +117,9 @@
 }
 .drb-action.is-unavailable:hover { background: none; color: var(--text-muted); }
 .drb-action:not(.is-unavailable):hover {
-  background: radial-gradient(
-    112px circle at var(--item-spot-x, 50%) var(--item-spot-y, 50%),
-    color-mix(in srgb, var(--accent) 26%, transparent) 0%,
-    color-mix(in srgb, var(--accent) 22%, transparent) 55%,
-    color-mix(in srgb, var(--accent) 18%, transparent) 100%
-  );
+  /* A FLAT wash, drawn once on entering — no pointer-following light (see
+     DocQuickActions: per-move repaints re-ran the card's backdrop blur). */
+  background: color-mix(in srgb, var(--accent) 22%, transparent);
   color: var(--text-primary);
 }
 .drb-action:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
@@ -146,12 +134,7 @@
   content: '';
   position: absolute; inset: 0;
   border-radius: inherit;
-  background: radial-gradient(
-    112px circle at var(--item-spot-x, 50%) var(--item-spot-y, 50%),
-    color-mix(in srgb, var(--accent) 42%, transparent) 0%,
-    color-mix(in srgb, var(--accent) 32%, transparent) 55%,
-    color-mix(in srgb, var(--accent) 24%, transparent) 100%
-  );
+  background: color-mix(in srgb, var(--accent) 32%, transparent);
   opacity: 0;
   transition: opacity 220ms ease;
   pointer-events: none;
@@ -159,114 +142,6 @@
 }
 .drb-action.is-pressed:hover::before { opacity: 1; }
 .drb-action.is-pressed:hover { border-color: var(--accent); color: var(--accent); }
-
-/* ── Theme thumbnails ─────────────────────────────────────────────────────
-   A grid that fills the panel: as many columns as fit, each thumbnail growing
-   to its column (the little page keeps its proportions). */
-.drb-themes {
-  display: grid; grid-template-columns: repeat(auto-fill, minmax(128px, 1fr));
-  gap: 9.6px;
-}
-.drb-theme {
-  appearance: none; background: transparent;
-  display: flex; flex-direction: column; align-items: stretch; gap: 4.8px;
-  width: 100%; min-width: 0;
-  padding: 6.4px 6.4px 5.6px;
-  border: 1.5px solid transparent; border-radius: 6.4px;
-  box-sizing: border-box;
-  font: inherit; font-size: 0.74rem; font-weight: 500;
-  color: var(--text-secondary);
-  cursor: pointer;
-  transition: background 150ms, color 150ms, border-color 150ms, opacity 120ms ease;
-}
-/* Hover and SELECTED are the quick-action tiles' (and so the app sidebar
-   tabs'): the radial accent wash under the pointer on hover; selected = accent
-   tint, accent ring, accent text, and the spotlight layer that fades in on
-   hover. */
-.drb-theme:hover:not(.is-locked) {
-  background: radial-gradient(
-    112px circle at var(--item-spot-x, 50%) var(--item-spot-y, 50%),
-    color-mix(in srgb, var(--accent) 26%, transparent) 0%,
-    color-mix(in srgb, var(--accent) 22%, transparent) 55%,
-    color-mix(in srgb, var(--accent) 18%, transparent) 100%
-  );
-  color: var(--text-primary);
-}
-.drb-theme.is-active {
-  position: relative;
-  isolation: isolate;
-  background: var(--accent-tint);
-  border-color: color-mix(in srgb, var(--accent) 65%, transparent);
-  color: var(--accent);
-}
-.drb-theme.is-active::before {
-  content: '';
-  position: absolute; inset: 0;
-  border-radius: inherit;
-  background: radial-gradient(
-    112px circle at var(--item-spot-x, 50%) var(--item-spot-y, 50%),
-    color-mix(in srgb, var(--accent) 42%, transparent) 0%,
-    color-mix(in srgb, var(--accent) 32%, transparent) 55%,
-    color-mix(in srgb, var(--accent) 24%, transparent) 100%
-  );
-  opacity: 0;
-  transition: opacity 220ms ease;
-  pointer-events: none;
-  z-index: -1;
-}
-.drb-theme.is-active:hover::before { opacity: 1; }
-.drb-theme.is-active:hover { border-color: var(--accent); color: var(--accent); }
-.drb-theme.is-locked { opacity: 0.45; cursor: not-allowed; }
-.drb-theme:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
-
-/* A little page. White like the real sheet, whatever the app's theme — the
-   colours ON it come from the document theme, inline. */
-.drb-theme-sheet {
-  position: relative;
-  width: 100%; aspect-ratio: 78 / 56;
-  box-sizing: border-box;
-  display: block;
-  /* Everything ON the page is sized off the page's width (cqw), so the
-     thumbnail is the same picture at any size. The sheet is the container; its
-     contents sit in `.drb-theme-page`, because an element's OWN lengths resolve
-     against an ancestor container, never against itself — padding in cqw on the
-     sheet would have measured the viewport. */
-  container-type: inline-size;
-  background: var(--color-white, #fff);
-  border: 1px solid var(--border);
-  border-radius: 2.4px;
-  overflow: hidden;
-  text-align: left;
-}
-.drb-theme-page {
-  position: absolute; inset: 0;
-  box-sizing: border-box;
-  padding: 6cqw 8cqw 0;
-  display: flex; flex-direction: column; gap: 3cqw;
-}
-.drb-theme-title {
-  align-self: flex-start;
-  padding-bottom: 1cqw;
-  border-bottom: 2cqw solid currentColor;
-  font-size: 16cqw; font-weight: 700; line-height: 1;
-}
-.drb-theme-heading { font-size: 8.8cqw; font-weight: 700; line-height: 1.1; }
-.drb-theme-lines { display: flex; flex-direction: column; gap: 2.6cqw; }
-.drb-theme-lines i { display: block; height: 2cqw; border-radius: 1cqw; background: currentColor; opacity: 0.55; }
-.drb-theme-lines i:nth-child(2) { width: 88%; }
-.drb-theme-lines i:nth-child(3) { width: 62%; }
-/* The palette: one band across the foot of the page, a swatch per colour. */
-.drb-theme-palette {
-  position: absolute; left: 0; right: 0; bottom: 0;
-  display: flex; height: 12cqw;
-}
-.drb-theme-palette i { flex: 1; display: block; }
-
-.drb-theme-name {
-  display: inline-flex; align-items: center; justify-content: center; gap: 3.2px;
-  white-space: nowrap;
-}
-.drb-theme-check { display: inline-flex; color: currentColor; }
 
 /* ── A tile answering for its own command ─────────────────────────────────
    Fit has no state to sit in — it does its work and it is over — so pressing it

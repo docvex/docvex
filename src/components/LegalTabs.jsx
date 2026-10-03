@@ -24,9 +24,9 @@ export const LEGAL_TABS = [
   // what the platform is, for the header's "i"; `tries`: what to type to reach
   // it through the one search (lib/legalOmni).
   { id: 'legislation', to: '/legislation', label: 'legislatie.just.ro', short: 'Legislație', about: 'Romanian legislation from the Ministry of Justice’s portal — every act, read here as a document and kept on this machine.', tries: ['Legea 287/2009', 'OUG 195/2002', 'protecția consumatorului'] },
-  { id: 'caen', to: '/caen', label: 'insse.ro', short: 'CAEN', about: 'The CAEN nomenclature of economic activities, all three revisions, from the National Institute of Statistics.', tries: ['caen 6210', 'caen software'] },
   { id: 'portal-just', to: '/portal-just', label: 'portal.just.ro', short: 'Dosar', about: 'Court files from the courts’ portal — parties, hearings and solutions, by file number or by a party’s name.', tries: ['1234/3/2026', 'dosare Popescu Ion'] },
   { id: 'anaf', to: '/anaf', label: 'anaf.ro', short: 'ANAF', about: 'A company’s fiscal record from ANAF — VAT, inactive or struck-off status, e-Factura — by its CUI.', tries: ['RO1590082'] },
+  { id: 'caen', to: '/caen', label: 'insse.ro', short: 'CAEN', about: 'The CAEN nomenclature of economic activities, all three revisions, from the National Institute of Statistics.', tries: ['caen 6210', 'caen software'] },
   // Sources not yet connected — each opens a placeholder (pages/LegalSourceStub)
   // that says what it is for. Same order as the sources table they came from.
   { id: 'firme', to: '/firme', label: 'termene.ro - listafirme.ro', stub: true, about: 'Financial data and risk on companies from the private aggregators.' },
@@ -77,6 +77,15 @@ const isMacPlatform = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test
 let lastActive = null;
 
 export const LEGAL_TAB_PATHS = LEGAL_TABS.map((t) => t.to);
+// THE TAB ROW of the Legislation entry (2026-10-02): ASK — the conversation
+// (pages/Research, /research) — first, then every source in the order
+// Research's "i" lists them. Ask is kept out of LEGAL_TABS itself, which the
+// one-search parser, the platform dice and the source pills read as "the
+// sources".
+export const ASK_TAB = { id: 'ask', to: '/research', label: 'Ask' };
+export const LEGISLATION_ROW = [ASK_TAB, ...LEGAL_TABS];
+/** Every route the Legislation entry stands for (the sidebar's `activeOn`). */
+export const LEGISLATION_PATHS = LEGISLATION_ROW.map((t) => t.to);
 /** The placeholder tabs — AppRoutes gives each a route to the stub page. */
 export const LEGAL_STUB_TABS = LEGAL_TABS.filter((t) => t.stub);
 
@@ -223,7 +232,7 @@ export function LegalSearchBox({ search, className = '', hotkey = true }) {
 export default function LegalTabs({ search = null, tools = null, status = null, trailing = null, noSearch = false, dropSearch = false, onPinnedChange = null, standalone = false, ownTabs = null, rows = null, line2 = true, className = '' }) {
   const navigate = useNavigate();
   const { pathname } = useLocation();
-  const active = LEGAL_TABS.find((t) => t.to === pathname)?.id ?? LEGAL_TABS[0].id;
+  const active = LEGISLATION_ROW.find((t) => t.to === pathname)?.id ?? LEGISLATION_ROW[0].id;
 
   // Where the bar came from (captured once, at mount): the underline slides
   // from that tab, and the content under the bar enters from the side the
@@ -231,7 +240,7 @@ export default function LegalTabs({ search = null, tools = null, status = null, 
   // moves on a first arrival.
   const [from] = useState(() => lastActive);
   useEffect(() => { if (!standalone) lastActive = active; }, [active, standalone]);
-  const idx = (id) => LEGAL_TABS.findIndex((t) => t.id === id);
+  const idx = (id) => LEGISLATION_ROW.findIndex((t) => t.id === id);
   const dir = from && from !== active ? Math.sign(idx(active) - idx(from)) : 0;
 
   // Pinned = actually stuck at the scroller's top (rect-based, like every
@@ -260,7 +269,9 @@ export default function LegalTabs({ search = null, tools = null, status = null, 
     return () => { el.removeEventListener('scroll', onScroll); if (raf) cancelAnimationFrame(raf); };
   }, []);
 
-  const tabs = LEGAL_TABS.map((t) => ({ id: t.id, label: t.label }));
+  // A source not connected yet is still a tab (its page says what it will do),
+  // drawn a little quieter.
+  const tabs = LEGISLATION_ROW.map((t) => ({ id: t.id, label: t.label, className: t.stub ? 'is-planned' : '' }));
 
   return (
     <>
@@ -276,10 +287,10 @@ export default function LegalTabs({ search = null, tools = null, status = null, 
           active={active}
           fromId={from}
           onSelect={(id) => {
-            const t = LEGAL_TABS.find((x) => x.id === id);
+            const t = LEGISLATION_ROW.find((x) => x.id === id);
             if (t && t.to !== pathname) navigate(t.to);
           }}
-          ariaLabel="Legislation sources"
+          ariaLabel="Legislation"
         />
         {status ? <div className="lgt-status">{status}</div> : null}
       </div>}

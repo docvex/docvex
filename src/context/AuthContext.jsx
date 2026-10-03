@@ -91,7 +91,11 @@ export function AuthProvider({ children }) {
       void import('../lib/e2e/identity').then((m) => m.ensureIdentity()).catch(() => {});
       return;
     }
-    if (!loading) void wipeSecureStore();
+    if (!loading) {
+      void wipeSecureStore();
+      // The Word render cache's memory copy and key belong to the account that left.
+      void import('../lib/docxRenderCache').then((m) => m.forgetRenderCacheUser()).catch(() => {});
+    }
   }, [userId, loading]);
 
   useEffect(() => {
@@ -209,16 +213,11 @@ export function AuthProvider({ children }) {
         return;
       }
 
-      // docvex://mail/callback?provider=…&code=… — the Mail tab's mailbox OAuth.
-      // NOT a Supabase auth code: re-broadcast it as a window event for the Mail
-      // page to consume (which owns the mail-sync `connect` exchange). Returning
-      // here is critical — otherwise the generic code-exchange below would feed a
-      // Gmail/Graph code into supabase.auth.exchangeCodeForSession and corrupt
-      // the user's session.
-      if (host === 'mail') {
-        window.dispatchEvent(new CustomEvent('docvex:mail-callback', { detail: url }));
-        return;
-      }
+      // docvex://mail/callback — the removed Mail tab's mailbox OAuth. NOT a
+      // Supabase auth code: ignore it, or the generic code-exchange below would
+      // feed a Gmail/Graph code into exchangeCodeForSession and corrupt the
+      // user's session.
+      if (host === 'mail') return;
 
       // OAuth callback (default / legacy path).
       //

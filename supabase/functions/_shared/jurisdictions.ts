@@ -77,8 +77,8 @@ export function jurisdictionPrompt(code?: unknown): string {
     `and cite ${j.adjective} sources specifically (name the code, article and, where relevant, the competent court) — ` +
     `never substitute another country's rules, and say so plainly if you are unsure whether a rule applies here.${eu} ` +
     `${system} ` +
-    `Write legal documents and answer legal questions in ${j.language} unless the user writes in another language ` +
-    `or asks for a different one.`
+    `Write legal documents and answer legal questions in the language the user's request is written in ` +
+    `(in ${j.language} when that is unclear), unless the user asks for a different one.`
   );
 }
 

@@ -29,7 +29,7 @@
       <p class="lg-eyebrow">DocVex — Legal</p>
       <h1 class="lg-title">Privacy Policy</h1>
       <p class="lg-lead">DocVex is built privacy-first: your project documents stay on your device, and we collect only what we need to run your account and the collaborative parts of the Service.</p>
-      <p class="lg-updated">Last updated: 28 September 2026</p>
+      <p class="lg-updated">Last updated: 2 October 2026</p>
     </header>
 
     <div class="lg-layout">
@@ -127,12 +127,21 @@
         <section class="lg-card" id="ai">
           <h2>5. AI features &amp; your content</h2>
           <p class="lg-sub">What is sent, when, and to whom.</p>
-          <p>AI features — document Q&amp;A, summaries, risk review, drafting, OCR text extraction, audio transcription, document generation, and the legal-feed briefing — are powered by third-party AI providers: <strong>Anthropic</strong> (Claude models) and, for audio transcription, <strong>OpenAI</strong> (Whisper). When you have DocVex build an Office file, the draft is created in Anthropic's file storage and code-execution environment and downloaded to your computer.</p>
+          <p>AI features — document Q&amp;A, summaries, risk review, drafting, OCR text extraction, audio transcription, document generation, and the legal-feed briefing — are powered by <strong>Anthropic models via Google Cloud Vertex AI (EU region)</strong>: Claude, run by Google Cloud in a European Union data centre. Audio transcription runs <strong>on your own computer</strong> — recordings are never uploaded — and Office files are built on your computer too.</p>
           <ul class="lg-list">
             <li>Content is transmitted to an AI provider <strong>only when you invoke an AI feature on it</strong>, or when you have switched on automatic understanding of new files for a project (Section 4) — never otherwise in the background.</li>
             <li>We send the minimum needed: the selected document content, image region, audio track, or prompt.</li>
             <li>We use these providers through their business APIs, which do not use API content to train their models.</li>
             <li>What we keep afterwards: the results shown to you (some are cached on your device for convenience) and usage metadata (action, model, token counts) — not a server-side copy of your documents.</li>
+          </ul>
+          <h3>Web search in AI answers</h3>
+          <p>In Research, the file viewer's Advisor, Research's AI summaries of an act, court file or company, and the Newsletter's weekly briefing, Claude may search the web when an answer depends on current or outside information — at most five searches per answer. Each statement taken from a search result is followed by a numbered link to its source, and the pages reviewed are listed under the answer.</p>
+          <ul class="lg-list">
+            <li><strong>Who runs the search:</strong> the AI provider's own built-in web search, as part of the same AI service. DocVex does not engage any other search company.</li>
+            <li><strong>What a search contains:</strong> Claude writes the search queries itself, from your question and the material in the conversation. A query can therefore contain words from your question or from a document, including a name. If you switch the project's pseudonymisation to cover every AI call (Settings → Privacy), names and identifiers are replaced with codes on your computer before Claude sees them, so they cannot appear in a query.</li>
+            <li><strong>Where:</strong> a search may be carried out by the provider's search service outside the European Union.</li>
+            <li><strong>Visiting a source:</strong> your computer contacts a source website only when you click its link. No site icons are downloaded to show the list.</li>
+            <li><strong>What is kept:</strong> the answer, its links and the list of sources are kept with the conversation on your device, like the rest of the answer.</li>
           </ul>
         </section>
 
@@ -145,8 +154,7 @@
               <thead><tr><th>Provider</th><th>Purpose</th><th>Location</th></tr></thead>
               <tbody>
                 <tr><td>Supabase</td><td>Database, authentication, realtime sync, serverless functions (hosted on AWS)</td><td>EU (Ireland, eu-west-1)</td></tr>
-                <tr><td>Anthropic</td><td>AI document features and legal-feed briefing (Claude)</td><td>United States</td></tr>
-                <tr><td>OpenAI</td><td>Audio transcription (Whisper), only when you use captions/transcription</td><td>United States</td></tr>
+                <tr><td>Google Cloud (Vertex AI)</td><td>AI document features and legal-feed briefing — Anthropic models (Claude) via Google Cloud Vertex AI, EU region — including the model's built-in web search for AI answers (queries written by the model; see Section 5)</td><td>European Union; a web search may run outside the EU</td></tr>
                 <tr><td>Resend</td><td>Email delivery: invitations, account emails, newsletter confirmations, and support reports with any attachments you add</td><td>United States / EU</td></tr>
                 <tr><td>GitHub</td><td>Hosting the website, application downloads, and the update feed</td><td>United States</td></tr>
                 <tr><td>Google / Microsoft</td><td>Sign-in with Google; Gmail/Outlook sync — only if you connect them</td><td>United States / EU</td></tr>

@@ -522,3 +522,85 @@ html[data-reduce-motion="true"] .lg-rail-item::before { transition: none; }
    search results line up with everything above them. */
 .lws .lg-shell-main { padding-right: 0; }
 .lws-searchfoot { display: contents; }
+
+/* ── The Legislation tab's frame (2026-10-02) ─────────────────────────────
+   The page's own search view or open item in the main column; what the page
+   has open listed on its left (WorkspaceRail, drawn in place as a card). */
+.lgw-shell { display: flex; align-items: flex-start; gap: var(--ds-list-gap, 20px); padding: var(--ds-head-gap, 8px) var(--ds-list-gap, 20px) var(--ds-page-foot, 64px) 0; min-width: 0; }
+.lgw-shell > .lg-rail { flex: 0 0 var(--lg-rail-w, 236px); position: sticky; top: calc(var(--ds-page-inset, 6.4px) + 96px); height: auto; max-height: calc(100vh - 140px); }
+.lgw-main { flex: 1 1 auto; min-width: 0; }
+/* A source not connected yet: still a tab, a little quieter. */
+.lgt-bar .activity-filter.is-planned:not(.is-active) .activity-filter-label { opacity: 0.62; }
+
+/* THE one sidebar's group headings (Ask, then each source's site). */
+.lgw-rail-group {
+  margin: 2px 0 4px; padding: 0 9.6px;
+  font-size: var(--ds-label-size, 10.4px); font-weight: 600; letter-spacing: var(--ds-label-tracking, 0.04em);
+  text-transform: uppercase; color: var(--text-muted);
+}
+.lgw-shell > .lgw-rail { display: flex; flex-direction: column; min-height: 0; }
+.lgw-shell > .lgw-rail .lgb-rail-list { display: flex; flex-direction: column; overflow-y: auto; min-height: 0; }
+
+/* ── THE ONE SIDEBAR on a source tab (2026-10-03): the Ask tab's list
+   (components/AskRail), drawn by Ask's rules — ProjectAIChat.css
+   `.aichat-rail.is-tabrail`, scoped to the Ask page there; keep in step. The
+   list stands on the page ground in the flow and draws its card only while
+   stuck under the mini header (`.is-stuck`, LegislationRail measures it, with
+   its sticky top and its height). The resize band is the gap to the page. */
+.lgw-shell:has(> .lgw-askrail) { gap: 0; }
+.lgw-shell > .lgw-askrail {
+  flex: 0 0 216px; min-width: 0;
+  display: flex; flex-direction: column;
+  position: sticky; top: 56px; align-self: flex-start; z-index: 20;
+  box-sizing: border-box;
+  margin-left: calc(-1 * var(--ds-divider-pull, 11.2px));
+  margin-bottom: var(--ds-page-inset, 6.4px);
+  padding: 12.8px 9.6px 12.8px calc(var(--ds-divider-pull, 11.2px) - 1.5px);
+  border: 1.5px solid var(--border);
+  border-radius: 9.6px;
+  background: color-mix(in srgb, var(--bg-page) 66%, transparent);
+  backdrop-filter: blur(6.4px);
+  -webkit-backdrop-filter: blur(6.4px);
+  box-shadow: var(--shadow-card);
+  isolation: isolate;
+  overflow: hidden;
+  transition: background-color 260ms ease, border-color 260ms ease, box-shadow 260ms ease;
+}
+:root[data-theme="cream"] .lgw-shell > .lgw-askrail { background: color-mix(in srgb, var(--bg-sidebar) 90%, transparent); }
+.lgw-shell > .lgw-askrail:not(.is-stuck) {
+  background: transparent; border-color: transparent; box-shadow: none;
+  backdrop-filter: none; -webkit-backdrop-filter: none;
+}
+.lgw-shell > .lgw-askrail.is-resizing { transition: none; }
+.lgw-askrail > * { position: relative; z-index: 1; }
+.lgw-askrail > .spot-light { position: absolute; inset: 0; --spot-r: 264px; opacity: 0; transition: opacity 240ms ease; }
+.lgw-askrail > .spot-glow { z-index: 0; }
+.lgw-askrail > .spot-shine { z-index: 2; padding: 1.5px; }
+.lgw-askrail > .spot-glow > .spot-dot {
+  background: radial-gradient(264px circle at 50% 50%, color-mix(in srgb, var(--accent) 4.5%, transparent) 0%, color-mix(in srgb, var(--accent) 1.5%, transparent) 38%, transparent 68%);
+}
+.lgw-askrail > .spot-shine > .spot-dot {
+  background: radial-gradient(264px circle at 50% 50%, color-mix(in srgb, var(--accent) 42%, transparent) 0%, color-mix(in srgb, var(--accent) 12%, transparent) 34%, transparent 62%);
+}
+.lgw-askrail:hover > .spot-light { opacity: 0.7; }
+@media (prefers-reduced-motion: reduce) { .lgw-askrail > .spot-light { display: none; } }
+.lgw-askrail .lgb-rail-list > .lg-rail-item.is-active { position: sticky; top: 0; bottom: 0; z-index: 2; }
+.lgw-askrail .lgb-rail-end { flex: 0 0 4px; }
+.lgw-askrail .aichat-rail-noresults { padding: 6px 9.6px; font-size: 0.72rem; color: var(--text-muted); }
+
+/* The band between the list and the page: drags the width (shared with
+   Ask's list); a hairline while the list has no card, the accent on hover. */
+.lgw-askrail-resizer {
+  flex: 0 0 var(--ds-list-gap, 20px);
+  align-self: stretch;
+  position: relative;
+  cursor: col-resize;
+}
+.lgw-askrail-resizer::before {
+  content: ''; position: absolute; top: 0; bottom: 0; left: 50%; width: 1px; transform: translateX(-0.5px);
+  background: transparent;
+  transition: background 120ms ease, width 120ms ease;
+}
+.lgw-shell:has(> .lgw-askrail:not(.is-stuck)) > .lgw-askrail-resizer::before { background: var(--ds-hairline, var(--border)); }
+.lgw-askrail-resizer:hover::before,
+.lgw-askrail-resizer.is-active::before { width: 2.4px; transform: translateX(-1.2px); background: var(--accent); }

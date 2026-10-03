@@ -35,7 +35,7 @@
 //   retain(key) / release(key)  — refcount a generated blob URL
 //   clearThumbnailCache()       — Debug menu / sign-out
 
-import { generateThumbnail, isPptxFile } from './thumbnails';
+import { generateThumbnail, isPptxFile, isDocxFile, isSheetFile, isTextThumbable } from './thumbnails';
 import { isHeicName, heicJpeg } from './heic';
 import { readLocalBlob } from './localFolder';
 
@@ -97,6 +97,9 @@ export function classifyForThumb(mime, name) {
   if (m === 'application/pdf' || ext === 'pdf') return 'pdf';
   if (isPptxFile(m, name)) return 'pptx';
   if (DOC_THUMB_EXTS.has(ext)) return 'doc';
+  // Plain text (txt, md, csv, json…) has no OS thumbnail on Windows; its
+  // first lines are drawn here instead.
+  if (isTextThumbable(m, name)) return 'text';
   return 'other';
 }
 
@@ -233,7 +236,11 @@ export function buildCandidates(descriptor) {
   //    provider is missing (PDF without a viewer installed).
   // A HEIC picture is decoded here (lib/heic) when the OS has no thumbnail
   // for it — Windows without the HEIF extension, i.e. most machines.
-  if (kind === 'pdf' || kind === 'video' || kind === 'pptx'
+  // Word and spreadsheets too: Windows' shell has no provider for them unless
+  // Office installed one (macOS's Quick Look always has), so without this a
+  // Windows machine showed their glyph where a Mac showed the page.
+  if (kind === 'pdf' || kind === 'video' || kind === 'pptx' || kind === 'text'
+      || isDocxFile(descriptor.mime, descriptor.name) || isSheetFile(descriptor.mime, descriptor.name)
       || (kind === 'image' && !path) || isHeicName(descriptor.name)) {
     out.push({ kind: 'generate', id: 'gen' });
   }

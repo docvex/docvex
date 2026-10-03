@@ -16,7 +16,13 @@ import { runLegalFeedSync } from '../lib/legalFeedSync';
 import { TEST_NOTIFICATIONS, TEST_NOTIFICATION_STAGGER_MS, buildFileTestNotifications } from '../notifications/testNotifications';
 import { useSelectedProject } from '../context/SelectedProjectContext';
 import { useAuth } from '../context/AuthContext';
+import { useAppPrefs } from '../context/AppPrefsContext';
+import FpsMeter from '../components/FpsMeter';
 import { localFolderApi } from '../lib/localFolder';
+import { listAiData, clearAiFacet } from '../lib/aiData';
+import { hydrateProject } from '../lib/projectIndexClient';
+import { saveOcrHistory } from '../lib/extractionHistory';
+import ConfirmModal from '../components/ConfirmModal';
 import { readProjectsDir } from '../lib/projectsDir';
 import PageMasthead from '../components/PageMasthead';
 import Tooltip from '../components/Tooltip';
@@ -26,6 +32,8 @@ import RuleOptions from '../components/RuleOptions';
 import { AI_PROVIDERS, AI_SURFACES, AI_TASKS, AI_FUNCTIONS, AI_LOCAL, AI_PRIVACY, AI_INTRO, allAiUses } from '../lib/aiInventory';
 import LegalDetectionArchive from './DebugLegalArchive';
 import AiSettings from './DebugAiSettings';
+import DebugDangerZone from './DebugDangerZone';
+import DebugLoadTimes from './DebugLoadTimes';
 import './Debug.css';
 
 // In-app developer tools. These used to live in the native "DEBUG" menu that
@@ -236,7 +244,58 @@ async function dryRunLegalFeed(notify) {
   }
 }
 
+// Every piece of EXTRACTED TEXT saved for the selected project's files: a
+// picture's reading with positions (`text`), the AI transcription (`ocr`) and
+// the viewer's OCR snippets (`extraction`). The files themselves, captions and
+// everything else are left alone. Covers every file in the folder (listed from
+// disk) plus anything the store remembers for the project.
+async function deleteProjectExtractedText(notify, { selectedProject } = {}) {
+  if (!selectedProject?.id) {
+    notify?.({ category: 'system', variant: 'warning', title: 'No project selected', body: 'Pick a project first — this deletes the extracted text of that project’s files.', dedupeKey: 'debug-wipe-text' });
+    return;
+  }
+  const projectId = selectedProject.id;
+  let dir = null;
+  try { ({ dir } = await hydrateProject(projectId, { force: true })); } catch { dir = null; }
+  const paths = new Set();
+  for (const rec of listAiData({ projectId })) paths.add(rec.path);
+  if (dir) {
+    try {
+      const res = await localFolderApi.listAll(dir);
+      for (const f of res?.files || []) if (f?.path) paths.add(f.path);
+    } catch { /* the store's own list still goes */ }
+  }
+  let files = 0;
+  for (const path of paths) {
+    const a = clearAiFacet(path, 'text');
+    const b = clearAiFacet(path, 'ocr');
+    const c = saveOcrHistory(path, []);
+    if (a || b || c) files += 1;
+  }
+  notify?.({
+    category: 'system',
+    variant: 'success',
+    title: 'Extracted text deleted',
+    body: files
+      ? `Removed the extracted text of ${files} file${files === 1 ? '' : 's'} in ${selectedProject.name || 'this project'}. Extract text reads them again when asked.`
+      : `Nothing was saved for ${selectedProject.name || 'this project'}’s files.`,
+    dedupeKey: 'debug-wipe-text',
+  });
+}
+
 const ACTIONS = [
+  {
+    id: 'wipe-extracted-text',
+    title: 'Delete extracted text',
+    body: 'Deletes every piece of text read out of the selected project’s files — pictures’ readings, scans’ AI transcriptions and OCR snippets. The files themselves are not touched; Extract text reads them again when asked.',
+    cta: 'Delete extracted text',
+    confirm: {
+      title: 'Delete all extracted text?',
+      message: 'The text read out of every file in the selected project is deleted on this computer and in the project folder. The files stay. This can’t be undone; reading it again takes time, and AI readings cost tokens.',
+      label: 'Delete',
+    },
+    run: (notify, ctx) => deleteProjectExtractedText(notify, ctx),
+  },
   {
     id: 'legal-feed-dry',
     title: 'Legal feed: dry run',
@@ -607,11 +666,16 @@ export default function Debug() {
   const { session } = useAuth();
   const { selectedProject } = useSelectedProject();
   const { simulateUpdate, setSimulateUpdate, simulateKind, setSimulateKind, currentVersion, latestVersion } = useUpdates();
+  const { prefs, setPref } = useAppPrefs();
+  const fps = prefs.fpsCounter || 'off';
   const [busy, setBusy] = useState(null);
   const [simItems, setSimItems] = useState(workspaceSimulation);
   const toggleSimItems = () => { const next = !simItems; setWorkspaceSimulation(next); setSimItems(next); };
 
-  const handleRun = async (action) => {
+  const [confirming, setConfirming] = useState(null);
+  const handleRun = async (action, confirmed = false) => {
+    if (action.confirm && !confirmed) { setConfirming(action); return; }
+    setConfirming(null);
     setBusy(action.id);
     try {
       await action.run(notify, { selectedProject, userId: session?.user?.id || null });
@@ -676,6 +740,35 @@ export default function Debug() {
           </div>
         </section>
 
+        {/* FPS counter (moved here from Settings → Behavior): the title
+            bar's components/FpsMeter, the per-account `fpsCounter` pref. */}
+        <section className="debug-card">
+          <div className="debug-card-text">
+            <h2 className="debug-card-title">FPS counter</h2>
+            <p className="debug-card-body">
+              Shows how smoothly the app is drawing, at the top of the window. Simple shows
+              the frame rate; Complex adds frame time, 1% low, the worst frame and stutters;
+              Graph draws the last frames as bars. While it shows, the app redraws every frame.
+            </p>
+            {fps !== 'off' && <div className="debug-fps-preview"><FpsMeter key={fps} mode={fps} inline /></div>}
+          </div>
+          <div className="debug-card-controls">
+            <div className="debug-segmented" role="group" aria-label="FPS counter">
+              {[['off', 'Hidden'], ['simple', 'Simple'], ['complex', 'Complex'], ['graph', 'Graph']].map(([id, label]) => (
+                <button
+                  key={id}
+                  type="button"
+                  className={`debug-seg${fps === id ? ' is-active' : ''}`}
+                  aria-pressed={fps === id}
+                  onClick={() => setPref('fpsCounter', id)}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          </div>
+        </section>
+
         {/* Sample items in the sidebar's Legislation list, to look at the
             dropdown without opening anything (lib/workspaceItems). */}
         <section className="debug-card">
@@ -719,6 +812,17 @@ export default function Debug() {
         ))}
       </div>
 
+      <ConfirmModal
+        open={!!confirming}
+        title={confirming?.confirm?.title}
+        message={confirming?.confirm?.message}
+        confirmLabel={confirming?.confirm?.label || 'Confirm'}
+        destructive
+        onConfirm={() => confirming && handleRun(confirming, true)}
+        onCancel={() => setConfirming(null)}
+      />
+      <DebugLoadTimes />
+      <DebugDangerZone />
       <AiSettings />
       <AiInventory />
       <LegalDetectionArchive />

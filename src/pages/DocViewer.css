@@ -228,12 +228,6 @@
   background-color: #f59e0b;
   text-decoration: underline 2px solid #7c4a03;
 }
-/* A paragraph is picked: the Close button has the top of this corner, so the
-   find bar drops a pill's height plus a gap below it. Written off the same
-   variable the button is sized by, so the two cannot drift into each other. */
-.dv-section-body:has(.dv-docx.has-pick):has(.dv-docx-liftclose.is-on) .dv-find {
-  top: calc(var(--ds-dv-pill-top, 6.4px) + var(--dv-liftclose) + 8px);
-}
 /* Open only when it is being USED — focused, or holding a query. Hover does
    not open it: the pill floats over the document, and a field that unfurled
    every time the pointer crossed it was in the way of reading.
@@ -1575,7 +1569,7 @@ body.dv-ocr-resizing .dv-split-resize::after { background: var(--accent); }
 .dv-wa-rail-doc:disabled { opacity: 0.6; cursor: default; }
 .dv-wa-rail-doc svg { flex: none; color: var(--text-muted); }
 .dv-wa-rail-doc-icon { display: flex; }
-.dv-wa-rail-doc-icon svg { width: 27.2px; height: 27.2px; }
+.dv-wa-rail-doc-icon .dv-doc-ic { width: 27.2px; height: 27.2px; }
 /* Large-export performance: offscreen rail entries (a Media tab can hold
    thousands of tiles) skip layout + paint until scrolled near. The lazy
    <img>s inside them then also defer their decode/fetch. */
@@ -1589,13 +1583,9 @@ body.dv-ocr-resizing .dv-split-resize::after { background: var(--accent); }
 /* File-type document icons, colour-coded by extension (PDF red, Word blue,
    Excel green, PowerPoint orange, archives accent, text/other muted). The
    extra class beats the rail/chip's generic `svg` colour rule. */
-.dv-doc-ic { flex: none; display: inline-flex; }
-.dv-doc-ic.is-pdf svg { color: var(--danger); }
-.dv-doc-ic.is-word svg { color: var(--info); }
-.dv-doc-ic.is-excel svg { color: var(--success); }
-.dv-doc-ic.is-ppt svg { color: var(--warning); }
-.dv-doc-ic.is-zip svg { color: var(--accent); }
-.dv-doc-ic.is-text svg, .dv-doc-ic.is-generic svg { color: var(--text-muted); }
+.dv-doc-ic { flex: none; display: inline-flex; width: 20px; height: 20px; }
+/* The Files tab's glyph (ExtGlyph) fills its box. */
+.dv-doc-ic .fx-glyph { width: 100%; height: 100%; }
 .dv-wa-rail-contacts { display: flex; flex-direction: column; gap: 9.6px; }
 /* Calls — one row per call: type icon (red when missed) + label + who/when. */
 .dv-wa-rail-call {
@@ -2118,7 +2108,7 @@ img.dv-wa-media { cursor: pointer; }
 }
 .dv-wa-file:hover { background: rgba(11, 20, 26, 0.1); }
 .dv-wa-file svg { flex: none; color: var(--wa-meta); }
-.dv-wa-file .dv-doc-ic svg { width: 28.8px; height: 28.8px; }
+.dv-wa-file .dv-doc-ic { width: 28.8px; height: 28.8px; }
 .dv-wa-file-name {
   width: 100%; line-height: 1.3; word-break: break-word;
   display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
@@ -2144,7 +2134,7 @@ img.dv-wa-media { cursor: pointer; }
 .dv-wa-doccard.has-thumb .dv-wa-doccard-meta { border-radius: 0 0 5.6px 5.6px; }
 .dv-wa-doccard:not(.has-thumb) .dv-wa-doccard-meta { border-radius: 5.6px; }
 .dv-wa-doccard-meta:hover { background: color-mix(in srgb, var(--bg-card) 92%, var(--text-primary)); }
-.dv-wa-doccard-meta .dv-doc-ic svg { width: 25.6px; height: 25.6px; }
+.dv-wa-doccard-meta .dv-doc-ic { width: 25.6px; height: 25.6px; }
 .dv-wa-doccard-info { display: flex; flex-direction: column; min-width: 0; flex: 1; }
 .dv-wa-doccard-name {
   font-size: 10.4px; font-weight: 600; line-height: 1.25; word-break: break-word;
@@ -2491,6 +2481,20 @@ img.dv-wa-media { cursor: pointer; }
    to the bottom, so the scrollbar sits on the window edge. (The breathing room
    around the sheets themselves is the wrapper's own padding, which scrolls with
    them.) Scoped to the Word workspace; the slide preview keeps its inset. */
+/* The Word preview's frame FILLS the document area: the pages scroll inside
+   it, and the page list, the counters and the word count stand at ITS foot —
+   the window's (less the files strip), not the last page's. These two rules
+   lived in components/DocConstructor.css, which the viewer stopped loading
+   when paragraph picking was removed (2026-10-02) — the frame then took its
+   content's height and everything at its foot sat wherever the pages ended. */
+.dv-doc-main:has(.dcx-workspace) {
+  display: flex; flex-direction: column; overflow: hidden;
+  padding-top: 0; padding-bottom: 0;
+}
+.dcx-workspace {
+  flex: 1; min-height: 0; min-width: 0;
+  display: flex; flex-direction: column; position: relative;
+}
 .dv-doc-main:has(.dcx-workspace) .dv-docview { padding: 0; }
 /* …and on the left it starts right at the side panel's 8px gutter (the shared
    footprint adds 8px more), or at the window edge when the panel is hidden
@@ -2554,39 +2558,6 @@ img.dv-wa-media { cursor: pointer; }
 .dv-docx .dv-docx-cont { counter-increment: none !important; counter-reset: none !important; list-style: none !important; }
 .dv-docx .dv-docx-cont::before { content: none !important; counter-increment: none !important; }
 
-/* ── Document themes (the ribbon's Theme tab — lib/docThemes.js) ─────────
-   `applyDocTheme` stamps `data-doc-theme` + the `--dt-*` properties on the host;
-   the `docvex` theme stamps nothing, so the document shows as it was written.
-   docx-preview sets a document's named styles as classes (`docx_title`,
-   `docx_heading1` …) whose rules reach the runs (`span`), and run-level
-   formatting as inline styles — hence the `!important`s. Body runs that carry a
-   colour of their OWN (inline) keep it: that is someone's red ink, not the
-   theme's. Headings are the theme's outright. Blanks (`.dv-field`) keep their
-   chip styling. Fonts change line lengths, so the pane re-renders and
-   re-paginates under a new theme instead of restyling sliced pages. */
-.dv-docx[data-doc-theme] .docx-wrapper :is(p, li, td, th) {
-  color: var(--dt-body) !important;
-  font-family: var(--dt-font-body) !important;
-}
-.dv-docx[data-doc-theme] .docx-wrapper :is(p, li, td, th) span:not(.dv-field, .dv-field *):not([style*="Consolas"]) {
-  font-family: var(--dt-font-body) !important;
-}
-.dv-docx[data-doc-theme] .docx-wrapper :is(p, li, td, th) span:not(.dv-field, .dv-field *):not([style*="color"]) {
-  color: var(--dt-body) !important;
-}
-.dv-docx[data-doc-theme][data-doc-theme] .docx-wrapper p:is([class*="_title" i], [class*="subtitle" i], [class*="heading" i]),
-.dv-docx[data-doc-theme][data-doc-theme] .docx-wrapper p:is([class*="_title" i], [class*="subtitle" i], [class*="heading" i]) span:not(.dv-field, .dv-field *) {
-  color: var(--dt-h2) !important;
-  font-family: var(--dt-font-head) !important;
-  border-color: var(--dt-rule) !important;
-}
-.dv-docx[data-doc-theme][data-doc-theme] .docx-wrapper p[class*="_title" i],
-.dv-docx[data-doc-theme][data-doc-theme] .docx-wrapper p[class*="_title" i] span:not(.dv-field, .dv-field *) { color: var(--dt-title) !important; }
-.dv-docx[data-doc-theme][data-doc-theme] .docx-wrapper p[class*="heading1" i],
-.dv-docx[data-doc-theme][data-doc-theme] .docx-wrapper p[class*="heading1" i] span:not(.dv-field, .dv-field *) { color: var(--dt-h1) !important; }
-.dv-docx[data-doc-theme][data-doc-theme] .docx-wrapper p[class*="heading3" i],
-.dv-docx[data-doc-theme][data-doc-theme] .docx-wrapper p[class*="heading3" i] span:not(.dv-field, .dv-field *) { color: var(--dt-h3) !important; }
-
 /* ── Collapsible headings (markDocFolds / applyDocFolds in DocViewer.jsx) ──
    Word's collapse triangle, on every heading: in the gutter left of it, shown
    while the heading is hovered and for as long as it is folded (so a folded
@@ -2618,107 +2589,13 @@ img.dv-wa-media { cursor: pointer; }
 .dv-docx .dv-fold-head:hover::after,
 .dv-docx .dv-fold-head.is-collapsed::after { opacity: 1; }
 .dv-docx .dv-fold-head.is-collapsed::after { transform: translateY(-50%) rotate(-90deg); }
-/* Not on the picked paragraph's copies, and not while the document is zoomed in
-   on one (the veil makes that state modal). */
-.dv-docx .dv-docx-livecard::after,
-.dv-docview-body.is-zoom-live .dv-fold-head::after { display: none; }
 .dv-docx .dv-folded { display: none !important; }
 .dv-docx .docx-wrapper > .dv-docx-page.has-folded { height: auto !important; min-height: 0 !important; }
 .dv-docx .docx-wrapper > .dv-docx-page.is-all-folded { display: none; }
 
-/* Paragraph picking. paginateDocx stamps `.dv-docx-para` on every text block,
-   so each paragraph reads as its own target: hovering tints it, clicking keeps
-   the tint (shift-click extends a range, ctrl/cmd-click adds one). The tint is
-   painted with a matching box-shadow spread so the highlight looks padded
-   without changing the block's layout — the page must still paginate exactly as
-   it measured. Colours are mixed against the white page, not the app surface. */
-.dv-docx-para {
-  border-radius: 3.2px; cursor: pointer;
-  transition: background 110ms ease, box-shadow 110ms ease, opacity 160ms ease;
-}
-/* HOVER: the paragraph under the pointer stays EXACTLY as it is and the rest
-   of the document dims a little (DocParaPill marks it — `.dv-docx.has-para-hot`
-   on the host, `.is-para-hot` on the paragraph — so moving between paragraphs
-   restyles two elements, not the page). It replaced a cognac tint and ring on
-   the hovered paragraph. Not while a paragraph is picked or a cross-reference
-   jump is showing: each of those has its own recede. A block holding the
-   hovered paragraph (a table around a cell's paragraph) stays bright with it.
-   Opacity only — nothing moves, nothing re-wraps. */
-/* (The dim of the REST of the document on hover was removed at the user's
-   request — the hovered paragraph's sleeve is the whole hover look now.) */
-/* PICKED: nothing is painted on the picked paragraph (it used to take a
-   cognac tint, a ring and a detached outline) — it stays exactly as written
-   and the rest of the document dims FURTHER than on hover (0.3 against the
-   hover's 0.72; the has-pick rule below). */
-
-/* An editable paragraph: it IS an input now, so it takes a text caret and a
-   focus ring that reads as a field without moving anything (the ring is the
-   same detached outline the pick uses, so focusing doesn't shift the layout).
-   `white-space: normal` is pinned deliberately — Chromium's editing UA styles
-   lean towards pre-wrap, which would render the TAB inside a Word list marker
-   as a real 8-character tab stop and open a gap between the bullet and its text
-   the moment the paragraph is picked. */
-.dv-docx-para[contenteditable] { white-space: normal; }
-.dv-docx-para[contenteditable]:focus,
-.dv-docx-para[contenteditable]:focus-visible { outline: none; }
-/* Edited but not yet saved — a warm underline marks what differs from the AI's
-   text, and survives losing the pick so the edit can't be forgotten. */
-.dv-docx-para.is-edited {
-  text-decoration: underline;
-  text-decoration-color: color-mix(in srgb, var(--color-cognac) 60%, transparent);
-  text-decoration-thickness: 1.5px;
-  text-underline-offset: 3px;
-}
-.dv-docx.has-pick .dv-docx-para.is-edited { opacity: 1; }
-
-/* While anything is picked, the rest of the document recedes so the picked
-   passage reads as the subject — and that is ALL picking does (no zoom, veil
-   or card: PICK_POP_OUT in DocViewer.jsx). Everything in the page's flow dims —
-   tables and images included, not just the tagged paragraphs — and the picked
-   blocks are pulled back to full strength on top of it. */
-.dv-docx.has-pick .dv-docx-page > article > * { opacity: 0.14; transition: opacity 160ms ease; }
-/* While a paragraph is picked nothing else is a target (a click outside it
-   only dismisses — DocParaPill / the pick handler), so nothing else shows the
-   hand: every other paragraph and every mark outside the pick take the plain
-   arrow. The marks INSIDE the picked paragraph keep theirs. */
-.dv-docx.dv-docx.has-pick .dv-docx-page,
-.dv-docx.dv-docx.has-pick .dv-docx-page *,
-.dv-docx.dv-docx.has-pick .dv-docx-page *::after { cursor: default; }
-.dv-docx.dv-docx.has-pick .dv-docx-para.is-selected :is(.dv-ref[data-href], .dv-xref, .dv-cuiref) { cursor: pointer; }
-/* THE SLEEVE: a black bar down the LEFT of the picked paragraph and of the one
-   under the pointer. Two box-shadows, so it takes no room and nothing moves:
-   an outer shadow is never painted under its own box, so the ink one (7px out)
-   shows as a strip left of the paragraph, and the page-white one on top of it
-   (4px out) opens the gap between the bar and the text. */
-.dv-docx .dv-docx-para.is-selected,
-.dv-docx.has-para-hot:not(.has-pick) .is-para-hot {
-  box-shadow: -5px 0 0 0 #fff, -8px 0 0 0 var(--color-ink);
-}
-.dv-docx.has-pick .dv-docx-para.is-selected,
-.dv-docx.has-pick .dv-docx-page > article > :has(.dv-docx-para.is-selected) { opacity: 1; }
-
-/* ── Pick spotlight ─────────────────────────────────────────────────────
-   Picking a paragraph zooms the whole document in on it (layoutLift in
-   DocViewer.jsx sets a translate + scale on the host) until it sits in the
-   middle of the preview, and everything else — the dimmed text AND the page
-   sheets themselves — goes out of focus under a veil.
-
-   Layering: the transform makes the host a stacking context, so the veil is a
-   child of the host (appended by layoutLift) at z 4 and the picked paragraph is
-   z 5. For the paragraph to get above it, nothing between the two may form a
-   stacking context of its own. The wrapper scales with `zoom` (not `transform`)
-   and the page sheet is `position: relative` with no z-index, so those are
-   fine — but docx-preview's own stylesheet gives each page's <article>
-   `z-index: 1`, and as a FLEX ITEM that makes it a stacking context without
-   being positioned, pinning everything inside it at level 1, under the veil.
-   It is reset while the spotlight is live. The sheets also drop their clip for
-   that time, or the card's border and shadow would be cut at the page's edge.
-
-   State lives on the scroller: `.is-zoom-live` spans the whole episode
-   INCLUDING the way back out, `.is-zoom-on` is the veil's visibility,
-   `.is-zoom-tracking` switches the easing off while the camera follows a
-   resize or a keystroke. */
-.dv-docview-body { position: relative; } /* the host's offsetParent — layoutLift reads its offsets */
+/* The pages are read-only: paragraphs are not hovered, picked or edited
+   (removed 2026-10-02). */
+.dv-docview-body { position: relative; }
 /* The zoom pill over a DOCUMENT (Word / PDF): the image pane's pill, standing at
    the top of the document area just right of the page list (inline `left`),
    level with the side panel (--rail-top, measured — lib/sidePanelEdges). */
@@ -2911,374 +2788,17 @@ body.dv-ocr-resizing .dv-doc-words { transition: none; }
   transition: transform 380ms cubic-bezier(0.22, 1, 0.36, 1),
               padding-left var(--dv-rail-motion);
 }
-.dv-docview-body.is-zoom-tracking .dv-docx { transition: none; }
-/* No scrolling while zoomed: the scaled document would stretch the scroll range.
-   layoutLift pads the scroller by the width its scrollbar took, so nothing
-   shifts sideways when the bar goes. */
-.dv-docview-body.is-zoom-live { overflow: hidden; }
-.dv-docview-body.is-zoom-live .dv-docx-page { overflow: visible; }
-.dv-docview-body.is-zoom-live .dv-docx-page > article { z-index: auto; }
-
-/* The veil covers far more than the document so that no edge of it can come
-   into view at any zoom or pan. Up = modal: it takes the pointer, so nothing
-   behind it can be hovered or picked, and a click on it reaches the host's
-   click handler as a click on nothing, which drops the pick. The blur is
-   divided by the zoom — it is scaled up along with everything else in the
-   host, and would otherwise triple. */
-/* It only exists while the zoom is live (which includes the way back out):
-   at 6000px past the document on every side it would otherwise stretch the
-   pane's scroll range — a horizontal scrollbar, and six screens of nothing
-   under the last page — as soon as the pane scrolls again. */
-.dv-docx > .dv-docx-veil { display: none; }
-.dv-docview-body.is-zoom-live .dv-docx > .dv-docx-veil {
-  display: block;
-  position: absolute; inset: -6000px; z-index: 4;
-  pointer-events: none;
-  opacity: 0;
-  /* Blur only — no tint: the document behind keeps its own colours. */
-  background: transparent;
-  backdrop-filter: blur(calc(7px / var(--dv-zoom-k, 1)));
-  -webkit-backdrop-filter: blur(calc(7px / var(--dv-zoom-k, 1)));
-  /* Hidden outright once faded: a backdrop-filter that is merely transparent
-     can still be composited, over the whole document. */
-  visibility: hidden;
-  transition: opacity 320ms ease, visibility 0s 320ms;
-}
-.dv-docview-body.is-zoom-on .dv-docx > .dv-docx-veil {
-  opacity: 1; visibility: visible; pointer-events: auto; cursor: default;
-  transition: opacity 320ms ease, visibility 0s;
-}
 
 /* The picked block is a card now, not a tint on a page: an opaque ground (it
    sits on a blurred backdrop, a see-through tint would turn to mud) grown with
    box-shadow spread, never padding — the block keeps its measured size, so the
    page it sits in doesn't reflow behind the veil. */
-.dv-docx .dv-docx-page > article > .dv-docx-para,
-.dv-docx.has-pick .dv-docx-page > article > .dv-docx-para {
+.dv-docx .dv-docx-page > article > .dv-docx-para {
   transition: background 160ms ease, box-shadow 320ms ease, opacity 160ms ease;
 }
-/* Stacking above the veil (z 4): the paragraph's own card lowest, so its shadow falls
-   UNDER the paragraph's card rather than across it; then the paragraph; then
-   the paragraph's preview copy, which covers it. */
-.dv-docx-para.is-lifted,
-.dv-docx-para.is-landing { position: relative; z-index: 6; }
-/* The picked paragraph as a card: a white ground grown with box-shadow SPREAD
-   (real padding would change the block's size) and a soft drop shadow lifting
-   it off the blurred page. No coloured border and no outline. */
-.dv-docx-para.is-lifted,
-.dv-docx-para.is-lifted:hover,
-.dv-docx .dv-docx-livecard {
-  background: #fff !important;
-  box-shadow:
-    0 0 0 16px #fff,
-    0 28px 70px 16px rgba(0, 0, 0, 0.45);
-  border: 0;
-  border-radius: 1.6px;
-  outline: none;
-}
-.dv-docx-para.is-lifted[contenteditable]:focus,
-.dv-docx-para.is-lifted[contenteditable]:focus-visible { outline: none; }
-
-/* The PREVIEW COPY of the picked paragraph (onCtorLive in DocViewer.jsx): what
-   the panel's changes look like, laid exactly over the real paragraph — which
-   is hidden under it and keeps its own text and height, so the document behind
-   the veil doesn't change or reflow until the paragraph is closed. Out of flow
-   (position/left/top/width are set inline), above the veil, and exempt from the
-   dimming every other block of the page gets while something is picked. */
-.dv-docx .dv-docx-page > article > .dv-docx-livecard,
-.dv-docx.has-pick .dv-docx-page > article > .dv-docx-livecard {
-  z-index: 7;
-  opacity: 1;
-  box-sizing: content-box;
-  transition: none;
-}
-.dv-docx .dv-docx-livecard,
-.dv-docx .dv-docx-livecard * { cursor: default; }
-.dv-docx-para.is-shadowed { visibility: hidden; }
 
 @keyframes dv-card-fade-in { from { opacity: 0; } to { opacity: 1; } }
 
-/* Close — pinned to the top-right corner of the WINDOW (just under the title
-   bar), not to the paragraph: the same place every time, whatever the zoom
-   landed on. `position: fixed` holds because no ancestor of the preview is
-   transformed or filtered. Arrives once the zoom has landed. */
-/* One of the pane's floating pills — the same dark glass as the find bar it
-   now sits above (.dv-find), rather than the light elevated button it was: the
-   two share a corner, and one of them looking like a dialog's close box and the
-   other like a piece of the document's own chrome read as two unrelated things.
-   It takes the TOP of that corner and the find bar drops below it (see the
-   .has-pick rule by .dv-find) — before this the two were placed at the same
-   spot and simply met there. */
-.dv-docx-liftclose {
-  position: fixed; z-index: 8;
-  top: calc(var(--titlebar-h, 0px) + 6.4px);
-  right: calc(var(--dv-fields-pad, 0px) + 12px);
-  width: var(--dv-liftclose); height: var(--dv-liftclose);
-  padding: 0;
-  display: grid; place-items: center;
-  border: 1px solid rgba(255, 255, 255, 0.09); border-radius: 999px;
-  background: var(--ds-dv-pill-glass, rgba(10, 12, 14, 0.92));
-  color: rgba(255, 255, 255, 0.7);
-  backdrop-filter: blur(var(--ds-dv-pill-blur, 17.6px)) saturate(1.8);
-  -webkit-backdrop-filter: blur(var(--ds-dv-pill-blur, 17.6px)) saturate(1.8);
-  filter: drop-shadow(0 3.2px 12.8px rgba(0, 0, 0, 0.55));
-  cursor: pointer;
-  opacity: 0; visibility: hidden; transform: scale(0.6);
-  transition: opacity 120ms ease, transform 120ms ease, visibility 0s 120ms, background 120ms ease;
-}
-.dv-docx-liftclose.is-on {
-  opacity: 1; visibility: visible; transform: scale(1);
-  transition: opacity 200ms ease 340ms, transform 260ms cubic-bezier(0.16, 1, 0.3, 1) 340ms, visibility 0s 340ms, background 120ms ease;
-}
-/* Over the picked paragraph (layoutLift places it; `left`
-   is its CENTRE): this paragraph's versions as a row of dots — oldest on the
-   left, the filled one is the state it is in now, a hollow
-   dashed one at the end is "changed, not saved yet". Not scaled with the zoom,
-   like the panel. */
-.dv-docx-lifttop {
-  position: absolute; z-index: 6;
-  left: 0; top: 0;
-  display: flex; flex-direction: column; align-items: center; gap: 10px;
-  opacity: 0; visibility: hidden; transform: translate(-50%, 4px);
-}
-.dv-docx-lifttop.is-on {
-  opacity: 1; visibility: visible; transform: translate(-50%, 0);
-  transition: opacity 180ms ease 120ms, transform 240ms cubic-bezier(0.16, 1, 0.3, 1) 120ms, visibility 0s 120ms;
-}
-.dv-docx-liftdots {
-  display: flex; align-items: center; gap: 7px;
-  padding: 6px 10px;
-  border-radius: 999px;
-  border: 1px solid var(--border-strong);
-  background: var(--bg-elevated);
-  /* No shadow: the row sits just above the paragraph's card, and a shadow would
-     fall across it. The border is enough to hold it against the blur. */
-  box-shadow: none;
-}
-.dv-docx-liftdot {
-  width: 9px; height: 9px; padding: 0; flex: none;
-  border-radius: 50%;
-  border: 1.5px solid color-mix(in srgb, var(--text-muted) 70%, transparent);
-  background: transparent;
-  cursor: pointer;
-  transition: background 120ms ease, border-color 120ms ease, transform 120ms ease;
-}
-.dv-docx-liftdot:hover { border-color: var(--accent); transform: scale(1.25); }
-.dv-docx-liftdot.is-active { background: var(--accent); border-color: var(--accent); }
-/* Being previewed in the paragraph right now (hover / keyboard focus). */
-.dv-docx-liftdot.is-hover:not(.is-active) { background: color-mix(in srgb, var(--accent) 45%, transparent); border-color: var(--accent); }
-.dv-docx-liftdot:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-.dv-docx-liftdot.is-unsaved { border-style: dashed; border-color: var(--accent); background: transparent; cursor: default; }
-.dv-docx-liftdot.is-unsaved:hover { transform: none; }
-
-/* Paragraph rail — down the LEFT edge of the preview, vertically centred: ▲, a
-   window of pills around the picked paragraph, ▼. Each pill carries the
-   clause's own number ("1.1", "a)") or its place in the document; the picked
-   one is filled with the accent and a little larger, the ones furthest from it
-   recede — so the rail says where you are and what is either side. Inside
-   .dv-docview (whose left edge is the side panel's gutter), above the veil. */
-.dv-docx-liftnav {
-  position: absolute; z-index: 6;
-  left: 14px; top: 50%;
-  display: flex; flex-direction: column; align-items: center; gap: 8px;
-  opacity: 0; visibility: hidden; transform: translate(-8px, -50%);
-  transition: opacity 120ms ease, transform 120ms ease, visibility 0s 120ms;
-}
-.dv-docx-liftnav.is-on {
-  opacity: 1; visibility: visible; transform: translate(0, -50%);
-  transition: opacity 200ms ease 200ms, transform 260ms cubic-bezier(0.16, 1, 0.3, 1) 200ms, visibility 0s 200ms;
-}
-.dv-docx-liftnav-btn {
-  width: 28px; height: 28px; padding: 0;
-  display: grid; place-items: center;
-  border: 1px solid var(--border-strong); border-radius: 50%;
-  background: var(--bg-elevated); color: var(--text-secondary);
-  cursor: pointer;
-  transition: background 120ms ease, border-color 120ms ease, opacity 120ms ease;
-}
-.dv-docx-liftnav-btn:hover:not(:disabled) { background: var(--accent); border-color: var(--accent); color: var(--text-on-accent); }
-.dv-docx-liftnav-btn:disabled { opacity: 0.4; cursor: not-allowed; }
-.dv-docx-liftnav-pills { display: flex; flex-direction: column; align-items: center; gap: 5px; }
-.dv-docx-liftnav-pill {
-  min-width: 34px; height: 20px; padding: 0 8px;
-  display: inline-flex; align-items: center; justify-content: center;
-  border: 1px solid var(--border); border-radius: 999px;
-  background: var(--bg-elevated); color: var(--text-muted);
-  font-family: var(--font-body); font-size: 9.6px; font-weight: 600; font-variant-numeric: tabular-nums;
-  white-space: nowrap; cursor: pointer;
-  transition: background 140ms ease, color 140ms ease, border-color 140ms ease, transform 140ms ease, opacity 140ms ease;
-}
-.dv-docx-liftnav-pill:hover { border-color: var(--accent); color: var(--text-primary); }
-.dv-docx-liftnav-pill.is-far { opacity: 0.55; transform: scale(0.88); }
-.dv-docx-liftnav-pill.is-active {
-  background: var(--accent); border-color: var(--accent); color: var(--text-on-accent);
-  transform: scale(1.12); opacity: 1;
-  cursor: default;
-}
-
-/* The Constructor's controls for the picked paragraph, docked under the lifted
-   card. layoutLift sets left / top / width / max-height and switches it on;
-   the contents are components/DocConstructor (.dcx-para scrolls inside). Same
-   It RIDES THE CAMERA with the paragraph — but
-   from outside the zoomed host, so layoutLift matches the motion rather than
-   inheriting it: an inline transform from under the card as it is on screen now
-   (at the card's current scale, about the panel's top-centre) to its place,
-   on the host's own duration and easing (keep `.is-riding` in step with
-   `.dv-docx`'s transition). */
-/* ── The acts a picked paragraph cites ──────────────────────────────
-   Docked under the paragraph, in the same panel as its other controls, so the
-   clause and what it turns on are one thing to look at. When the paragraph has
-   no Constructor piece this is the whole of the panel, which is why it carries
-   the card's own material rather than relying on something above it. */
-.dv-paralaw {
-  display: flex; flex-direction: column; gap: 6px;
-  padding: 10px 12px 12px;
-  background: var(--bg-card);
-  border: 1px solid var(--border);
-  border-radius: var(--ds-dv-card-radius, 11.2px);
-  box-shadow: var(--shadow-card);
-}
-/* Under the Constructor's own card rather than welded to it: two things about
-   the same paragraph, not one panel with a rule through it. */
-.dv-docx-liftpanel > * + .dv-paralaw { margin-top: 8px; }
-.dv-paralaw-head { display: flex; flex-direction: column; gap: 1px; }
-.dv-paralaw-title {
-  font-size: 11.2px; font-weight: 650; color: var(--text-primary);
-  letter-spacing: 0.01em;
-}
-.dv-paralaw-sub { font-size: 9.6px; color: var(--text-muted); }
-/* A clause can cite half a dozen acts; past that the list scrolls rather than
-   pushing the paragraph it belongs to off the top of the pane. */
-.dv-paralaw-list {
-  list-style: none; margin: 0; padding: 0;
-  display: flex; flex-direction: column; gap: 4px;
-  max-height: 232px; overflow-y: auto;
-}
-.dv-paralaw-row {
-  display: flex; align-items: flex-start; gap: 8px;
-  padding: 6px 8px;
-  border: 1px solid transparent;
-  border-radius: 8px;
-  /* The colour of the PLATFORM the row opens, as its mark in the text wears
-     it: an act legislatie.just.ro's violet, a CAEN code insse.ro's amber
-     (lib/legalBrowser PLATFORMS). */
-  --paralaw: var(--cat-update);
-  background: color-mix(in srgb, var(--paralaw) 10%, transparent);
-  transition: background 120ms ease, border-color 120ms ease;
-}
-.dv-paralaw-row:hover { background: color-mix(in srgb, var(--paralaw) 18%, transparent); border-color: color-mix(in srgb, var(--paralaw) 40%, transparent); }
-.dv-paralaw-row.is-caen { --paralaw: var(--warning); }
-.dv-paralaw-main { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
-.dv-paralaw-name {
-  font-size: 11.2px; font-weight: 650; color: var(--text-primary); line-height: 1.3;
-  overflow-wrap: anywhere;
-}
-/* The act's own title, as the document gave it on first mention. Two lines at
-   most: it can run to two hundred characters and the dock is not a reading
-   surface. */
-.dv-paralaw-of {
-  font-size: 9.6px; color: var(--text-secondary); line-height: 1.35;
-  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
-}
-.dv-paralaw-meta { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 2px; }
-.dv-paralaw-part,
-.dv-paralaw-note {
-  font-size: 8.8px; line-height: 1.5;
-  padding: 0 5px;
-  border-radius: 999px;
-  white-space: nowrap;
-}
-/* WHICH PART of the act this clause points at — the one line here that is
-   about this paragraph rather than about the act, so it is the one that reads
-   strongest. */
-.dv-paralaw-part {
-  font-weight: 650;
-  color: var(--text-primary);
-  background: var(--bg-elevated);
-  border: 1px solid var(--border);
-}
-.dv-paralaw-note { color: var(--text-muted); background: var(--bg-sidebar); }
-.dv-paralaw-open {
-  flex: none;
-  display: inline-flex; align-items: center; gap: 4px;
-  padding: 4px 8px;
-  border: 1px solid var(--border); border-radius: 6.4px;
-  background: var(--bg-elevated);
-  color: var(--text-primary);
-  font: inherit; font-size: 9.6px; font-weight: 650;
-  cursor: pointer;
-  transition: background 120ms ease, border-color 120ms ease;
-}
-.dv-paralaw-open:hover { background: var(--accent); border-color: var(--accent); color: var(--text-on-accent); }
-/* Two ways to the act, and they are not equals. "Read here" opens it in the
-   app, against the document that cites it; "Look it up" leaves for a browser,
-   where the case being read is not. So the first one is the button and the
-   second is the way out, and they stack rather than compete for one row's
-   width — the dock is as wide as a paragraph, not as wide as a page. */
-.dv-paralaw-acts { flex: none; display: flex; flex-direction: column; gap: 3px; align-items: stretch; }
-.dv-paralaw-acts .dv-paralaw-open { justify-content: center; }
-.dv-paralaw-open.is-primary {
-  background: var(--accent); border-color: var(--accent); color: var(--text-on-accent);
-}
-.dv-paralaw-open.is-primary:hover { background: var(--accent-hover); border-color: var(--accent-hover); }
-.dv-paralaw-open:active { transform: translateY(0.5px); }
-:root[data-reduce-motion='true'] .dv-paralaw-row,
-:root[data-reduce-motion='true'] .dv-paralaw-open { transition: none; }
-/* A CAEN citation's codes, each with its official name (ParaCaenCodes). The
-   code is the button — it opens the code on the CAEN page in the main window. */
-.dv-paracaen { list-style: none; margin: 3px 0 1px; padding: 0; display: flex; flex-direction: column; gap: 3px; }
-.dv-paracaen-row { display: flex; align-items: baseline; gap: 7px; }
-.dv-paracaen-code {
-  flex: none;
-  padding: 0 6px;
-  border: 1px solid var(--border); border-radius: 5px;
-  background: var(--bg-elevated); color: var(--text-primary);
-  font: inherit; font-size: 9.6px; font-weight: 700; font-variant-numeric: tabular-nums; line-height: 1.6;
-  cursor: pointer;
-  transition: background 120ms ease, border-color 120ms ease, color 120ms ease;
-}
-.dv-paracaen-code:hover:not(:disabled) { background: var(--accent); border-color: var(--accent); color: var(--text-on-accent); }
-.dv-paracaen-code:disabled { cursor: default; color: var(--text-muted); }
-.dv-paracaen-body { min-width: 0; display: flex; flex-direction: column; gap: 1px; }
-.dv-paracaen-name { font-size: 10.4px; line-height: 1.35; color: var(--text-secondary); }
-/* The revision caveat — a number whose meaning depends on when the document
-   was written. */
-.dv-paracaen-flag { font-size: 9.6px; line-height: 1.35; color: var(--warning); font-weight: 600; }
-
-.dv-docx-liftpanel {
-  position: absolute; z-index: 6;
-  left: 0; top: 0;
-  display: flex; flex-direction: column;
-  box-sizing: border-box;
-  /* No frame of its own — no border, ground or rounded box: just the options,
-     each tile its own surface on the blurred document. */
-  border: 0; background: transparent; box-shadow: none;
-  overflow: visible;
-  opacity: 0; visibility: hidden;
-  transform-origin: 50% 0;
-}
-.dv-docx-liftpanel.is-on {
-  opacity: 1; visibility: visible;
-  /* `top` eases: the panel sits under the paragraph's preview copy and slides
-     down or up a line when the copy's text re-wraps — the one thing outside the
-     paragraph that answers to a change inside it (the document never moves). */
-  transition: top 160ms ease;
-}
-/* The start of a ride is set without easing… */
-.dv-docx-liftpanel.is-snap { transition: none; }
-/* …and the ride itself is the host's transition (`top` doesn't ease meanwhile:
-   the two would add up and pull the panel off the card). */
-.dv-docx-liftpanel.is-riding {
-  transition: transform 380ms cubic-bezier(0.22, 1, 0.36, 1);
-  animation: dv-card-fade-in 200ms ease backwards;
-}
-/* The way out: a lifeless copy of the panel's last markup (the panel itself is
-   unmounted with the pick) follows the paragraph back into the page, fading on
-   the paragraph card's clock. */
-.dv-docx-liftpanel.is-ghost {
-  pointer-events: none;
-  transition: transform 380ms cubic-bezier(0.22, 1, 0.36, 1), opacity 180ms ease;
-}
 /* Every paragraph is clickable, and says so: the hand, over the whole block —
    its runs and blanks included, and blocks pagination didn't tag (a paragraph
    in a table cell is tagged on its first click). Spelled out on the descendants
@@ -3286,135 +2806,14 @@ body.dv-ocr-resizing .dv-doc-words { transition: none; }
    rather than the hand. */
 .dv-docx .dv-docx-page :is(p, h1, h2, h3, h4, h5, h6, li):not(.is-selected),
 .dv-docx .dv-docx-page :is(p, h1, h2, h3, h4, h5, h6, li):not(.is-selected) * { cursor: pointer; }
-/* The picked paragraph itself: the plain arrow — its text isn't typed into
-   (only the inputs of its blanks are, in its preview copy). */
-.dv-docx .dv-docx-para.is-selected,
-.dv-docx .dv-docx-para.is-selected * { cursor: default; }
 
-/* The find pill's own hover, not an accent fill: these are one family. */
-.dv-docx-liftclose:hover {
-  background: rgba(22, 26, 30, 0.95);
-  border-color: rgba(255, 255, 255, 0.22);
-  color: #fff;
-}
-
-/* ── The picked paragraph's action bar, docked ──────────────────────────
-   An empty node at the head of the Paragraph sub-tab's thread: the document
-   pane portals its action bar in here, because it owns the pick and every
-   handler that acts on it. All this side supplies is the box and its padding. */
-.dv-para-panel {
-  flex: none;
-  padding: 0 11.2px 8px;
-  display: flex; flex-direction: column; gap: 8px; align-items: stretch;
-}
-
-/* Action bar for the picked paragraphs — floats above the foot toolbar and
-   stays put while the page scrolls. */
-.dv-docx-parabar {
-  position: absolute; left: 50%; bottom: 48px; z-index: 7;
-  transform: translateX(-50%);
-  display: inline-flex; align-items: center; gap: 6.4px;
-  max-width: calc(100% - 28px); flex-wrap: wrap; justify-content: center;
-  padding: 5.6px 6.4px;
-  border: 1px solid var(--border); border-radius: 999px;
-  background: var(--bg-elevated); box-shadow: var(--shadow-elev);
-  animation: dv-parabar-in 140ms ease-out;
-}
 @keyframes dv-parabar-in {
   from { opacity: 0; transform: translate(-50%, 6px); }
   to   { opacity: 1; transform: translate(-50%, 0); }
 }
-/* Inside the panel it isn't a pill floating over a page any more — it is the
-   pane's content. Drop the fixed placement, the pill radius and the lift, and
-   let the controls wrap down the panel's narrow column instead of along a bar. */
-.dv-docx-parabar.is-docked {
-  position: static;
-  transform: none;
-  max-width: none;
-  width: 100%;
-  box-sizing: border-box;
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: flex-start;
-  gap: 6.4px;
-  padding: 9.6px;
-  border-radius: 9.6px;
-  background: var(--bg-card);
-  box-shadow: none;
-  animation: dv-parabar-dock-in 140ms ease-out;
-}
 @keyframes dv-parabar-dock-in {
   from { opacity: 0; transform: translateY(4px); }
   to   { opacity: 1; transform: translateY(0); }
-}
-/* The prompt field is the point of the pane — give it the full width rather
-   than the sliver left over beside the buttons. */
-.dv-docx-parabar.is-docked .dv-docx-parabar-ask { flex: 1 0 100%; }
-.dv-docx-parabar.is-docked .dv-docx-parabar-input { width: 100%; }
-.dv-docx-parabar.is-docked .dv-docx-parabar-btn.is-primary { flex: 1 0 100%; }
-.dv-docx-parabar-btn {
-  appearance: none; padding: 4px 10px; border-radius: 999px;
-  border: 1px solid var(--border); background: var(--bg-card);
-  color: var(--text-primary);
-  font-family: var(--font-body); font-size: 10.4px; font-weight: 600;
-  white-space: nowrap; cursor: pointer;
-  transition: background 120ms ease, border-color 120ms ease, color 120ms ease;
-}
-.dv-docx-parabar-btn:hover { background: var(--accent-soft); border-color: var(--accent); }
-.dv-docx-parabar-btn.is-primary {
-  background: var(--accent); border-color: var(--accent); color: var(--text-on-accent);
-}
-.dv-docx-parabar-btn.is-primary:hover { background: var(--accent-hover); border-color: var(--accent-hover); }
-.dv-docx-parabar-btn:disabled { opacity: 0.45; cursor: not-allowed; }
-.dv-docx-parabar-btn:disabled:hover { background: var(--bg-card); border-color: var(--border); }
-/* Icon-only (revert) — square footprint so it reads as an action, not a label. */
-.dv-docx-parabar-btn.is-icon {
-  display: inline-flex; align-items: center; justify-content: center;
-  width: 26px; height: 24px; padding: 0;
-}
-
-/* Word-style formatting toggles for the selected words. */
-/* Prompt the AI about the selection, without leaving the document. */
-.dv-docx-parabar-ask {
-  display: inline-flex; align-items: center; gap: 4px;
-  padding: 2px 2px 2px 10px;
-  border: 1px solid var(--border); border-radius: 999px;
-  background: var(--bg-input);
-}
-.dv-docx-parabar-input {
-  appearance: none; border: 0; background: transparent; outline: none;
-  width: 210px; padding: 3px 0;
-  color: var(--text-primary);
-  font-family: var(--font-body); font-size: 10.4px;
-}
-.dv-docx-parabar-input::placeholder { color: var(--text-muted); }
-.dv-docx-parabar-input:disabled { opacity: 0.55; }
-.dv-docx-parabar-send {
-  appearance: none; width: 22px; height: 22px; padding: 0; flex: none;
-  display: inline-flex; align-items: center; justify-content: center;
-  border: 0; border-radius: 50%;
-  background: var(--accent); color: var(--text-on-accent); cursor: pointer;
-  transition: background 120ms ease, opacity 120ms ease;
-}
-.dv-docx-parabar-send:hover:not(:disabled) { background: var(--accent-hover); }
-.dv-docx-parabar-send:disabled { background: transparent; color: var(--text-muted); cursor: not-allowed; }
-
-/* Why a save was refused. Pinned just under the action bar. */
-.dv-docx-parabar-err {
-  position: absolute; left: 50%; bottom: 82px; z-index: 7;
-  transform: translateX(-50%);
-  max-width: min(88%, 420px);
-  padding: 6px 12px; border-radius: 8px;
-  border: 1px solid var(--danger); background: var(--danger-soft); color: var(--danger-text);
-  font-family: var(--font-body); font-size: 10.4px; font-weight: 600; text-align: center;
-}
-/* Docked with the bar it explains — in the panel it is a block in the column,
-   not a pill pinned above a floating bar. */
-.dv-docx-parabar-err.is-docked {
-  position: static;
-  transform: none;
-  max-width: none;
-  text-align: left;
 }
 
 /* ── PowerPoint preview (parsed from the pptx zip) ───────────────────────── */
@@ -3516,17 +2915,19 @@ body.dv-ocr-resizing .dv-doc-words { transition: none; }
    button, copied on click. The layer lets the pointer through (panning still
    works between regions). */
 .dv-textlayer { position: absolute; z-index: 5; pointer-events: none; transform-origin: 50% 50%; }
-/* The dimming — ONE pane with every text shape cut out of it (inline even-odd
-   clip-path). Nothing is drawn over the text: inside a shape the picture shows
-   exactly as it is. */
-.dv-textdim {
-  position: absolute; inset: 0; pointer-events: none;
-  background: color-mix(in srgb, var(--color-ink) 46%, transparent);
-  animation: dv-textlayer-in 220ms ease-out;
-}
+/* PERFORMANCE: the text layer rides the pan as a GPU layer of its own (see
+   "Panning and zooming a picture stay on the compositor" at the end of this
+   file). Its lines are layout islands: a selection or a mark changing on one
+   never re-lays the others. */
+.dv-textline { contain: layout style; }
+/* The text built at the picture's size when it was read, scaled to the size on
+   show (TextRegionsLayer `rbox`): the side panel's drag resizes the picture
+   without rebuilding a letter. */
+.dv-textfit { position: absolute; left: 0; top: 0; transform-origin: 0 0; }
+/* Nothing is drawn over the picture: only the invisible hit area of the text
+   shapes (a press there selects text instead of panning). */
 .dv-textrim { position: absolute; inset: 0; display: block; overflow: visible; pointer-events: none; }
 .dv-textrim path.dv-texthit { fill: transparent; stroke: none; pointer-events: fill; cursor: text; }
-.dv-textrim path:not(.dv-texthit) { fill: none; stroke: color-mix(in srgb, white 55%, transparent); stroke-width: 1; }
 /* The text itself: real, invisible, laid over each line of the picture and
    stretched to span it — selected by dragging, copied like any text. Only the
    lines take the mouse; between them the stage still pans. */
@@ -3540,16 +2941,34 @@ body.dv-ocr-resizing .dv-doc-words { transition: none; }
 /* One cell per WORD, as wide as the room from its start to the next word's; the
    text inside is stretched to fill exactly that. */
 .dv-textword { display: inline-block; vertical-align: top; height: 100%; overflow: visible; white-space: pre; }
-.dv-textword > span { display: inline-block; transform-origin: 0 50%; white-space: pre; }
 /* Selection = Windows' own selection blue (#0078D7 — deliberately NOT a theme
    token: it should read as the OS's text selection), see-through so the
    picture's letters stay legible under it. */
-.dv-textline ::selection, .dv-textline::selection {
-  color: transparent; background: color-mix(in srgb, #0078d7 50%, transparent);
+/* The OS's own highlight is switched OFF here: it paints the invisible text's
+   boxes, which only approximate the photograph. TextRegionsLayer paints the
+   selection itself on each selected word cell (`is-sel`, the selected part
+   `--sel-a` … `--sel-b` along it), so it lies exactly on the measured words, at
+   the line's tilt — a run of words as one band with rounded ends. */
+.dv-textline ::selection, .dv-textline::selection { color: transparent; background: transparent; }
+/* Every letter is a cell of its own, as wide as that letter in the photograph
+   (its glyph stretched to fill it); the selection is painted per letter. */
+.dv-textchar { display: inline-block; vertical-align: top; height: 100%; position: relative; white-space: pre; overflow: visible; }
+/* The glyph fills its cell by letter-spacing (TextRegionsLayer) — no
+   per-letter transform, which made every frame of a pan / zoom slow. */
+.dv-textchar > span { white-space: pre; }
+/* The selection's shapes (TextRegionsLayer's painter): one SVG per line, laid
+   exactly like the line (its box and transform), each run of selected letters a
+   path wrapping them along the line's measured edges. Filled and stroked in the
+   same colour with round joins (the stroke rounds the corners), the group made
+   see-through as a whole so the stroke never doubles the fill. */
+.dv-textsel { position: absolute; inset: 0; pointer-events: none; }
+.dv-textsel-line {
+  position: absolute; left: 0; top: 0; overflow: visible; pointer-events: none;
+  transform-origin: 50% 50%; opacity: 0.45;
 }
+.dv-textsel-line path { fill: #0078d7; stroke: #0078d7; stroke-linejoin: round; }
 @keyframes dv-textlayer-in { from { opacity: 0; } to { opacity: 1; } }
-:root[data-reduce-motion='true'] .dv-textlayer,
-:root[data-reduce-motion='true'] .dv-textdim { animation: none; }
+:root[data-reduce-motion='true'] .dv-textlayer { animation: none; }
 /* Hidden while the photo editor has its place (`hidden` alone loses to the
    rule's own display:flex). */
 .dv-media-stage[hidden] { display: none; }
@@ -3563,7 +2982,9 @@ body.dv-ocr-resizing .dv-doc-words { transition: none; }
 /* The picture itself is never selected (no blue wash over the whole photo when a
    drag through its text runs past it) — only the text laid over it is. */
 .dv-media-stage, .dv-media-stage .dv-media-el { user-select: none; -webkit-user-select: none; -webkit-user-drag: none; }
-body.dv-media-panning, body.dv-media-panning * { cursor: grabbing !important; }
+/* The grabbing cursor while a picture / a PDF page is panned comes from the
+   PAN SHIELD (lib/panShield) laid over the window — `body.dv-media-panning *`
+   matched every element and restyled them all at each pan's start and end. */
 
 /* ── Extracted text tab (image side panel) ──────────────────────────────
    The text read from the picture, piece by piece — plain, selectable text. */
@@ -4001,21 +3422,6 @@ body.dv-ocr-resizing .dv-ocr-resize::after { background: var(--accent); }
 .dv-ai-refresh.is-busy svg { animation: dv-ai-spin 900ms linear infinite; }
 @keyframes dv-ai-spin { to { transform: rotate(360deg); } }
 :root[data-reduce-motion='true'] .dv-ai-refresh.is-busy svg { animation: none; }
-.dv-ai-debug { gap: 10px; padding-top: 12px; border-top: 1px dashed var(--border); }
-.dv-ai-debug .dv-meta-group-title { margin: 0; }
-.dv-ai-debug-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
-.dv-ai-debug-label { display: flex; flex-direction: column; min-width: 0; font-size: 12px; font-weight: 600; color: var(--text-primary); }
-.dv-ai-debug-label small { font-size: 10.5px; font-weight: 400; color: var(--text-muted); }
-.dv-ai-seg { display: inline-flex; padding: 2px; gap: 2px; border-radius: 9px; border: 1px solid var(--border); background: var(--bg-input); }
-.dv-ai-seg-btn {
-  appearance: none; border: 0; background: transparent; cursor: pointer;
-  height: 26px; padding: 0 10px; border-radius: 7px;
-  color: var(--text-secondary); font: inherit; font-size: 11.5px; font-weight: 600;
-  transition: background 120ms ease, color 120ms ease;
-}
-.dv-ai-seg-btn:hover:not(:disabled):not(.is-on) { background: var(--accent-tint); color: var(--text-primary); }
-.dv-ai-seg-btn.is-on { background: var(--accent); color: var(--text-on-accent); }
-.dv-ai-seg-btn:disabled { cursor: default; opacity: 0.7; }
 .dv-ai-facet-text {
   max-height: 260px; overflow: auto;
   margin: 0; padding: 10px 12px; border-radius: 10px;
@@ -4838,12 +4244,7 @@ body.dv-advisor-sb-dragging .dv-advisor-sb-thumb {
   opacity: 0.55;
   pointer-events: none;
 }
-.dv-doc-version-icon svg { width: 96px; height: 96px; }
-/* Tint the icon by document type (same palette as the Files view). */
-.dv-doc-version-icon.is-doc { color: #2b6cb0; }
-.dv-doc-version-icon.is-ppt { color: #c2410c; }
-.dv-doc-version-icon.is-xls { color: #15803d; }
-.dv-doc-version-icon.is-pdf { color: #b91c1c; }
+.dv-doc-version-icon > .fx-glyph { width: 96px; height: 96px; }
 .dv-doc-version-body { position: relative; z-index: 1; flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
 .dv-doc-version-name {
   font-size: 10.4px; font-weight: 600; color: var(--text-primary);
@@ -5107,18 +4508,6 @@ body.dv-advisor-sb-dragging .dv-advisor-sb-thumb {
 }
 .dv-advisor-option:active:not(:disabled) { transform: translateY(1px); }
 .dv-advisor-option:disabled { opacity: 0.55; cursor: not-allowed; }
-/* The picked paragraph's AUTOFILL options (components/DocConstructor portals
-   them in): their own section above the composer card, scrolling inside a
-   capped height so a long list of identities can't push the composer off the
-   panel. Empty — and so gone — whenever no such paragraph is picked. */
-.dv-advisor-ctorslot:empty { display: none; }
-.dv-advisor-ctorslot {
-  max-height: min(42vh, 360px);
-  overflow-y: auto; overscroll-behavior: contain;
-  margin: 1.6px 1.6px 8px; padding-bottom: 8px;
-  border-bottom: 1px solid var(--border);
-  animation: dv-ctorslot-in 220ms cubic-bezier(0.16, 1, 0.3, 1);
-}
 @keyframes dv-ctorslot-in { from { opacity: 0; transform: translateY(4.8px); } to { opacity: 1; transform: none; } }
 
 /* Interactive ask_user panel / option chips live INSIDE the composer now, above
@@ -5284,30 +4673,6 @@ body.dv-advisor-sb-dragging .dv-advisor-sb-thumb {
   min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   font-style: italic; opacity: 0.9;
 }
-
-.dv-advisor-selchip {
-  display: flex; align-items: center; gap: 6px;
-  margin: 0 0 6px; padding: 4px 4px 4px 8px;
-  border: 1px solid color-mix(in srgb, var(--accent) 38%, var(--border));
-  border-left: 2.5px solid var(--accent);
-  border-radius: 7px;
-  background: color-mix(in srgb, var(--accent) 8%, transparent);
-  font-size: 0.66rem; color: var(--text-secondary);
-  max-width: 100%;
-}
-.dv-advisor-selchip-ico { flex: none; display: inline-flex; color: var(--accent); }
-.dv-advisor-selchip-label { flex: none; font-weight: 700; color: var(--accent); }
-.dv-advisor-selchip-text {
-  flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-  font-style: italic; opacity: 0.85;
-}
-.dv-advisor-selchip-x {
-  flex: none; appearance: none; border: 0; background: transparent; cursor: pointer;
-  display: inline-flex; align-items: center; justify-content: center;
-  width: 20px; height: 20px; padding: 0; border-radius: 5px;
-  color: var(--text-muted); transition: background 120ms;
-}
-.dv-advisor-selchip-x:hover { background: var(--danger-soft); color: var(--danger-text); }
 
 /* The row collapses when there is nothing to send (.is-empty, set in
    MultitoolComposer) — a Send button that cannot be pressed is not worth a row
@@ -5910,9 +5275,6 @@ button.dv-snip-entry-thumb { cursor: pointer; }
   box-decoration-break: clone;
   transition: background 280ms ease, border-color 280ms ease, color 280ms ease;
 }
-.dv-docx .dv-docx-para:hover .dv-field.is-chip:not(.is-filled):not(.is-preview)::before {
-  background: color-mix(in srgb, var(--color-sand) 55%, #fff);
-}
 
 /* Word's OWN blank — a gap drawn as underlined space. It already carries a
    line, so the mark is a tint and a faint ground, never a second rule beneath
@@ -5923,9 +5285,6 @@ button.dv-snip-entry-thumb { cursor: pointer; }
   background: color-mix(in srgb, var(--color-sand) 34%, transparent);
   border-radius: 2px;
 }
-.dv-docx .dv-docx-para:hover .dv-field.is-drawn:not(.is-filled) {
-  background: color-mix(in srgb, var(--color-sand) 52%, transparent);
-}
 
 /* Filled: no longer an empty space but real text, so it keeps its mark down the
    whole page — that's how you see what has already been answered. */
@@ -5934,41 +5293,11 @@ button.dv-snip-entry-thumb { cursor: pointer; }
   box-shadow: inset 0 -1.6px 0 color-mix(in srgb, var(--success) 65%, transparent);
 }
 
-/* Inside the picked paragraph an EMPTY blank looks exactly as it does anywhere
-   else in the document — lighter text on a dotted rule (it used to light up in
-   the warning colour). Only a filled one is restated, a touch stronger. */
-.dv-docx .dv-docx-para.is-selected .dv-field.is-filled {
-  background: color-mix(in srgb, var(--success) 26%, transparent);
-  box-shadow: inset 0 -2px 0 var(--success);
-}
-/* The blank currently being worked on, marked for as long as its card is
-   selected — a flash alone had faded by the time you looked from the panel to
-   the page. Ring + lift, so it reads as picked rather than merely coloured.
-   Scoped through `.dv-docx-para.is-selected` for two reasons: it matches the
-   picked-paragraph rules above on specificity and wins on source order (a
-   looser selector lost to them and never painted), and it can't outlive the
-   pick — dropping the paragraph takes the ring with it even if the class is
-   still on the span. */
-.dv-docx .dv-docx-para.is-selected .dv-field.is-active {
-  background: color-mix(in srgb, var(--accent) 30%, transparent);
-  box-shadow:
-    0 0 0 2px var(--accent),
-    0 2px 10px color-mix(in srgb, var(--accent) 45%, transparent);
-  border-radius: 4px;
-}
-.dv-docx .dv-docx-para.is-selected .dv-field.is-active.is-filled {
-  background: color-mix(in srgb, var(--success) 28%, transparent);
-  box-shadow:
-    0 0 0 2px var(--success),
-    0 2px 10px color-mix(in srgb, var(--success) 40%, transparent);
-}
-
 /* Previewing a party: the blank is showing borrowed text, not an answer. Reads
    as provisional — accent tint under a dashed rule — so it can't be mistaken for
    something already filled in, and it paints regardless of the pick scoping
    above, because a preview the user asked for should be visible immediately. */
-.dv-docx .dv-field.is-preview,
-.dv-docx .dv-docx-para.is-selected .dv-field.is-preview {
+.dv-docx .dv-field.is-preview {
   background: color-mix(in srgb, var(--accent) 22%, transparent);
   box-shadow: none;
   border-bottom: 1.5px dashed var(--accent);
@@ -6002,34 +5331,6 @@ button.dv-snip-entry-thumb { cursor: pointer; }
   background: transparent !important;
   border-bottom: 0 !important;
   color: currentColor !important;
-}
-
-/* The blanks panel — the advisor's mirror image on the right edge, same
-   frosted material and inset so the two read as one pair of surfaces. */
-.dv-fields-card {
-  position: absolute; right: var(--ds-dv-inset, 8px); top: var(--ds-dv-inset, 8px); bottom: var(--ds-dv-inset, 8px); z-index: 10;
-  width: var(--dv-fields-w, 380px);
-  display: flex; flex-direction: column;
-  background: color-mix(in srgb, var(--bg-page) var(--ds-dv-card-frost, 90%), transparent);
-  backdrop-filter: blur(var(--ds-dv-card-blur, 32px)) saturate(1.4);
-  -webkit-backdrop-filter: blur(var(--ds-dv-card-blur, 32px)) saturate(1.4);
-  border: 1px solid var(--border);
-  border-radius: var(--ds-dv-card-radius, 11.2px);
-  box-shadow: var(--shadow-card);
-  overflow: hidden;
-  /* Fades and slides in from the window edge; `visibility` keeps it out of the
-     tab order while closed, since it stays mounted to preserve an in-flight
-     suggestion run. */
-  opacity: 0; visibility: hidden;
-  transform: translateX(24px);
-  pointer-events: none;
-  transition: opacity 220ms ease, transform 340ms cubic-bezier(0.22, 1, 0.36, 1), visibility 0s linear 340ms;
-}
-.dv-main-row.is-completing .dv-fields-card {
-  opacity: 1; visibility: visible;
-  transform: none;
-  pointer-events: auto;
-  transition: opacity 260ms ease 60ms, transform 340ms cubic-bezier(0.22, 1, 0.36, 1) 60ms, visibility 0s;
 }
 
 .dv-fields-head {
@@ -6413,6 +5714,7 @@ button.dv-snip-entry-thumb { cursor: pointer; }
   border-top-color: currentColor;
   animation: dvi-scan-spin 700ms linear infinite;
 }
+@keyframes dvi-scan-spin { to { transform: rotate(360deg); } }
 
 /* What it will read. */
 .dvi-modal-picked { display: flex; align-items: baseline; gap: 6.4px; min-width: 0; }
@@ -6636,36 +5938,6 @@ button.dv-snip-entry-thumb { cursor: pointer; }
   .dvt-card:hover:not(:disabled) { transform: none; }
 }
 
-/* "From your files" — the case as the neural network read it, and the
-   documents it most likely needs next. Above the search: the answer that costs
-   the user nothing comes first. */
-.dvt-network { margin: 28px auto 0; max-width: 1180px; }
-.dvt-network-head { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
-.dvt-network-title {
-  display: inline-flex; align-items: center; gap: 6px;
-  font-size: 10.8px; font-weight: 700; letter-spacing: 0.09em; text-transform: uppercase;
-  color: var(--accent);
-}
-.dvt-network-count { font-size: 11.2px; color: var(--text-muted); }
-.dvt-network-situation {
-  margin: 8px 0 0; max-width: 760px;
-  font-size: 14px; line-height: 1.55; color: var(--text-secondary);
-}
-.dvt-network-situation.is-busy { display: flex; align-items: center; gap: 8px; color: var(--text-muted); }
-.dvt-network-spin {
-  width: 12px; height: 12px; flex: none; border-radius: 50%;
-  border: 2px solid color-mix(in srgb, var(--accent) 25%, transparent); border-top-color: var(--accent);
-  animation: dvt-network-spin 0.8s linear infinite;
-}
-@keyframes dvt-network-spin { to { transform: rotate(360deg); } }
-.dvt-network-grid { margin-top: 12px; }
-.dvt-card-network { border-color: color-mix(in srgb, var(--accent) 45%, var(--border)); }
-.dvt-card-network .dvt-card-cat { color: var(--accent); }
-.dvt-network-note {
-  margin: 14px auto 0; max-width: 560px; text-align: center;
-  font-size: 12.4px; color: var(--text-muted);
-}
-
 /* The blank-PDF screen has one thing to do, so it gets one button rather than
    a grid of cards: reopen the picker it arrived with. */
 .dvt-actions { margin-top: 32px; display: flex; justify-content: center; }
@@ -6735,40 +6007,9 @@ button.dv-snip-entry-thumb { cursor: pointer; }
   .dv-doc-extract.is-enter-left > * { animation: none; }
 }
 
-/* ── The paragraph the AI is working on ────────────────────────────────────
-   Set from DocxRenderPane for as long as a turn aimed at this paragraph is in
-   flight — including after the reader has closed it and moved on, which is the
-   case this exists for: the work carries on, and a paragraph that is going to
-   change ought to say so while it is being thought about.
-   Drawn as a soft accent wash with a bar down the left edge that breathes, so
-   it reads as "working" rather than as "selected" (which is a ring) or as
-   "changed" (which is the edited mark). `::after` rather than a border: a
-   border would change the paragraph's width and re-wrap its text. */
-.dv-docx .dv-docx-para.is-ai-busy {
-  position: relative;
-  background: color-mix(in srgb, var(--accent) 7%, transparent);
-  border-radius: 3px;
-}
-.dv-docx .dv-docx-para.is-ai-busy::after {
-  content: '';
-  position: absolute;
-  left: -10px; top: 0; bottom: 0;
-  width: 3px; border-radius: 999px;
-  background: var(--accent);
-  animation: dv-ai-busy-breathe 1400ms ease-in-out infinite;
-  pointer-events: none;
-}
 @keyframes dv-ai-busy-breathe {
   0%, 100% { opacity: 0.25; transform: scaleY(0.72); }
   50%      { opacity: 1;    transform: scaleY(1); }
-}
-/* A paragraph dimmed behind the pick veil still shows its own mark: this is
-   the one thing in the document that must be legible while another paragraph
-   has the camera. */
-.dv-docx.has-pick .dv-docx-page > article > .dv-docx-para.is-ai-busy { opacity: 1; }
-:root[data-reduce-motion='true'] .dv-docx .dv-docx-para.is-ai-busy::after { animation: none; opacity: 0.8; }
-@media (prefers-reduced-motion: reduce) {
-  .dv-docx .dv-docx-para.is-ai-busy::after { animation: none; opacity: 0.8; }
 }
 
 /* ── Law references in the document ───────────────────────────────────────
@@ -6828,15 +6069,10 @@ button.dv-snip-entry-thumb { cursor: pointer; }
 :root[data-theme='ink'] .dv-docx .dv-lawref { --lawref-wash: 30%; }
 .dv-docx .dv-ref.is-head { border-top-left-radius: 3px; border-bottom-left-radius: 3px; }
 .dv-docx .dv-ref.is-tail { border-top-right-radius: 3px; border-bottom-right-radius: 3px; }
-/* ROOM AROUND EVERY MARK (not the empty fields — those are .dv-field) that
-   costs the document NOTHING: vertical padding on an inline box never moves a
-   line, and the sideways padding is cancelled by an equal negative margin, so
-   the mark's width in the line is exactly its text's and no line re-wraps. The
-   sides go only on the reference's OUTER ends (is-head = its first piece,
-   is-tail = its last), so a reference Word split into runs stays one mark. */
-.dv-docx .dv-ref { padding-top: 2.4px; padding-bottom: 2.4px; }
-.dv-docx .dv-ref.is-head { padding-left: 3.2px; margin-left: -3.2px; }
-.dv-docx .dv-ref.is-tail { padding-right: 3.2px; margin-right: -3.2px; }
+/* NO ROOM AROUND A MARK (2026-10-02): a highlight is a purely visual indicator.
+   It used to carry padding (cancelled by a negative margin at its ends), which
+   still nudged text at a line's edge and in justified lines; now a mark is
+   exactly its words' box — colour, background and rounded corners only. */
 /* Both layers travel together, so the wash and the rule under it stay in step. */
 @keyframes dv-lawref-shimmer { to { background-position: -300% 0, -300% 100%; } }
 /* ── A CAEN code ──────────────────────────────────────────────────────────
@@ -7041,7 +6277,12 @@ button.dv-snip-entry-thumb { cursor: pointer; }
   background-size: 300% 100%, 300% 2px;
   background-position: 0 0, 0 100%;
   background-repeat: repeat, repeat-x;
-  animation: dv-lawref-shimmer 5.5s linear infinite;
+  /* STILL here — no shimmer (2026-10-03). The marks live inside the picture's
+     / the PDF's text layer, a GPU layer of its own: an animated background
+     there re-rasters the layer on every frame, larger the more it is zoomed —
+     measured on a photographed parking sign: 92 fps and an 88 ms first frame
+     of every pan / zoom with the shimmer, 2,800 fps and 2 ms without. The Word
+     preview's marks keep theirs. */
 }
 .dv-textword.dv-caenref, .file-preview-pdf-text .dv-caenref {
   background-image: linear-gradient(var(--warning), var(--warning));
@@ -7053,8 +6294,6 @@ button.dv-snip-entry-thumb { cursor: pointer; }
   background-size: 100% 2px; background-position: 0 100%; background-repeat: no-repeat;
   background-color: color-mix(in srgb, var(--success) 26%, transparent);
 }
-:root[data-reduce-motion='true'] :is(.dv-textword, .file-preview-pdf-text .dv-ref).dv-lawref { animation: none; }
-@media (prefers-reduced-motion: reduce) { :is(.dv-textword, .file-preview-pdf-text .dv-ref).dv-lawref { animation: none; } }
 /* A mark on a picture or a PDF is PRESSED like the Word preview's: the hand, and
    a click expands its card (RefCardPill). */
 .dv-textword.dv-ref, .file-preview-pdf-text .dv-ref { cursor: pointer; }
@@ -7062,40 +6301,9 @@ button.dv-snip-entry-thumb { cursor: pointer; }
    as it was. */
 .dv-pdf-refs { display: contents; }
 
-/* The Barcode quick action's answer: a card floating at the foot of the
-   picture's stage, over it — each code's format, its text (selectable) and
-   Copy (Open for a web address). */
-.dv-codes {
-  position: absolute; z-index: 12; left: 50%; bottom: 16px; transform: translateX(-50%);
-  width: min(520px, calc(100% - 32px)); max-height: 46%; overflow-y: auto;
-  display: flex; flex-direction: column; gap: 2px; padding: 6px 8px 8px;
-  border: 1px solid var(--ds-hairline, var(--border)); border-radius: 12px;
-  background: color-mix(in srgb, var(--bg-page) 90%, transparent);
-  backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
-  box-shadow: var(--shadow-elev); color: var(--text-primary); cursor: default;
-}
-.dv-codes-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 2px 2px 4px 6px; }
-.dv-codes-title { font-size: 11.2px; font-weight: 650; color: var(--text-secondary); }
-.dv-codes-close { display: grid; place-items: center; width: 22px; height: 22px; padding: 0; border: 0; border-radius: 5px; background: none; color: var(--text-secondary); cursor: pointer; }
-.dv-codes-close:hover { background: color-mix(in srgb, var(--text-primary) 8%, transparent); color: var(--text-primary); }
-.dv-codes-empty { margin: 0; padding: 4px 6px 6px; font-size: 12px; line-height: 1.5; color: var(--text-muted); }
-.dv-code { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 10px; padding: 7px 6px; border-top: 1px solid var(--ds-hairline, var(--border)); }
-.dv-code-format { font-size: 9.6px; font-weight: 700; letter-spacing: 0.07em; text-transform: uppercase; color: var(--accent); white-space: nowrap; }
-.dv-code-fields { display: grid; gap: 3px; min-width: 0; }
-.dv-code-field { display: grid; grid-template-columns: 76px minmax(0, 1fr); gap: 8px; align-items: baseline; }
-.dv-code-key { font-size: 11px; color: var(--text-muted); }
-.dv-code-text { font-size: 13px; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; user-select: text; }
-.dv-code-actions { display: inline-flex; gap: 4px; }
-.dv-code-btn {
-  height: 24px; padding: 0 9px; border: 1px solid var(--ds-hairline, var(--border)); border-radius: 6px;
-  background: transparent; color: var(--text-secondary); font: inherit; font-size: 10.4px; font-weight: 600; cursor: pointer;
-}
-.dv-code-btn:hover { border-color: var(--accent); color: var(--accent); background: var(--accent-tint); }
-
 
 /* The highlight's hover pill and card: components/RefPill.css (shared with the
    Design system's Tooltips section). */
-
 
 /* ── The Highlights eye (EyeGlyph) ─────────────────────────────────────────
    One drawing that BLINKS between its states: shutting, the open eye squashes
@@ -7117,52 +6325,6 @@ button.dv-snip-entry-thumb { cursor: pointer; }
 :root[data-reduce-motion='true'] .dv-eye * { transition: none !important; }
 @media (prefers-reduced-motion: reduce) { .dv-eye * { transition: none !important; } }
 
-/* ── The picked paragraph's panel, DOCKED (PICK_DOCK) ───────────────────────
-   Under the paragraph where it lies, on a ground of its own: with no blur
-   behind it any more it stands over the (dimmed) page, so it gets the page's
-   white, a hairline and the card shadow. Placed per scroll by layoutLift, so
-   it never eases. */
-.dv-docx-liftpanel.is-docked {
-  padding: 10px;
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  /* The tooltip ground, as every pill and card over content is. */
-  background: var(--bg-sidebar);
-  box-shadow: var(--shadow-elev);
-  overflow-y: auto;
-  color: var(--text-primary);
-}
-/* A PICKED paragraph holds the page still: the pane does not scroll until the
-   pick is dismissed (the gutter is kept, so nothing shifts sideways). */
-.dv-docview-body:has(> .dv-docx.has-pick) { overflow: hidden; scrollbar-gutter: stable; }
-/* Its preview copy (where the blanks are inputs) reads as the paragraph
-   itself — the page's white over the hidden original, no card or drop shadow —
-   with the picked paragraph's sleeve, since the original under it is hidden. */
-.dv-docx.dv-docx .dv-docx-livecard {
-  box-shadow: -5px 0 0 0 #fff, -8px 0 0 0 var(--color-ink);
-}
-.dv-docx.dv-docx.has-pick .dv-docx-page .dv-docx-livecard :is(input, textarea) { cursor: text; }
-
-/* ── The KIND BAR above the picked paragraph (PICK_DOCK) ────────────────────
-   What each party the paragraph names IS — All / Persoană fizică / PFA / II /
-   Persoană juridică — standing just above the paragraph whose wording it
-   dictates (a hover previews the rewrite in the paragraph, a click applies
-   it). The Constructor portals the switches in; placed by layoutLift's docked
-   branch, clamped inside the pane. The tooltip ground, like the panel. */
-.dv-docx-kindbar {
-  position: absolute; z-index: 7; left: 0; top: 0;
-  box-sizing: border-box;
-  padding: 6px 8px;
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  background: var(--bg-sidebar);
-  box-shadow: var(--shadow-elev);
-  color: var(--text-primary);
-  opacity: 0; visibility: hidden; pointer-events: none;
-}
-.dv-docx-kindbar.is-on { opacity: 1; visibility: visible; pointer-events: auto; }
-.dv-docx-kindbar:empty { display: none; }
-
 /* ── EMPTY FIELDS, NOT PICKED: the picked paragraph's slot (.dcx-inline — a
    ground, a solid rule under it, the top corners rounded) DESATURATED to
    faded black, so a blank reads as the same field before and after the pick,
@@ -7172,15 +6334,9 @@ button.dv-snip-entry-thumb { cursor: pointer; }
   background: color-mix(in srgb, var(--color-ink) 6%, #fff);
   border-bottom: 1.5px solid color-mix(in srgb, var(--color-ink) 32%, transparent);
 }
-.dv-docx .dv-docx-para:hover .dv-field.is-chip:not(.is-filled):not(.is-preview)::before {
-  background: color-mix(in srgb, var(--color-ink) 10%, #fff);
-}
 .dv-docx .dv-field.is-drawn:not(.is-filled) {
   background: color-mix(in srgb, var(--color-ink) 6%, transparent);
   border-radius: 3px 3px 0 0;
-}
-.dv-docx .dv-docx-para:hover .dv-field.is-drawn:not(.is-filled) {
-  background: color-mix(in srgb, var(--color-ink) 10%, transparent);
 }
 .dv-docx .dv-field:not(.is-filled):not(.is-chip):not(.is-drawn):not(.is-preview):not(.is-active) {
   color: color-mix(in srgb, var(--color-ink) 55%, transparent);
@@ -7257,3 +6413,282 @@ button.dv-snip-entry-thumb { cursor: pointer; }
 .bubble > .bubble-c > .dv-ai-byline { opacity: 0; transition: opacity 160ms ease; }
 .bubble:hover > .bubble-c > .dv-ai-byline,
 .bubble:focus-within > .bubble-c > .dv-ai-byline { opacity: 1; }
+
+/* ── The project's files along the bottom (ProjectFileStrip) ─────────────
+   One viewer window for every file: a row under the document, the Files
+   tab's thumbnails, the open file selected (an accent ring and tint — the
+   app's selected look), arrows at both ends; ← / → step through it. It takes
+   room of its own in the page's column, so nothing floats over the document. */
+/* It is a CARD along the window's foot, under the Quick actions card and the
+   side panel and as WIDE AS THE WINDOW allows (inset to inset) — their material
+   to the letter (frost, blur, hairline, card radius and shadow); the side panel
+   ends above it, and the document's foot (page counter, codes card) is lifted
+   clear of it (--dv-strip-h). Its controls
+   are a band like the Quick actions title (.drb-quick-title). The Files quick
+   action hides it: it slides down out of view and stays mounted (`.is-hidden`);
+   it stays put when the side panel is hidden. */
+.dv-strip {
+  display: flex; flex-direction: column; align-items: stretch; gap: 0;
+  /* The controls' bar on top, the files under it, the tiles sized from
+     --dv-strip-tile (the slider / Ctrl + scroll). */
+  position: absolute; z-index: 10;
+  left: var(--ds-dv-inset, 8px); right: var(--ds-dv-inset, 8px); bottom: var(--ds-dv-inset, 8px);
+  height: auto; padding: 0; box-sizing: border-box;
+  background: color-mix(in srgb, var(--bg-page) var(--ds-dv-card-frost, 90%), transparent);
+  backdrop-filter: blur(var(--ds-dv-card-blur, 32px)) saturate(1.4);
+  -webkit-backdrop-filter: blur(var(--ds-dv-card-blur, 32px)) saturate(1.4);
+  border: 1px solid var(--border);
+  border-radius: var(--ds-dv-card-radius, 11.2px);
+  box-shadow: var(--shadow-card);
+  overflow: hidden;
+  isolation: isolate;
+  transition: transform 340ms cubic-bezier(0.22, 1, 0.36, 1), visibility 0s;
+}
+.dv-strip.is-hidden {
+  transform: translateY(calc(100% + 16px));
+  visibility: hidden; pointer-events: none;
+  transition: transform 340ms cubic-bezier(0.22, 1, 0.36, 1), visibility 0s 340ms;
+}
+/* The side panel ends above the strip (8px between them), and comes back down
+   when the strip is hidden. */
+.dv-advisor-card {
+  bottom: calc(var(--ds-dv-inset, 8px) + var(--dv-strip-h, 0px));
+}
+:root[data-reduce-motion='true'] .dv-strip { transition: none; }
+.dv-strip-arrow {
+  flex: none; width: 28px; height: 28px; display: grid; place-items: center;
+  border: 1px solid var(--ds-hairline, var(--border)); border-radius: var(--ds-row-radius, 8px);
+  background: transparent; color: var(--text-secondary); cursor: pointer;
+  transition: background 120ms ease, border-color 120ms ease;
+}
+.dv-strip-arrow:hover { background: color-mix(in srgb, var(--text-primary) 7%, transparent); border-color: var(--border-strong); color: var(--text-primary); }
+.dv-strip-list {
+  flex: 1 1 auto; min-width: 0; height: 100%;
+  display: flex; align-items: center; gap: 6px;
+  overflow-x: auto; overflow-y: hidden; scrollbar-width: none;
+  /* Tall enough for a standing photo's tile (4:3 + its name), whatever is in
+     view, so the document never jumps as portrait thumbnails load; every
+     tile is centred in it. */
+  padding: 6px 8px 8px; box-sizing: content-box; height: calc((var(--dv-strip-tile, 84px) - 8px) * 1.3334 + 30px);
+}
+.dv-strip-list::-webkit-scrollbar { display: none; }
+.dv-strip-item {
+  flex: none; width: var(--dv-strip-tile, 84px); height: auto;
+  justify-content: center;
+  display: flex; flex-direction: column; align-items: center; gap: 4px;
+  padding: 4px; border: 0; border-radius: var(--ds-row-radius, 8px);
+  background: transparent; color: var(--text-secondary); cursor: pointer; font: inherit;
+  box-shadow: inset 0 0 0 1px transparent;
+  transition: background 120ms ease, box-shadow 120ms ease;
+}
+.dv-strip-item:hover { background: color-mix(in srgb, var(--text-primary) 6%, transparent); }
+.dv-strip-item.is-active {
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  box-shadow: inset 0 0 0 1.5px var(--accent);
+  color: var(--text-primary);
+}
+.dv-strip-thumb {
+  /* Landscape by default; a portrait photo takes its own shape (up to 4:3
+     standing), from --fx-thumb-ar set by usePhotoAspect. */
+  position: relative; width: 100%; height: calc((var(--dv-strip-tile, 84px) - 8px) * var(--fx-thumb-ar, 0.57)); flex: none;
+  display: grid; place-items: center; overflow: hidden;
+  border-radius: 5px;
+}
+.dv-strip-thumb img, .dv-strip-thumb video, .dv-strip-thumb canvas { width: 100%; height: 100%; object-fit: cover; }
+/* A file with no preview: its type icon, a square in the middle of the
+   thumbnail box (vertically too). Before a thumbnail is asked for the glyph
+   stands in the box itself; after, FileThumbnail wraps it in
+   .project-files-icon, which is made the full box and centres it. */
+.dv-strip-thumb .project-files-icon { width: 100%; height: 100%; display: grid; place-items: center; color: var(--accent); }
+.dv-strip-thumb .fx-glyph { width: calc(var(--dv-strip-tile, 84px) * 0.45); height: calc(var(--dv-strip-tile, 84px) * 0.45); }
+/* The Files tab's stripe (FilesWorkspace.css, .fx-tile-thumb[data-office]):
+   a Word / Excel / PowerPoint / PDF PREVIEW is shrunk to its own proportions
+   so the brand-coloured stripe sits on the page's left edge; the type icon
+   fallback already carries the colour, so it gets none. */
+.dv-strip-thumb[data-office] img {
+  width: auto; height: auto; max-width: 100%; max-height: 100%;
+  object-fit: contain; box-sizing: border-box;
+  border-left: 4px solid var(--fx-office); border-radius: 2px;
+}
+.dv-strip-thumb[data-office]:has(.fx-glyph) img { border-left: 0; }
+.dv-strip-thumb .fx-ext-pill, .dv-strip-thumb .fx-video-play { display: none; }
+.dv-strip-name {
+  width: 100%; font-size: 9.6px; line-height: 1.2; text-align: center;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.dv-strip-item.is-active .dv-strip-name { font-weight: 600; }
+.dv-strip-size { flex: none; width: 72px; margin-left: 4px; accent-color: var(--accent); }
+/* The controls' bar above the files: ‹ 3 / 12 › at the left, the size at the
+   right, a hairline under it. */
+.dv-strip-bar {
+  /* The Quick actions card's title band (.drb-quick-title): --bg-sidebar, edge
+     to edge, closed by a hairline, the title at a tab's size and weight at
+     full strength; the controls at its right end. */
+  display: flex; align-items: center; gap: 4px;
+  min-height: 0; padding: 0.24rem 0.5rem 0.24rem 0.8rem; margin: 0;
+  background: var(--bg-sidebar);
+  border-bottom: 1px solid var(--border);
+}
+.dv-strip-title {
+  margin: 0 auto 0 0; font: inherit; font-size: 0.704rem; font-weight: 500;
+  letter-spacing: normal; text-transform: none; color: var(--text-primary);
+}
+.dv-strip-bar .dv-strip-arrow { width: 22px; height: 22px; }
+.dv-strip-count {
+  flex: none; min-width: 44px; text-align: center;
+  font-size: 10.4px; font-variant-numeric: tabular-nums; color: var(--text-muted);
+}
+
+/* Switching files: the document area alone waits (the rest of the viewer
+   stays up). */
+.dv-doc-switching { position: absolute; inset: 0; display: flex; }
+/* Over the file still on show while the next one's data comes in: a light
+   veil, the spinner centred; it takes the pointer so nothing is pressed on a
+   document that is about to go. */
+.dv-doc-switching.is-over {
+  z-index: 6; align-items: center; justify-content: center;
+  background: color-mix(in srgb, var(--bg-backdrop, var(--bg-page)) 45%, transparent);
+}
+.dv-strip-thumb-in { position: relative; width: 100%; height: 100%; display: grid; place-items: center; }
+
+/* ── Codes on the picture (CodeRegionsLayer) ──────────────────────────────
+   Where each barcode / QR code was found, laid exactly over the picture (its
+   layout box + the same pan / zoom transform): an accent outline and a light
+   wash, stronger on hover or while its row in the card is hovered. A press
+   opens its link or copies it. The rows in the card are clickable too. */
+.dv-code-regions { position: absolute; z-index: 3; transform-origin: 50% 50%; pointer-events: none; }
+.dv-code-svg { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; pointer-events: none; }
+/* The code's outline, as traced in the picture: an accent edge with a light
+   wash, stronger on hover or while its row in the card is hovered. */
+.dv-code-region {
+  cursor: pointer; pointer-events: auto;
+  fill: color-mix(in srgb, var(--accent) 12%, transparent);
+  stroke: var(--accent); stroke-width: 2px; stroke-linejoin: round;
+  transition: fill 120ms ease, stroke-width 120ms ease;
+}
+.dv-code-region:hover { fill: color-mix(in srgb, var(--accent) 28%, transparent); stroke-width: 3px; }
+.dv-code-region:focus { outline: none; }
+.dv-code-region:focus-visible { stroke-width: 3.5px; }
+
+/* Highlights OFF: the codes are not drawn, but still take the pointer — the
+   hand cursor says a click does something. */
+.dv-code-regions.is-quiet .dv-code-region,
+.dv-code-regions.is-quiet .dv-code-region:hover { fill: transparent; stroke: transparent; }
+
+/* ── ATTACK — the compliance scan's report card in the advisor thread ──────
+   On the page ground with a hairline (the Design system's card rule); the
+   score a soft pill in its tone; the report's diff blocks drawn as diffs. */
+.dv-attack {
+  margin: 6px 0; padding: 12px 14px; border-radius: var(--ds-card-radius, 14px);
+  border: 1px solid var(--ds-hairline, var(--border)); background: var(--bg-page);
+  display: flex; flex-direction: column; gap: 8px; min-width: 0;
+}
+.dv-attack-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.dv-attack-title { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; font-weight: 600; color: var(--text-primary); min-width: 0; }
+.dv-attack-title svg { flex: none; width: 16px; height: 16px; color: var(--accent); }
+.dv-attack-score {
+  --pill-tone: var(--accent);
+  flex: none; padding: 2px 10px; border-radius: 999px; font-size: 15px; font-weight: 700; font-variant-numeric: tabular-nums;
+  color: var(--pill-tone); background: color-mix(in srgb, var(--pill-tone) 12%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--pill-tone) 30%, transparent);
+}
+.dv-attack-score small { font-size: 10.5px; font-weight: 600; opacity: 0.75; }
+.dv-attack-score.is-good { --pill-tone: var(--success); }
+.dv-attack-score.is-fair { --pill-tone: var(--warning); }
+.dv-attack-score.is-poor { --pill-tone: var(--danger); }
+.dv-attack-meta, .dv-attack-step { margin: 0; font-size: 11.5px; color: var(--text-muted); display: flex; align-items: center; gap: 8px; }
+.dv-attack.is-failed .dv-attack-step { color: var(--danger-text, var(--danger)); }
+.dv-attack-step .dv-boot-spinner { width: 14px; height: 14px; }
+.dv-attack-body { min-width: 0; font-size: 13px; }
+.dv-attack-body h2 { font-size: 13.5px; margin: 14px 0 6px; }
+.dv-attack-diff {
+  margin: 6px 0 10px; padding: 8px 10px; border-radius: var(--ds-row-radius, 8px);
+  border: 1px solid var(--ds-hairline, var(--border)); overflow-x: auto;
+  font: 12px/1.5 ui-monospace, SFMono-Regular, Consolas, monospace; white-space: pre-wrap; word-break: break-word;
+}
+.dv-attack-diff .is-del { display: block; color: var(--danger-text, var(--danger)); background: color-mix(in srgb, var(--danger) 10%, transparent); }
+.dv-attack-diff .is-add { display: block; color: var(--success); background: color-mix(in srgb, var(--success) 10%, transparent); }
+
+/* The Extract tab's own switch (ExtractSections in DocViewer.jsx): a video's
+   Snippets · Captions, under the panel's tab strip. */
+.dv-extract-switch { flex: none; padding: 6.4px 11.2px 0; }
+
+/* ── The PREVIEW SECTION avoids the files strip (2026-10-03) ──────────────
+   The strip along the foot (ProjectFileStrip) publishes its footprint as
+   --dv-strip-h (0 while hidden), and the whole document section — the
+   preview and everything standing in it: the page list, the counters, the
+   word count, the pills at its foot, a video's controls — ends above it
+   (the section's bottom margin), so each kind of file re-centres or ends in
+   what is left. The page list's foot is the section's bottom (less the
+   inset) whatever the side panel does. Toggling the strip arms `.is-shifting`
+   (pulseShift in DocViewer.jsx), so the section glides on the strip's own
+   340ms clock; resizing the strip's tiles moves it at once. */
+.dv-doc-card { margin-bottom: var(--dv-strip-h, 0px); }
+.dv-main-row.is-shifting:not(.is-focus) .dv-doc-card {
+  transition: opacity 260ms ease, margin-bottom 340ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+.dv-main-row.is-shifting:not(.is-focus) .dv-advisor-card {
+  transition: transform 340ms cubic-bezier(0.22, 1, 0.36, 1), visibility 0s, opacity 260ms ease,
+              bottom 340ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+.dv-main-row.is-shifting.is-side-hidden:not(.is-focus) .dv-advisor-card {
+  transition: transform 340ms cubic-bezier(0.22, 1, 0.36, 1), visibility 0s 340ms,
+              bottom 340ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+:root[data-reduce-motion='true'] .dv-main-row.is-shifting :is(.dv-doc-card, .dv-advisor-card) { transition: none; }
+
+/* A code's hover pill (CodeTip): the site a press lands on, with its own icon
+   (fetched by main, `link:preview`) — the initial while it is unknown. */
+.dv-code-tip { display: inline-flex; align-items: center; gap: 8px; text-align: left; }
+.dv-code-tip-icon {
+  flex: none; width: 18px; height: 18px; border-radius: 4px; object-fit: contain;
+}
+.dv-code-tip-icon.is-letter {
+  display: grid; place-items: center;
+  background: color-mix(in srgb, var(--text-primary) 14%, transparent);
+  font-size: 10.4px; font-weight: 700; line-height: 1;
+}
+.dv-code-tip-text { display: flex; flex-direction: column; min-width: 0; }
+.dv-code-tip-host { font-weight: 600; overflow-wrap: anywhere; }
+.dv-code-tip-sub { font-size: 0.9em; opacity: 0.66; }
+
+/* ── Panning and zooming a picture stay on the compositor (2026-10-03) ─────
+   Every layer that rides the pan (`[data-pan-layer]`: the photograph, its
+   extracted text, the code outlines, a Live Photo) is a GPU layer of its OWN
+   ALL THE TIME, so a frame of a gesture only moves textures — and starting
+   one promotes nothing (promoting at the first frame uploaded the whole
+   photograph then: the spike at the start of every pan and zoom). While the
+   stage moves (`.is-moving`, set BY HAND by the drag / the wheel — no React
+   render), the easing is dropped so the picture tracks the hand — and
+   NOTHING ELSE changes: switching the text's pointer-events off for the
+   gesture (tried) repainted the whole text layer's hit regions at its start
+   and on every frame — measured, a 17 ms first frame and 3,400 → 570 fps.
+   During a pan the pan shield (lib/panShield) already keeps everything under
+   the pointer from being hovered. */
+.dv-media-stage [data-pan-layer] { will-change: transform; }
+.dv-media-stage.is-moving [data-pan-layer] { transition: none !important; }
+
+/* ── An INHERITANCE BARRIER around the big content trees (2026-10-03) ──────
+   The viewer row carries the layout variables (--dv-advisor-w from the side
+   panel's width, --dv-strip-h from the files strip, --dv-fields-w; and
+   --dv-doc-inset / --dv-doc-rail derived from them). A custom property
+   INHERITS, so changing one on the row restyled EVERY element under it — and a
+   picture's text layer is thousands of letter cells, each with its own inline
+   width, which the style cache cannot share: measured in the real viewer with
+   a photo's extracted text, ANY variable change on the row cost ~400 ms (one
+   frozen frame on letting go of the panel's resize, on toggling the files
+   strip). Giving these trees their own fixed values makes their computed style
+   independent of the row, so Chromium stops at them: 400 ms → 4.5 ms. None of
+   them reads these variables — only the containers around them do (the stage's
+   and the scrollers' padding, the page list, the pills). A new variable
+   written on the row must be added here. */
+.dv-textlayer,
+.dv-code-regions,
+.dv-docx > .docx-wrapper,
+.file-preview-pdf-page {
+  --dv-advisor-w: 0px;
+  --dv-fields-w: 0px;
+  --dv-strip-h: 0px;
+  --dv-doc-inset: 0px;
+  --dv-doc-rail: 0px;
+}

@@ -12,8 +12,8 @@ import { isElectron, authAppReady, authRequired } from '../lib/platform';
 // two windows, not one window wearing two shapes.
 //
 // Renders nothing. Mounted once, in the app window only (renderer.jsx) — the
-// sign-in window reports its own completion from AuthPage, and the doc viewer /
-// tray / snip windows have no say in this at all.
+// sign-in window reports its own completion from AuthPage, and the doc viewer
+// windows have no say in this at all.
 // A session saved on this machine (supabase-js keeps it as
 // `sb-<project>-auth-token`) with a refresh token in it.
 function hasStoredSession() {
@@ -42,8 +42,14 @@ export default function AuthWindowGate() {
   // turns out to be revoked, the effect below sends 'auth' and the sign-in
   // window takes over, as it always did.
   useEffect(() => {
-    if (!isElectron || lastSent.current) return;
-    if (hasStoredSession()) { lastSent.current = 'app'; authAppReady(); }
+    if (!isElectron || lastSent.current) return undefined;
+    if (hasStoredSession()) { lastSent.current = 'app'; authAppReady(); return undefined; }
+    // The session now lives in main's encrypted store: ask there.
+    let alive = true;
+    window.electronAPI?.authStoreHasSession?.().then((r) => {
+      if (alive && r?.has && !lastSent.current) { lastSent.current = 'app'; authAppReady(); }
+    }).catch(() => {});
+    return () => { alive = false; };
   }, []);
 
   useEffect(() => {

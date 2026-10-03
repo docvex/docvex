@@ -245,7 +245,28 @@ export function enhanceScan(src, filter = 'auto') {
 // ── As a PDF ─────────────────────────────────────────────────────────────
 // One page the scan's own shape, 210 mm wide — an A4 page when the page was
 // A4 (the usual case), and never a letterbox around a receipt.
-export async function scanToPdf(canvas, { quality = 0.88 } = {}) {
+//
+// `regions` (a reading of the page, lib/textRegions: lines with their words'
+// extents, 0…1 of the page) are written OVER the picture as INVISIBLE text
+// (PDF text rendering mode 3, what scanner apps write), word by word where each
+// word lies: the PDF can be selected, searched and read (its text reaches the
+// AI scan) like one made from a document, instead of being a photograph.
+// The font is Liberation Sans (SIL Open Font License, shipped with pdfjs-dist,
+// every Romanian letter — a PDF's own fonts have no ă / ș / ț), copied into
+// public/ocr/ on install and loaded only when a scan carries text.
+let textFont = null;
+async function loadTextFont() {
+  textFont ||= (async () => {
+    // Copied into public/ocr/ on install (scripts/copy-ocr-assets.mjs).
+    const { readOcrAsset } = await import('./paddleOcr');
+    const buf = new Uint8Array(await readOcrAsset('LiberationSans-Regular.ttf'));
+    let bin = '';
+    for (let i = 0; i < buf.length; i += 0x8000) bin += String.fromCharCode.apply(null, buf.subarray(i, i + 0x8000));
+    return btoa(bin);
+  })().catch((e) => { textFont = null; throw e; });
+  return textFont;
+}
+export async function scanToPdf(canvas, { quality = 0.88, regions = null } = {}) {
   const mod = await import('jspdf');
   const JsPDF = mod.jsPDF || mod.default || mod;
   const wMm = 210;
@@ -253,5 +274,36 @@ export async function scanToPdf(canvas, { quality = 0.88 } = {}) {
   if (Math.abs(hMm - 297) / 297 < 0.06) hMm = 297;
   const doc = new JsPDF({ orientation: hMm >= wMm ? 'portrait' : 'landscape', unit: 'mm', format: [wMm, hMm], compress: true });
   doc.addImage(canvas.toDataURL('image/jpeg', quality), 'JPEG', 0, 0, wMm, hMm);
+  const lines = (regions || []).filter((r) => r?.text && r.w > 0 && r.h > 0);
+  if (lines.length) {
+    try {
+      doc.addFileToVFS('LiberationSans-Regular.ttf', await loadTextFont());
+      doc.addFont('LiberationSans-Regular.ttf', 'LiberationSans', 'normal');
+      doc.setFont('LiberationSans', 'normal');
+      const PT = 72 / 25.4;   // points per mm
+      for (const r of lines) {
+        const x = r.x * wMm; const y = r.y * hMm; const w = r.w * wMm; const h = r.h * hMm;
+        // A tilted line (r.a): laid at its angle about its own box, as a whole.
+        const words = Array.isArray(r.words) && r.words.length && !r.a ? r.words : [[r.text, 0, 1]];
+        const size = Math.max(2, h * 0.86 * PT);   // a line's letters ≈ its box's height
+        doc.setFontSize(size);
+        for (const [t, a, b] of words) {
+          if (!t) continue;
+          const wx = x + a * w; const ww = Math.max(0.5, (b - a) * w);
+          // Stretched to the word's own width, so a selection covers what is
+          // printed there.
+          const natural = doc.getTextWidth(t);
+          const opts = { renderingMode: 'invisible', baseline: 'bottom' };
+          if (natural > 0) opts.horizontalScale = Math.max(0.2, Math.min(5, ww / natural));
+          if (r.a) opts.angle = -r.a;
+          doc.text(t, wx, y + h, opts);
+        }
+      }
+    } catch (err) {
+      // The picture alone is still a scan worth saving.
+      // eslint-disable-next-line no-console
+      console.warn('[scan] the text layer could not be written:', err);
+    }
+  }
   return doc.output('blob');
 }

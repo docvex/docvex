@@ -40,8 +40,6 @@ export const KNOWLEDGE_KINDS = {
   text: { store: 'aiData' },          // a picture's text with positions (lib/textRegions)
   ocr: { store: 'aiData' },           // the paid Claude transcription (lib/identityExtract)
   identity: { store: 'aiData' },      // record details read out of the file
-  understanding: { store: 'aiData' }, // what the Files scan understood (lib/dataCollections)
-  faces: { store: 'aiData', local: true }, // face descriptors (lib/faceMatch)
   metadata: { store: 'metadataHistory' },
   captions: { store: 'captionsHistory' },
   extraction: { store: 'extractionHistory' }, // the Doc Viewer's OCR snippet list
@@ -141,6 +139,17 @@ function entryFor(path, create = true) {
 function projectCovering(path) {
   for (const [id, p] of projects) if (p.dir && p.ready && isInsideDir(p.dir, path)) return { projectId: id, ...p };
   return null;
+}
+
+// Drops what this window holds about a project's files (after a wipe).
+export function forgetProjectKnowledge(projectId) {
+  const dir = projects.get(projectId)?.dir;
+  for (const [key, e] of files) {
+    if (e.projectId === projectId || (dir && isInsideDir(dir, e.path))) {
+      files.delete(key);
+      emit({ type: 'knowledge', path: e.path, kind: null });
+    }
+  }
 }
 
 // Tell whoever listens. `ev` = { type: 'knowledge', path, kind } |
@@ -516,6 +525,8 @@ function ensureEvents() {
   if (!['onKnowledgeChanged', 'onSettingsChanged', 'onProjectDelta'].some((n) => typeof b[n] === 'function')) return;
   eventsOn = true;
   sub('onKnowledgeChanged', (ev) => {
+    // A whole project's knowledge was wiped: forget it here too.
+    if (ev?.wiped && ev.projectId) { forgetProjectKnowledge(ev.projectId); return; }
     const path = ev?.path;
     if (!path) return;
     const e = entryFor(path, false);

@@ -14,8 +14,23 @@ import {
 import { useAuth } from '../context/AuthContext';
 import { isElectron, openExternal } from '../lib/platform';
 import { recallPage, usePageMemory } from '../lib/pageMemory';
-import { logHistory } from '../lib/tabHistory';
-import HistoryButton from '../components/HistoryMenu';
+import { CiteLink, sourceIndex } from '../components/WebSources';
+
+// The weekly briefing, its [n](url) source links (the digest's web search)
+// drawn as citation chips; it is one line of plain text otherwise.
+function CitedText({ text, sources }) {
+  const byUrl = sourceIndex(sources);
+  const parts = String(text || '').split(/(\[\d+\]\(https?:\/\/[^\s)]+\))/g);
+  return parts.map((part, i) => {
+    const m = /^\[(\d+)\]\((https?:\/\/[^\s)]+)\)$/.exec(part);
+    const src = m && byUrl.get(m[2]);
+    // eslint-disable-next-line react/no-array-index-key
+    if (src) return <CiteLink key={i} source={src}>{m[1]}</CiteLink>;
+    // A link the briefing did not get from its search is shown as its number only.
+    // eslint-disable-next-line react/no-array-index-key
+    return m ? <React.Fragment key={i}>[{m[1]}]</React.Fragment> : <React.Fragment key={i}>{part}</React.Fragment>;
+  });
+}
 
 // Newsletter — Legal Newsfeed v2 "Editorial" (ported from the Claude
 // Design handoff `docvex-newsfeed`). A typographically-led briefing of
@@ -266,7 +281,6 @@ export default function Newsletter() {
     if (act && item.act) openAct(item.act);
     // The tab's history: the briefing opened (its act, when it has one, is
     // what picking the entry again opens).
-    logHistory('newsletter', { kind: 'open', label: item.title, detail: CATEGORIES[item.category]?.label || item.category || '', data: { id: item.id, title: item.title, act: item.act || null }, dedupe: `o:${item.id}` });
     if (!item.unread) return;
     setItems((arr) => arr.map((i) => (i.id === item.id ? { ...i, unread: false } : i)));
     setUpdateRead(item.id, true);
@@ -314,18 +328,6 @@ export default function Newsletter() {
       className="ed-page ed-in-lws"
       rootRef={pageRef}
       bar={{
-        trailing: (
-          <HistoryButton
-            tab="newsletter"
-            tip="Every briefing opened, with the time"
-            emptyText="Nothing yet. Every briefing you open is listed here."
-            onPick={(e) => {
-              const d = e.data || {};
-              if (d.act && (d.act.number || d.act.url)) { openAct(d.act); return; }
-              setFilter('all'); setImpactFilter('all'); setQuery(d.title || '');
-            }}
-          />
-        ),
       }}
     >
       <div className="ed-head">
@@ -338,7 +340,7 @@ export default function Newsletter() {
         {digestState === 'loading' && (
           <span style={{ opacity: 0.65 }}>Generating this week's briefing…</span>
         )}
-        {digestState === 'ok' && <span>{digest.summary}</span>}
+        {digestState === 'ok' && <span><CitedText text={digest.summary} sources={digest.sources} /></span>}
         {digestState === 'fallback' && (
           <span>
             <strong>{highImpactUnread} high-impact</strong> {highImpactUnread === 1 ? 'update' : 'updates'} awaiting

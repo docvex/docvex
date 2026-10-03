@@ -19,7 +19,6 @@
 //   parseReconstruction(text)           → { document, blocks } | null   (exported for tests)
 //   buildWordFromBlocks(blocks, { page, font }) → Blob (.docx)          (exported for tests)
 
-import { askProjectAi } from './projectAi';
 import { isCloudMediaAllowed, CLOUD_MEDIA_MESSAGE, CLOUD_MEDIA_OFF } from './cloudMedia';
 
 const MODEL = 'claude-sonnet-4-6';
@@ -267,13 +266,14 @@ export async function pictureToWord(img, { projectId } = {}) {
   if (!isCloudMediaAllowed(projectId || undefined)) return { ok: false, error: CLOUD_MEDIA_MESSAGE, code: CLOUD_MEDIA_OFF };
   let data;
   try { data = pictureJpeg(img); } catch (e) { return { ok: false, error: e?.message || 'unreadable' }; }
-  const res = await askProjectAi({
+  const askAi = (await import('./aiEngine')).askAi;
+  const res = await askAi({
+    surface: 'tool', timeoutMs: 180_000,
     messages: [{ role: 'user', content: [
       { type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data } },
       { type: 'text', text: PROMPT },
     ] }],
     model: MODEL,
-    tools: false,
     usageProject: projectId,
     usageAction: 'image-to-word',
   });

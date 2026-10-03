@@ -23,12 +23,11 @@ import { supabase } from './supabaseClient';
 import { localFolderApi } from './localFolder';
 import { clearAiFileIndex } from './aiFileIndex';
 import { clearAiSearchAnswers } from './aiSearchCache';
-import { clearCachedChat } from './chatCache';
 import { CAPTIONS_PREFIX } from './captionsHistory';
 import { METADATA_PREFIX } from './metadataHistory';
 import { OCR_HISTORY_PREFIX } from './extractionHistory';
 import { CONVERSATION_PREFIX, listConversations, clearConversation } from './conversationHistory';
-import { normPath } from './projectIndexClient';
+import { normPath, forgetProjectKnowledge } from './projectIndexClient';
 import { secureStorage, secureKeys } from './secureStore';
 
 // Per-file localStorage caches, all keyed `<prefix><absolute file path>`.
@@ -134,11 +133,23 @@ export async function wipeProjectAiMemory(projectId, dir, { clearContext = true 
   return { threads, contextCleared };
 }
 
-// Clear everything DocVex derived FROM the files — transcripts, OCR snippets,
-// metadata snapshots, waveforms — plus this project's cached chat. The files
-// themselves are not touched.
-export function wipeProjectFileData(projectId, dir) {
-  const cleared = purgeByPrefixUnder(FILE_DATA_PREFIXES, dir);
-  if (projectId) clearCachedChat(projectId);
+// Clear everything DocVex derived FROM the files — text read out of them,
+// what the AI understood, identity readings, transcripts, OCR snippets,
+// metadata snapshots, waveforms, themes — in this machine's index AND the
+// project folder's `.docvex/knowledge` (which travels with the folder), plus
+// the project's pseudonymisation vault and the Word render cache. The files
+// themselves are not touched. (Security audit 2026-10-01: this used to clear
+// only the old localStorage keys, which nothing writes any more.)
+export async function wipeProjectFileData(projectId, dir) {
+  let cleared = purgeByPrefixUnder(FILE_DATA_PREFIXES, dir);
+  const api = typeof window !== 'undefined' ? window.electronAPI : null;
+  if (projectId && api?.knowledgeWipe) {
+    const res = await api.knowledgeWipe({ projectId });
+    if (res?.ok === false && res.error !== 'not_found') throw new Error(res.error || 'wipe_failed');
+    cleared += Number(res?.cleared) || 0;
+    forgetProjectKnowledge(projectId);
+  }
+  if (projectId && api?.vaultDelete) await api.vaultDelete(projectId).catch(() => {});
+  try { (await import('./docxRenderCache')).clearDocxRenders(); } catch { /* nothing cached */ }
   return { cleared };
 }

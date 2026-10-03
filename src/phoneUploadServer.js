@@ -135,6 +135,8 @@ const PORTS = [47810, 47811, 47812, 47813, 47814, 47815];
 const SESSION_MS = 7 * 24 * 60 * 60 * 1000;
 const TOKEN_RE = /^[A-Za-z0-9_-]{24,64}$/;
 const MAX_BYTES = 4 * 1024 * 1024 * 1024;
+// The unencrypted upload route (the planned Apple Shortcut) — off; see handle().
+const ALLOW_PLAIN_UPLOADS = false;
 const PROGRESS_MS = 200;
 
 const sessions = new Map();   // token → { dir, project, folder, expiresAt, sender, hold, owner, key }
@@ -600,7 +602,13 @@ function handle(req, res) {
     receiveSealed(req, res, token, s, url).catch((e) => { if (!res.headersSent) reply(res, 500, { ok: false, error: e?.message || 'failed' }); });
     return undefined;
   }
-  // Plain (unencrypted) — for the Shortcut only; the page always seals.
+  // Plain (unencrypted) — for the Shortcut only; the page always seals. OFF
+  // (security audit 2026-10-01): the file would cross the network in clear.
+  // The Shortcut is not built yet; when it is, it must seal like the page.
+  if (req.method === 'POST' && sub === '/file' && !ALLOW_PLAIN_UPLOADS) {
+    req.resume();
+    return reply(res, 410, { ok: false, error: 'sealed_only' });
+  }
   if (req.method === 'POST' && sub === '/file') {
     if (!live) { req.resume(); return reply(res, 410, { ok: false, error: 'expired' }); }
     return receive(req, res, token, s, url.searchParams.get('name'), String(url.searchParams.get('partner') || '').slice(0, 24));
@@ -640,6 +648,11 @@ function listen(prefer) {
       const srv = http.createServer(handle);
       srv.requestTimeout = 0;   // a 2 GB video over Wi-Fi takes a while
       srv.headersTimeout = 30000;
+      // …but a connection that SENDS nothing for two minutes is dropped, and
+      // only so many are held open at once (a slow-body flood from the
+      // network otherwise ties the server up — security audit 2026-10-01).
+      srv.timeout = 120000;
+      srv.maxConnections = 32;
       srv.once('error', (err) => {
         if (err?.code === 'EADDRINUSE' && i + 1 < order.length + 1) tryAt(i + 1);
         else reject(err);
@@ -659,6 +672,9 @@ function closeIfIdle() {
   for (const [t, s] of sessions) if (now >= s.expiresAt + 60000 || s.sender?.isDestroyed?.()) sessions.delete(t);
   if (!sessions.size && server) { server.close(); server = null; port = 0; }
 }
+
+// A cloud download handed to hold-file: the bucket's own cap per object.
+const HOLD_FILE_MAX = 50 * 1024 * 1024;
 
 export function registerPhoneUpload({ ipcMain, guardDir = () => null }) {
   ipcMain.handle('phone-upload:start', async (e, payload) => {
@@ -728,6 +744,10 @@ export function registerPhoneUpload({ ipcMain, guardDir = () => null }) {
   ipcMain.handle('phone-upload:hold-file', async (e, payload) => {
     const dir = payload?.dir;
     if (!dir) return { ok: false, error: 'no_folder' };
+    // The same folder rules as a session's (main.js protectedPathReason + the
+    // write allow-list), and the cloud route's own size cap.
+    if (guardDir(dir)) return { ok: false, error: 'no_folder' };
+    if (((payload?.data?.byteLength ?? payload?.data?.length) || 0) > HOLD_FILE_MAX) return { ok: false, error: 'too_large' };
     const owner = String(payload?.owner || '');
     const token = `cloud-${owner || '_'}`;
     owners.set(token, owner);
@@ -767,6 +787,8 @@ export function registerPhoneUpload({ ipcMain, guardDir = () => null }) {
   ipcMain.handle('phone-upload:accept', async (_e, id) => {
     const p = pending.get(id);
     if (!p) return { ok: false, error: 'gone' };
+    // The folder it is going into is checked again at the moment it lands.
+    if (guardDir(p.dir)) return { ok: false, error: 'no_folder' };
     try {
       const final = await freeName(p.dir, p.name);
       const dest = path.join(p.dir, final);

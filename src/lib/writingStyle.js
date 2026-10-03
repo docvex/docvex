@@ -17,7 +17,6 @@
 // distilled profile. Not the file. The user is told this on the page.
 
 import { supabase } from './supabaseClient';
-import { askProjectAi } from './projectAi';
 
 // Per-sample store cap. Long enough that the style signal is unmistakable —
 // openings, closings, how clauses are built, how lists are numbered — and short
@@ -176,16 +175,17 @@ export async function rebuildProfile() {
     return { profile: { text: '', sampleCount: 0, enabled: true, generatedAt: null } };
   }
 
-  const res = await askProjectAi({
+  const askAi = (await import('./aiEngine')).askAi;
+  const res = await askAi({
+    surface: 'tool', timeoutMs: 180_000,
     messages: [{ role: 'user', content: distillPrompt(samples) }],
     model: DISTILL_MODEL,
-    tools: false,
     // Personal work, not a project's — it must not land in any project's
     // token bill (the Mail tab does the same).
     usageProject: null,
     usageAction: 'writing-style',
   });
-  if (res.error) return { error: res.error };
+  if (res.error) return { error: new Error(res.error) };
 
   let text = String(res.text || '').trim().slice(0, MAX_PROFILE_CHARS);
   if (!text) return { error: new Error('empty_profile') };

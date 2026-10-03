@@ -7,35 +7,22 @@ import { useUpdates } from '../context/UpdatesContext';
 import { accountIdentity } from '../lib/account';
 import { AiUsageBar } from './AiUsageMeter';
 import { useAccountMenu } from './AccountMenu';
-import { isElectron, openExternal, listDocViewerTabs, onDocViewerTabs, focusDocViewerTab, closeDocViewerTab, openTabWindow, canOpenTabWindow, isTabWindow, listTabWindows, onTabWindows, focusTabWindow, dockTabWindow } from '../lib/platform';
-import { supabase } from '../lib/supabaseClient';
+import { isElectron, openExternal, openTabWindow, canOpenTabWindow, isTabWindow } from '../lib/platform';
 import { toLayoutPx } from '../lib/appZoom';
 import { hasNewBrief, onNewsletterChanged } from '../lib/legalFeed';
-import { LEGAL_TAB_PATHS, LEGAL_TABS } from './LegalTabs';
+import { LEGISLATION_PATHS } from './LegalTabs';
 import './RefPill.css';
 import { isBlankChat } from '../lib/advisorChats';
-import { researchStore, RESEARCH_SCOPE } from '../lib/researchChats';
+import { researchStore, bindResearch } from '../lib/researchChats';
+import { isSourceEntry, isEntryActive, openEntry, closeEntry, subscribeWorkspaces as subscribeLegalItems, workspacesSnapshot as legalItemsSnapshot } from '../lib/legislationEntries';
 import { subscribeRunner as subscribeResearchRun, runnerActivity as researchRunState, anyRunning as researchAnyRunning, isThreadBusy as researchThreadBusy } from '../lib/researchRunner';
-import { subscribeBrowser, browserState, curPage, pageMeta, selectTab, closeTab, openSearch, isSearchTab, moveTab, flushBrowser } from '../lib/legalBrowser';
 import { prefetchProjects } from '../lib/projectListPrefetch';
 import { preloadProjectList } from '../AppRoutes';
 import Tooltip from './Tooltip';
 import { useMorphPill } from './useMorphPill';
-import FileThumbnail from './FileThumbnail';
-import { glyphForFile } from './fileGlyph';
 import './Sidebar.css';
 import { perfAllows } from '../lib/perf';
 import { subscribePointer } from '../lib/pointer';
-import { useAnyScanRunning, useScanOutcome } from '../lib/scanRunner';
-
-// localfile:// URL for an on-disk path so the Open-files rows can show real
-// thumbnails (same scheme the Files page uses). Web paths (web://…) and the
-// no-path case have no streamable URL, so the thumbnail resolver falls back to
-// the MIME glyph. Mirrors localUrlFor in ProjectFiles.jsx.
-function docTabLocalUrl(path) {
-  if (!path || (typeof path === 'string' && path.startsWith('web://'))) return null;
-  return `localfile://local/${encodeURIComponent(path)}`;
-}
 
 // External documentation site, opened in the user's browser (formerly the
 // launch hub's "Documentation" footer link).
@@ -91,20 +78,9 @@ const LegislationIcon = (
   </svg>
 );
 
-// Research — a magnifier over a spark: the law and the Advisor searched as one.
-const ResearchIcon = (
-  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-    <circle cx="10.5" cy="10.5" r="6.5" />
-    <path d="m20 20-4.6-4.6" />
-    <path d="M10.5 7.5v6M7.5 10.5h6" />
-  </svg>
-);
-
 // Whether the System section is unfolded. Rail-wide, not per-user: it is a
 // preference about the shape of the sidebar, like its width.
 const SYSTEM_OPEN_KEY = 'docvex.sidebar.systemOpen';
-// Whether the Legislation entry's dropdown (what its tabs have open) is open.
-const LEGAL_OPEN_KEY = 'docvex.sidebar.legislationOpen';
 
 // The System section's fold chevron. Points down when open, right when folded
 // — the same reading as the rail's own collapse control.
@@ -122,30 +98,12 @@ const PlaybookIcon = (
   </svg>
 );
 
-// A winding route between two stops (start → where it's headed) — the Roadmap
-// destination.
-const RoadmapIcon = (
-  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-    <circle cx="6" cy="19" r="3" />
-    <path d="M9 19h8.5a3.5 3.5 0 0 0 0-7h-11a3.5 3.5 0 0 1 0-7H15" />
-    <circle cx="18" cy="5" r="3" />
-  </svg>
-);
-
 // Layers/stack glyph — the Versions (release history) destination.
 const VersionsIcon = (
   <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
     <polygon points="12 2 2 7 12 12 22 7 12 2"/>
     <polyline points="2 17 12 22 22 17"/>
     <polyline points="2 12 12 17 22 12"/>
-  </svg>
-);
-
-// Envelope glyph — the personal Mail (AI inbox) destination.
-const MailIcon = (
-  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-    <rect x="2" y="4" width="20" height="16" rx="2"/>
-    <path d="m22 7-10 6L2 7"/>
   </svg>
 );
 
@@ -184,14 +142,6 @@ const SignInIcon = (
 );
 
 
-// Shield glyph — the Developer Console (Admin) destination. Only shown to
-// app admins (the `app_admins` allowlist, probed via the is_app_admin RPC).
-const AdminIcon = (
-  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-    <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
-  </svg>
-);
-
 // Open-book glyph — the Documentation link out to the website.
 const DocsIcon = (
   <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -199,40 +149,6 @@ const DocsIcon = (
     <path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/>
   </svg>
 );
-
-// Document glyph (page with a folded corner + text lines) — each open
-// document-viewer window in the "Open files" section.
-const DocFileIcon = (
-  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-    <path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/>
-    <polyline points="14 3 14 8 19 8"/>
-    <line x1="9" y1="13" x2="15" y2="13"/>
-    <line x1="9" y1="17" x2="13" y2="17"/>
-  </svg>
-);
-
-// WhatsApp mark — shown for an open recognised WhatsApp conversation in place of
-// the generic text glyph (it opens as a .txt, so glyphForFile can't tell).
-const WhatsAppTabGlyph = (
-  <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor" aria-hidden="true">
-    <path d="M12 2a10 10 0 0 0-8.6 15l-1.3 4.8 4.9-1.3A10 10 0 1 0 12 2zm0 18.2a8.2 8.2 0 0 1-4.2-1.2l-.3-.2-2.9.8.8-2.8-.2-.3A8.2 8.2 0 1 1 12 20.2zm4.6-6.1c-.3-.1-1.5-.7-1.7-.8s-.4-.1-.6.1-.7.8-.8 1-.3.2-.5.1a6.7 6.7 0 0 1-2-1.2 7.4 7.4 0 0 1-1.4-1.7c-.1-.3 0-.4.1-.5l.4-.5.3-.4v-.4l-.8-1.9c-.2-.5-.4-.4-.6-.4h-.5a1 1 0 0 0-.7.3 2.9 2.9 0 0 0-.9 2.2 5 5 0 0 0 1.1 2.7 11.5 11.5 0 0 0 4.4 3.9c2.6 1 2.6.7 3.1.6a2.6 2.6 0 0 0 1.7-1.2 2.1 2.1 0 0 0 .1-1.2c-.1-.1-.3-.2-.5-.3z" />
-  </svg>
-);
-
-// "Open in a new window" — a window with an arrow leaving it.
-const PopOutGlyph = (
-  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-    <path d="M14 4h6v6" /><path d="M20 4l-8 8" /><path d="M18 14v4a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4" />
-  </svg>
-);
-// A window — a row of the "Separate windows" section.
-const WindowGlyph = (
-  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-    <rect x="3" y="4" width="18" height="16" rx="2.5" /><path d="M3 9h18" />
-  </svg>
-);
-// Offered in the MAIN window only (a tab window is one tab already).
-const canPopOut = canOpenTabWindow && !isTabWindow;
 
 // A SIDEBAR TAB'S MORPH PILL (components/useMorphPill — the Files tiles'):
 // hovering shows its name as the custom tooltip; a RIGHT-CLICK morphs that
@@ -310,26 +226,6 @@ const FilesIcon = (
   </svg>
 );
 
-// Speech-bubble glyph — the project Chat surface.
-const ChatIcon = (
-  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-    <path d="M21 11.5a8.38 8.38 0 0 1-9 8.5 9 9 0 0 1-4-1L3 21l1.5-4a8.5 8.5 0 0 1 4-11.5 8.38 8.38 0 0 1 12.5 6z"/>
-  </svg>
-);
-
-// Nodes joined by links — the Neural network tab (the graph of the files the
-// AI scan read). (Keep in step with SplitView's NAV_ICONS.network.)
-const NetworkIcon = (
-  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-    <circle cx="5" cy="6" r="2"/>
-    <circle cx="19" cy="6" r="2"/>
-    <circle cx="12" cy="12" r="2.2"/>
-    <circle cx="6" cy="19" r="2"/>
-    <circle cx="18" cy="18" r="2"/>
-    <path d="M6.7 7.2 10.3 10.8M17.3 7.2 13.7 10.8M10.4 13.4 7.4 17.5M13.7 13.4 16.5 16.6"/>
-  </svg>
-);
-
 // Sliders glyph — the project Settings/Overview surface (opens /projects/:id).
 const ProjectSettingsIcon = (
   <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -345,14 +241,6 @@ const ProjectSettingsIcon = (
   </svg>
 );
 
-
-// Spark glyph — the project AI surface.
-const AiIcon = (
-  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-    <path d="M12 3l1.8 4.6L18 9l-4.2 1.4L12 15l-1.8-4.6L6 9l4.2-1.4z"/>
-    <path d="M18 14l.8 2.2L21 17l-2.2.8L18 20l-.8-2.2L15 17l2.2-.8z"/>
-  </svg>
-);
 
 // A line of text that shows ALL of itself, and only when the row is too
 // narrow for it (the rail's width) FADES OUT at the row's edge — measured,
@@ -449,11 +337,6 @@ function Sidebar({ collapsed = false, offstage = false, onHubNav }) {
   // chat tab that is working.
   const researchRun = useSyncExternalStore(subscribeResearchRun, researchRunState);
   const researchBusy = researchAnyRunning(researchRun);
-  // The Files tab's AI scan runs on when the tab is left (lib/scanRunner): a
-  // spinner at the Files row's right end says it is still going.
-  const scanRunning = useAnyScanRunning();
-  // …and, for a moment after it ends, how it ended: a tick or a red dot.
-  const scanOutcome = useScanOutcome();
 
   // Which semver field the pending update bumps — drives the Versions pill
   // colour (major = red, minor = amber, patch = green).
@@ -481,46 +364,12 @@ function Sidebar({ collapsed = false, offstage = false, onHubNav }) {
     return () => { cancelled = true; off(); };
   }, [session?.user?.id]);
 
-  // Whether the signed-in user is an app admin (the `app_admins` allowlist) —
-  // gates the Developer Console (Admin) tab. Probed once per session via the
-  // is_app_admin SECURITY DEFINER RPC; non-admins get `false` and never see
-  // the tab (the Admin page's data is server-gated anyway, so showing it to a
-  // non-admin would only render a half-broken console).
-  const [isAdmin, setIsAdmin] = useState(false);
-  const userId = session?.user?.id || null;
-  useEffect(() => {
-    if (!userId) { setIsAdmin(false); return undefined; }
-    let alive = true;
-    supabase.rpc('is_app_admin').then(({ data }) => { if (alive) setIsAdmin(data === true); });
-    return () => { alive = false; };
-  }, [userId]);
-
-  // Open document-viewer windows — each file double-clicked in the Files page
-  // opens its own dedicated viewer window (one file = one window). Main keeps a
-  // registry and pushes the current list here so the "Open files" section can
-  // list them and refocus / close one. Empty on web (no extra windows).
-  // Tabs opened in SEPARATE WINDOWS (main.js tabWindows) — listed like the
-  // open files; a row brings its window forward, its × closes the window and
-  // brings what it showed back into this one.
-  const [tabWins, setTabWins] = useState([]);
-  useEffect(() => {
-    if (isTabWindow) return undefined;
-    let alive = true;
-    listTabWindows().then((list) => { if (alive) setTabWins(Array.isArray(list) ? list : []); });
-    const off = onTabWindows((list) => setTabWins(Array.isArray(list) ? list : []));
-    return () => { alive = false; off(); };
-  }, []);
-  const [docTabs, setDocTabs] = useState([]);
-  useEffect(() => {
-    let alive = true;
-    listDocViewerTabs().then((list) => { if (alive) setDocTabs(Array.isArray(list) ? list : []); });
-    const off = onDocViewerTabs((list) => setDocTabs(Array.isArray(list) ? list : []));
-    return () => { alive = false; off(); };
-  }, []);
-
   // Project surfaces — shown only when a project is selected (the workspace
   // navigation that used to live in the in-content rail). These routes read
   // the active project from SelectedProjectContext.
+  // LEGISLATION (2026-10-02, formerly Research): one entry with tabs — Ask
+  // (this route) and every source — so it is active on all of their routes.
+  const RESEARCH_ITEM = { to: '/research', label: 'Legislation', icon: LegislationIcon, end: true, fold: 'research', activeOn: LEGISLATION_PATHS, dot: researchBusy ? 'spin' : null };
   const projectItems = selectedProjectId ? [
     // The project's Dashboard — its overview — leads the section (which is
     // headed by the project's own name), opening /projects/:id
@@ -532,12 +381,10 @@ function Sidebar({ collapsed = false, offstage = false, onHubNav }) {
       icon: ProjectSettingsIcon,
       end: true,
     },
-    { to: '/files', label: 'Files', icon: FilesIcon, dot: scanRunning ? 'spin' : scanOutcome === 'ok' ? 'tick' : scanOutcome ? 'fail' : null },
-    { to: '/chat', label: 'Chat', icon: ChatIcon },
-    // The graph of what the AI scan read (components/FileGraph) — moved out of
-    // the Files tab into a tab of its own.
-    { to: '/network', label: 'Neural network', icon: NetworkIcon },
-    { to: '/roadmap', label: 'Roadmap', icon: RoadmapIcon },
+    // Research stands right under the Dashboard (it was a card of its own
+    // above the rail). With no project picked it leads the DocVex section.
+    RESEARCH_ITEM,
+    { to: '/files', label: 'Files', icon: FilesIcon },
   ] : [];
 
   // Personal destinations — the user's own feeds, always available.
@@ -546,33 +393,26 @@ function Sidebar({ collapsed = false, offstage = false, onHubNav }) {
       to: '/', label: 'Activity', icon: ActivityIcon, end: true,
       badge: unreadCount > 0 ? (unreadCount > 9 ? '9+' : String(unreadCount)) : null,
     },
-    // Legislation: the national legislative portal (pages/Legislation), the
-    // CAEN nomenclature (pages/Caen) and the other sources, tabs of one entry.
-    // Each keeps its own route, so the entry is active on all of them.
+    // The Newsletter, an entry of its own again (the sources moved into the
+    // Legislation entry's tabs): its "new brief" pill, cleared when opened.
     {
-      to: '/legislation', label: 'Legislation', icon: LegislationIcon, end: true,
-      activeOn: [...LEGAL_TAB_PATHS, '/newsletter'],
-      fold: 'legal',
-      // The Newsletter is the first item of the Legislation tab now: its "new
-      // brief" pill stands on this row (cleared when the Newsletter is opened).
+      to: '/newsletter', label: 'Newsletter', icon: NewsletterIcon, end: true,
       pill: newBrief ? { kind: 'brief', text: 'new' } : null,
     },
-    ...(session ? [{ to: '/mail', label: 'Mail', icon: MailIcon, end: true }] : []),
     { to: '/playbook', label: 'Playbook', icon: PlaybookIcon, end: true },
     {
-      to: '/versions', label: 'Versions', icon: VersionsIcon, end: true,
+      to: '/versions', label: 'Updates', icon: VersionsIcon, end: true,
       // Update-available pill, colored by the pending release's bump type.
       pill: updateKind ? { kind: updateKind, text: updateKind } : null,
     },
   ];
 
   // System destinations. Settings is signed-in only (matches where the gear
-  // used to live); Admin is app-admin only (is_app_admin probe above); Debug
+  // used to live); Debug
   // is dev-only (import.meta.env.DEV is false in packaged builds).
   const systemItems = [
     ...(session ? [{ to: '/settings', label: 'Settings', icon: GearIcon, end: true }] : []),
     ...(session ? [{ to: '/design', label: 'Design system', icon: SwatchIcon, end: true }] : []),
-    ...(session && isAdmin ? [{ to: '/admin', label: 'Admin', icon: AdminIcon, end: true }] : []),
     ...(import.meta.env.DEV ? [{ to: '/debug', label: 'Debug', icon: BugIcon, end: true }] : []),
   ];
 
@@ -590,109 +430,6 @@ function Sidebar({ collapsed = false, offstage = false, onHubNav }) {
       return next;
     });
   };
-  // LEGISLATION's dropdown — the Legislation tab's own TABS (lib/legalBrowser:
-  // what each one shows — an act, a court file, a company, a CAEN class, a
-  // search's results), pinned ones first under a labelled divider. A click
-  // puts that tab on screen, going to the Legislation tab first when needed.
-  const browser = useSyncExternalStore(subscribeBrowser, browserState);
-  // The blank search tab is not listed (the Legislation row opens it).
-  const listedTabs = browser.tabs.filter((t) => !isSearchTab(t));
-  const pinnedTabs = listedTabs.filter((t) => t.pinned);
-  const openTabs = listedTabs.filter((t) => !t.pinned);
-  const legalGroups = [
-    { key: 'pinned', label: 'Pinned', tabs: pinnedTabs },
-    { key: 'open', label: pinnedTabs.length ? 'Open' : 'Open tabs', tabs: openTabs },
-  ].filter((g) => g.tabs.length);
-  // A lone blank tab is not worth a list.
-  const legalCount = listedTabs.length;
-  const [legalOpen, setLegalOpen] = useState(() => {
-    try { return localStorage.getItem(LEGAL_OPEN_KEY) !== '0'; } catch { return true; }
-  });
-  const toggleLegal = () => {
-    setLegalOpen((v) => {
-      const next = !v;
-      try { localStorage.setItem(LEGAL_OPEN_KEY, next ? '1' : '0'); } catch { /* ignore */ }
-      return next;
-    });
-  };
-  const legalGo = { navigate, pathname };
-  // REARRANGING the Legislation tabs here, by dragging (the same move as the
-  // tab's own rail — lib/legalBrowser moveTab): a tab dropped on another goes
-  // BEFORE it, taking that place's pinned state; dropped on the list's foot
-  // it goes to the end. `{ id, over }` — `over` a tab id or 'end'.
-  const [tabDrag, setTabDrag] = useState(null);
-  // WHERE A DROP LANDS is read off the pointer's height, over the whole
-  // list: before the first tab whose middle is below it, else the end. (A
-  // handler per row left the gaps between rows and the group headings to
-  // the list's own handler, which read every one of them as "the end".)
-  const tabListRef = useRef(null);
-  const dropAt = (y) => {
-    const rows = tabListRef.current ? [...tabListRef.current.querySelectorAll('.nav-cat-row[data-tab-id]')] : [];
-    for (const r of rows) { const b = r.getBoundingClientRect(); if (y < b.top + b.height / 2) return r.dataset.tabId; }
-    return 'end';
-  };
-  // THE REARRANGEMENT IS ANIMATED (FLIP): every row's place is taken just
-  // before the move, and once the list is drawn in its new order each row
-  // starts where it was and glides to where it is.
-  const flipFrom = useRef(null);
-  const dropTab = (over) => {
-    const d = tabDrag;
-    setTabDrag(null);
-    if (!d || !over || over === d.id) return;
-    const rows = tabListRef.current ? [...tabListRef.current.querySelectorAll('.nav-cat-row[data-tab-id]')] : [];
-    const from = new Map(rows.map((r) => [r.dataset.tabId, r.getBoundingClientRect().top]));
-    // Dropping just before the tab that already follows it moves nothing.
-    const ids = rows.map((r) => r.dataset.tabId);
-    if (over !== 'end' && ids[ids.indexOf(d.id) + 1] === over) return;
-    if (over === 'end' && ids[ids.length - 1] === d.id) return;
-    flipFrom.current = from;
-    moveTab(d.id, over === 'end' ? null : over);
-  };
-  const tabOrder = browser.tabs.map((t) => t.id).join('|');
-  useLayoutEffect(() => {
-    const from = flipFrom.current;
-    flipFrom.current = null;
-    const list = tabListRef.current;
-    if (!from || !list) return;
-    if (document.documentElement.dataset.reduceMotion === 'true') return;
-    const rows = [...list.querySelectorAll('.nav-cat-row[data-tab-id]')];
-    const moved = [];
-    for (const r of rows) {
-      const was = from.get(r.dataset.tabId);
-      if (was == null) continue;
-      const dy = toLayoutPx(was - r.getBoundingClientRect().top);
-      if (Math.abs(dy) < 0.5) continue;
-      r.style.transition = 'none';
-      r.style.transform = `translateY(${dy}px)`;
-      moved.push(r);
-    }
-    if (!moved.length) return;
-    void list.offsetHeight;   // commit the start positions
-    for (const r of moved) {
-      r.style.transition = 'transform 260ms cubic-bezier(0.16, 1, 0.3, 1)';
-      r.style.transform = '';
-      const done = () => { r.style.transition = ''; r.removeEventListener('transitionend', done); };
-      r.addEventListener('transitionend', done);
-    }
-  }, [tabOrder]);
-  // The Legislation tab's rail can hand its list over to this dropdown
-  // (`docvex:legal-list-set`): the dropdown opens and the rail goes.
-  useEffect(() => {
-    const onSet = (e) => {
-      const next = !!e.detail?.open;
-      setLegalOpen(next);
-      try { localStorage.setItem(LEGAL_OPEN_KEY, next ? '1' : '0'); } catch { /* ignore */ }
-    };
-    window.addEventListener('docvex:legal-list-set', onSet);
-    return () => window.removeEventListener('docvex:legal-list-set', onSet);
-  }, []);
-  // Whether the dropdown is LISTING the tabs — announced so the Legislation
-  // tab can drop its own rail of the same tabs (LegalWorkspace).
-  const legalListed = legalOpen && legalCount > 0;
-  useEffect(() => {
-    window.__docvexLegalListed = legalListed;
-    window.dispatchEvent(new CustomEvent('docvex:legal-listed', { detail: { listed: legalListed } }));
-  }, [legalListed]);
 
   // THE CHAT DROPDOWN — Research's chats (lib/researchChats, per user; the
   // store is lib/advisorChats' factory) as tabs, the Legislation
@@ -700,7 +437,9 @@ function Sidebar({ collapsed = false, offstage = false, onHubNav }) {
   // listed (the entry's row opens it), drag to reorder, × to close, the row
   // click opening a new chat while on the page. One hook, one renderer
   // (useChatFold / renderChatEntry).
-  useEffect(() => { researchStore.bind(session?.user?.id || '_anonymous', RESEARCH_SCOPE); }, [session?.user?.id]);
+  useEffect(() => { bindResearch(session?.user?.id || '_anonymous', selectedProjectId); }, [session?.user?.id, selectedProjectId]);
+  // What the Legislation source tabs have open — marks the one-list entry on show.
+  const workspaces = useSyncExternalStore(subscribeLegalItems, legalItemsSnapshot);
   const researchFold = useChatFold(researchStore, { openKey: RESEARCH_OPEN_KEY, setEvent: 'docvex:research-list-set', listedEvent: 'docvex:research-listed', flag: '__docvexResearchListed' });
 
   // What survives the fold: Settings alone. Not "the first item" — if Settings
@@ -719,8 +458,7 @@ function Sidebar({ collapsed = false, offstage = false, onHubNav }) {
   // Render a single NavLink nav-item from a descriptor (shared by every
   // category group).
   const renderNavItem = ({ to, label, icon, end, badge, pill, dot, onClick, onWarm, activeOn, fold }) => (
-    fold === 'legal' ? renderLegalEntry({ to, label, icon, end, badge, pill, dot, onClick, onWarm, activeOn })
-      : fold === 'research' ? renderResearchEntry({ to, label, icon, end, badge, pill, dot, onClick, onWarm, activeOn })
+    fold === 'research' ? renderResearchEntry({ to, label, icon, end, badge, pill, dot, onClick, onWarm, activeOn })
         : renderNavItemRow({ to, label, icon, end, badge, pill, dot, onClick, onWarm, activeOn }, null)
   );
   function renderNavItemRow({ to, label, icon, end, badge, pill, dot, onClick, onWarm, activeOn, notActive }, chev) {
@@ -762,137 +500,6 @@ function Sidebar({ collapsed = false, offstage = false, onHubNav }) {
     );
   }
 
-  // The Legislation entry: the row itself (with a chevron at its right end
-  // that folds the dropdown — a span, since a button can't sit in a link),
-  // then the dropdown of every tab's open items.
-  const renderLegalEntry = (item) => {
-    const chev = legalCount ? (
-      <Tooltip content={legalOpen ? 'Hide the open tabs' : `Show the open tabs (${legalCount})`}>
-        <span
-          className={`nav-fold-chev${legalOpen ? ' is-open' : ''}`}
-          role="button"
-          tabIndex={0}
-          aria-expanded={legalOpen}
-          aria-label={legalOpen ? 'Hide open items' : 'Show open items'}
-          onClick={(e) => { e.preventDefault(); e.stopPropagation(); toggleLegal(); }}
-          onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); toggleLegal(); } }}
-        >
-          {FoldChevron}
-        </span>
-      </Tooltip>
-    ) : null;
-    // Open and selected, the row's selected ground wraps the dropdown too:
-    // the row and what it has open read as ONE entry (`.nav-fold.is-wrapped`).
-    const shown = legalOpen && legalCount > 0;   // a lone search tab: just the Legislation row
-    const selected = pathname === item.to || !!item.activeOn?.includes(pathname);
-    // ON LEGISLATION, the row OPENS A SEARCH TAB — the blank one if there is
-    // one (no pile of empty tabs), else a new one — with the caret in the
-    // search; the fold chevron is what collapses the list. From elsewhere it
-    // goes to Legislation as ever and opens the list.
-    const onRowClick = (e) => {
-      item.onClick?.(e);
-      if (selected) {
-        e.preventDefault();
-        openSearch(legalGo);
-        requestAnimationFrame(() => window.dispatchEvent(new Event('docvex:legal-omni-focus')));
-        return;
-      }
-      if (legalCount && !legalOpen) toggleLegal();
-    };
-    // WITH TABS OPEN the entry is drawn as the System section is: no box
-    // around it, the tabs as ORDINARY sidebar rows under the Legislation row
-    // (full size, the platform's dot in the icon slot), headed by the System
-    // header's small capitals and hairline. The selection is ONE row — the
-    // tab on show, else the Legislation row itself.
-    const tabOnShow = selected && listedTabs.some((t) => t.id === browser.active);
-    return (
-      <div key={item.to} className={`nav-fold${shown ? ' is-cat' : ''}`}>
-        {renderNavItemRow({ ...item, onClick: onRowClick, notActive: tabOnShow }, chev)}
-        {/* Kept mounted while there are tabs, so folding and unfolding
-            ANIMATE (the list's height, its fade, the ground around it); a
-            folded list is inert. */}
-        {legalCount > 0 && (
-          <div className={`nav-cat-fold${shown ? ' is-open' : ''}`} inert={!shown} aria-hidden={!shown}>
-          <div className="nav-cat-fold-inner">
-          <div
-            ref={tabListRef}
-            className={`sidebar-cat-items nav-cat-list${tabDrag ? ' is-dragging' : ''}${tabDrag?.over === 'end' ? ' is-drop-end' : ''}`}
-            role="group"
-            aria-label="The Legislation tab's tabs"
-            onDragOver={(e) => {
-              if (!tabDrag) return;
-              e.preventDefault();
-              e.dataTransfer.dropEffect = 'move';
-              const over = dropAt(e.clientY);
-              if (over !== tabDrag.over) setTabDrag((d) => (d ? { ...d, over } : d));
-            }}
-            onDrop={(e) => { if (!tabDrag) return; e.preventDefault(); dropTab(dropAt(e.clientY)); }}
-          >
-            {legalGroups.map((g) => (
-              <React.Fragment key={g.key}>
-                <div className="sidebar-cat-label nav-cat-div"><span className="sidebar-cat-text">{g.label}</span></div>
-                {g.tabs.map((t) => {
-                  const m = pageMeta(curPage(t));
-                  const active = selected && browser.active === t.id;
-                  const name = [m.kind, m.title].filter(Boolean).join(' ');
-                  return (
-                    <div
-                      key={t.id}
-                      data-tab-id={t.id}
-                      className={`doc-tab-row nav-sub-row nav-cat-row${tabDrag?.id === t.id ? ' is-dragged' : ''}${tabDrag?.over === t.id && tabDrag.id !== t.id ? ' is-drop' : ''}`}
-                      draggable
-                      onDragStart={(e) => {
-                        e.dataTransfer.effectAllowed = 'move';
-                        try { e.dataTransfer.setData('text/plain', t.id); } catch { /* some hosts refuse */ }
-                        setTabDrag({ id: t.id, over: null });
-                      }}
-                      onDragEnd={() => setTabDrag(null)}
-                    >
-                      {/* The label is the tab's own; what the page LOADED for it (kept
-                          for good) is its tooltip. */}
-                      <TabMenuPill
-                        hover={legalTabPill(m, curPage(t))}
-                        onOpen={() => selectTab(t.id, legalGo)}
-                        popRoute={`${curPage(t).type === 'item' && curPage(t).route ? curPage(t).route : '/legislation'}?ltab=${encodeURIComponent(t.id)}`}
-                        popTitle={name}
-                        // The tabs are written first: the new window reads them.
-                        onBeforePop={flushBrowser}
-                      >
-                        <button
-                          type="button"
-                          className={`nav-item nav-cat-item${active ? ' active' : ''}`}
-                          onClick={() => selectTab(t.id, legalGo)}
-                        >
-                          <span className="label nav-sub-text">
-                            {m.kind ? <span className="nav-sub-kind"><FadeText className="nav-cat-kindtext">{m.siteName
-                              ? <><span className="nav-cat-site" style={{ '--tone': m.tone }}>{m.siteName}</span>{m.ownKind ? ` · ${m.ownKind}` : ''}</>
-                              : m.kind}</FadeText></span> : null}
-                            {m.title ? <FadeText className="nav-sub-title">{m.title}</FadeText> : null}
-                          </span>
-                        </button>
-                      </TabMenuPill>
-                      {!t.pinned ? (
-                        <button
-                          type="button"
-                          className="doc-tab-close"
-                          onClick={() => closeTab(t.id, legalGo)}
-                          aria-label={`Close ${name}`}
-                        >
-                          {CloseGlyph}
-                        </button>
-                      ) : null}
-                    </div>
-                  );
-                })}
-              </React.Fragment>
-            ))}
-          </div>
-          </div>
-          </div>
-        )}
-      </div>
-    );
-  };
 
   // A chat entry (the Advisor, Research) — renderLegalEntry's twin, over the
   // chats of `f` (useChatFold). `busy`: a turn is running on that page.
@@ -927,8 +534,15 @@ function Sidebar({ collapsed = false, offstage = false, onHubNav }) {
       }
       if (count && !open) toggle();
     };
-    const openChat = (id) => { store.select(id); if (pathname !== item.to) navigate(item.to); };
-    const tabOnShow = selected && listed.some((t) => t.id === chats.active);
+    const openChat = (id) => {
+      const t = chats.threads.find((x) => x.id === id);
+      // An item a Legislation source tab opened (lib/legislationEntries).
+      if (isSourceEntry(t)) { openEntry(t, navigate, pathname); return; }
+      store.select(id);
+      if (pathname !== item.to) navigate(item.to);
+    };
+    const tabOnShow = (selected && listed.some((t) => t.id === chats.active && !isSourceEntry(t)))
+      || listed.some((t) => isEntryActive(t, pathname, workspaces));
     return (
       <div key={item.to} className={`nav-fold${shown ? ' is-cat' : ''}`}>
         {renderNavItemRow({ ...item, onClick: onRowClick, notActive: tabOnShow }, chev)}
@@ -955,7 +569,7 @@ function Sidebar({ collapsed = false, offstage = false, onHubNav }) {
                 {g.tabs.map((t) => {
                   const tBusy = typeof busy === 'function' ? busy(t.id) : (busy && chats.active === t.id && pathname === item.to);
                   const m = store.meta(t, { busy: tBusy });
-                  const active = selected && chats.active === t.id;
+                  const active = isSourceEntry(t) ? isEntryActive(t, pathname, workspaces) : selected && chats.active === t.id;
                   return (
                     <div
                       key={t.id}
@@ -994,7 +608,7 @@ function Sidebar({ collapsed = false, offstage = false, onHubNav }) {
                         </button>
                       </TabMenuPill>
                       {!t.pinned ? (
-                        <button type="button" className="doc-tab-close" onClick={() => store.close(t.id)} aria-label={`Close ${m.title}`}>
+                        <button type="button" className="doc-tab-close" onClick={() => (isSourceEntry(t) ? closeEntry(t) : store.close(t.id))} aria-label={`Close ${m.title}`}>
                           {CloseGlyph}
                         </button>
                       ) : null}
@@ -1033,18 +647,6 @@ function Sidebar({ collapsed = false, offstage = false, onHubNav }) {
   // snapping. The per-button highlight below stays immediate so hovered items
   // light up instantly. The loop self-parks once settled and restarts on move.
   const navRef = useRef(null);
-  // The Research card's height, on the slot: the rail starts under it.
-  const researchCardRef = useRef(null);
-  useLayoutEffect(() => {
-    const card = researchCardRef.current;
-    const slot = card?.parentElement;
-    if (!card || !slot) return undefined;
-    const put = () => slot.style.setProperty('--research-card-h', `${card.offsetHeight}px`);
-    put();
-    const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(put) : null;
-    ro?.observe(card);
-    return () => { ro?.disconnect(); slot.style.removeProperty('--research-card-h'); };
-  }, []);
   const glowDotRef = useRef(null);
   const shineDotRef = useRef(null);
   const SPOT_EASE = 0.28; // per-60fps-frame ease — higher = snappier follow
@@ -1152,26 +754,6 @@ function Sidebar({ collapsed = false, offstage = false, onHubNav }) {
 
   return (
     <>
-    {/* ── RESEARCH — its own card ABOVE the rail, apart from it (a gap
-        between, its own ground), at the user's request: the two are not one
-        surface. It carries the `sidebar` class for the rail's item rules
-        (Sidebar.css scopes them under .sidebar) and is sized and placed by
-        `.sidebar.sidebar-research`; its height is measured into
-        --research-card-h on the slot, which is where the rail starts. ── */}
-    <nav
-      className={`sidebar sidebar-research${collapsed ? ' is-collapsed' : ''}`}
-      ref={researchCardRef}
-      aria-label="Research"
-      inert={offstage || undefined}
-    >
-      <ul className="sidebar-nav">
-        <li className="sidebar-cat sidebar-cat--lead">
-          <div className="sidebar-cat-items">
-            {renderNavItem({ to: '/research', label: 'Research', icon: ResearchIcon, end: true, fold: 'research', dot: researchBusy ? 'spin' : null })}
-          </div>
-        </li>
-      </ul>
-    </nav>
     <nav
       className={`sidebar${collapsed ? ' is-collapsed' : ''}`}
       ref={navRef}
@@ -1206,6 +788,7 @@ function Sidebar({ collapsed = false, offstage = false, onHubNav }) {
               // its rows already in hand instead of on an empty frame.
               onWarm: warmHub,
             })}
+            {!selectedProjectId && renderNavItem(RESEARCH_ITEM)}
             {personalItems.map(renderNavItem)}
           </div>
         </li>
@@ -1218,87 +801,6 @@ function Sidebar({ collapsed = false, offstage = false, onHubNav }) {
             <span className="sidebar-cat-label"><span className="sidebar-cat-text">{selectedProject?.name || 'Project'}</span></span>
             <div className="sidebar-cat-items">
               {projectItems.map(renderNavItem)}
-            </div>
-          </li>
-        )}
-
-        {/* ── Separate windows — every tab opened in a window of its own.
-            A row brings that window forward; the × closes it and brings
-            what it showed back into this window. ── */}
-        {tabWins.length > 0 && (
-          <li className="sidebar-cat">
-            <span className="sidebar-cat-label"><span className="sidebar-cat-text">Separate windows</span></span>
-            <div className="sidebar-cat-items">
-              {tabWins.map((w) => {
-                const title = String(w.title || '').replace(/^DocVex\s*[—–-]\s*/, '') || w.route;
-                return (
-                  <div key={w.id} className="doc-tab-row">
-                    <Tooltip content={`${title} — in its own window`}>
-                      <button type="button" className="nav-item doc-tab-main" onClick={() => focusTabWindow(w.id)}>
-                        <span className="icon">{WindowGlyph}</span>
-                        <span className="label doc-tab-name">{title}</span>
-                      </button>
-                    </Tooltip>
-                    <Tooltip content="Close the window and bring it back here">
-                      <button type="button" className="doc-tab-close" onClick={() => dockTabWindow(w.id)} aria-label={`Bring ${title} back into this window`}>
-                        {CloseGlyph}
-                      </button>
-                    </Tooltip>
-                  </div>
-                );
-              })}
-            </div>
-          </li>
-        )}
-
-        {/* ── Open files — every open document-viewer window. Clicking a row
-            refocuses that window; the × closes it. Hidden when none are open. ── */}
-        {docTabs.length > 0 && (
-          <li className="sidebar-cat">
-            <span className="sidebar-cat-label"><span className="sidebar-cat-text">Open files</span></span>
-            <div className="sidebar-cat-items">
-              {docTabs.map((t) => (
-                <div key={t.id} className="doc-tab-row">
-                  <Tooltip content={t.aiBusy ? `${t.name} — AI working…` : t.name}>
-                    <button
-                      type="button"
-                      className={`nav-item doc-tab-main${t.aiBusy ? ' is-ai-busy' : ''}`}
-                      onClick={() => focusDocViewerTab(t.id)}
-                    >
-                      <span className="icon doc-tab-icon">
-                        {/* Real file thumbnail (image/video/PDF/DOCX/PPTX preview),
-                            same renderer the Files page uses — falls back to the
-                            per-file-type MIME glyph when no preview resolves or the
-                            "Display thumbnails" pref is off. WhatsApp chats are a
-                            .txt, so keep their brand glyph. */}
-                        <span className={`doc-tab-thumb${t.isWhatsApp ? ' is-wa' : ''}`}>
-                          {t.isWhatsApp
-                            ? WhatsAppTabGlyph
-                            : (
-                              <FileThumbnail
-                                mimeType={t.mime}
-                                name={t.name}
-                                sourceUrl={docTabLocalUrl(t.path)}
-                                glyph={glyphForFile(t.mime, t.name)}
-                              />
-                            )}
-                        </span>
-                        {t.aiBusy && <span className="doc-tab-ai-dot" aria-label="AI working" />}
-                      </span>
-                      <span className="label doc-tab-name">{t.name}</span>
-                      {t.aiBusy && <span className="label doc-tab-ai-tag" aria-hidden="true">AI</span>}
-                    </button>
-                  </Tooltip>
-                  <button
-                    type="button"
-                    className="doc-tab-close"
-                    onClick={() => closeDocViewerTab(t.id)}
-                    aria-label={`Close ${t.name}`}
-                  >
-                    {CloseGlyph}
-                  </button>
-                </div>
-              ))}
             </div>
           </li>
         )}

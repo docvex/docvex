@@ -2,17 +2,15 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router-dom';
 import { recallPage, usePageMemory } from '../lib/pageMemory';
 import './Caen.css';
-import PageMasthead from '../components/PageMasthead';
 import { DiceGlyph, LegalSearchBox } from '../components/LegalTabs';
 import { useTabSetting, tabKeyFor, useSearchTabs } from '../components/LegalOmnibox';
 import LegalWorkspace, { WorkspaceSearch, WorkspaceClear, SourceStatus } from '../components/LegalWorkspace';
 import Tooltip from '../components/Tooltip';
 import CaenCard, { codeLabel } from '../components/CaenCard';
-import { logHistory } from '../lib/tabHistory';
 import { BarPicker } from '../components/LegalBar';
-import { CaenOutline, CaenAtlas } from './CaenViews';
+import { CaenAtlas } from './CaenViews';
 import {
-  loadCaenRev, peekCaenTrees, peekCaenNotes, caenEntry, caenChildren, searchCaen, normCode, sentenceCase, REVS_ALL,
+  loadCaenRev, peekCaenTrees, peekCaenNotes, caenEntry, caenChildren, searchCaen, normCode, sentenceCase,
 } from '../lib/caen';
 
 // CAEN — the nomenclature of economic activities, in the app.
@@ -42,31 +40,17 @@ const ChevronIcon = (
 
 // Which revision the page reads — each a whole tree (lib/caen: Rev. 3, the
 // law since 2025; Rev. 2, 2008–2024; Rev. 1, 2003–2007), read alike by the
-// tree and the card — or all three at once, where the search answers from
-// every one and the tree walks Rev. 3. Remembered
-// per device.
+// tree and the card. ("All revs" was removed on 2026-10-02.)
 const REV_KEY = 'docvex:caen:rev';
 const REVS = [
   { id: 1, label: 'Rev. 1' },
   { id: 2, label: 'Rev. 2' },
   { id: 3, label: 'Rev. 3' },
-  { id: 'all', label: 'All revs' },
 ];
-const loadRev = () => { try { const v = localStorage.getItem(REV_KEY); return v === '1' ? 1 : v === '2' ? 2 : v === 'all' ? 'all' : 3; } catch { return 3; } };
+const loadRev = () => { try { const v = localStorage.getItem(REV_KEY); return v === '1' ? 1 : v === '2' ? 2 : 3; } catch { return 3; } };
 const revOf = (v) => (v === '1' ? 1 : v === '2' ? 2 : 3);
 const saveRev = (v) => { try { localStorage.setItem(REV_KEY, String(v)); } catch { /* storage unavailable */ } };
 
-// How the tree is read (pages/CaenViews): the LIST (search + tree + card),
-// the OUTLINE (a section rail and the section as a table of contents) or the
-// ATLAS (the sections as tiles, the divisions as cards). Remembered per device.
-const VIEW_KEY = 'docvex:caen:layout';
-const VIEWS = [
-  { id: 'list', label: 'List' },
-  { id: 'outline', label: 'Outline' },
-  { id: 'atlas', label: 'Atlas' },
-];
-const loadView = () => { try { const v = localStorage.getItem(VIEW_KEY); return VIEWS.some((x) => x.id === v) ? v : 'list'; } catch { return 'list'; } };
-const saveView = (v) => { try { localStorage.setItem(VIEW_KEY, v); } catch { /* storage unavailable */ } };
 
 
 export default function Caen() {
@@ -86,7 +70,6 @@ export default function Caen() {
   useSearchTabs();
   const tabKey = tabKeyFor('/caen', activeCode);
   const [rev, setRev] = useTabSetting(tabKey, 'rev', 3);
-  const [view, setView] = useTabSetting(tabKey, 'view', 'list');
   // The CLASSES opened, one rail item each (components/LegalWorkspace), and
   // the one on show — null = the search / browse view (the tree).
   // Browsing — a section, a division, a group — stays in that view; a class
@@ -115,15 +98,16 @@ export default function Caen() {
 
   const selected = normCode(params.get('code') || '');
   const selectedRev = revOf(params.get('rev'));
-  // The tree the page reads: the chosen revision's; under 'All revs', Rev. 3's.
-  const activeRev = rev === 'all' ? 3 : rev;
+  // The tree the page reads: the chosen revision's (a tab that still
+  // remembers the retired "All revs" reads Rev. 3).
+  const activeRev = rev === 1 || rev === 2 ? rev : 3;
   const data = trees[activeRev] || null;
 
-  // Load what the choice needs: the active tree, the selected code's, and —
-  // under 'All revs' — every one. Each is fetched once and kept.
+  // Load what the choice needs: the active tree and the selected code's.
+  // Each is fetched once and kept.
   useEffect(() => {
     let live = true;
-    const wanted = rev === 'all' ? REVS_ALL : [...new Set([activeRev, selectedRev, shown?.rev || 3, 3])];
+    const wanted = [...new Set([activeRev, selectedRev, shown?.rev || 3, 3])];
     for (const r of wanted) {
       if (trees[r]) continue;
       loadCaenRev(r)
@@ -141,8 +125,6 @@ export default function Caen() {
     setParams(next, { replace: false, state: { internal: true } });
     detailRef.current?.scrollIntoView?.({ block: 'nearest', behavior: 'smooth' });
     // The tab's history: the code opened, with its name and revision.
-    const it = trees[rr]?.items?.[normCode(code)];
-    logHistory('caen', { kind: 'open', label: normCode(code), detail: `${it?.n || ''}${rr !== 3 ? ` · Rev. ${rr}` : ''}`.replace(/^ · /, ''), data: { code: normCode(code), rev: rr }, dedupe: `o:${rr}:${normCode(code)}` });
   }, [setParams, activeRev, trees]);
 
   // Opening a CLASS: selected as ever (the tree follows it)
@@ -172,24 +154,15 @@ export default function Caen() {
     if (params.get('open') !== '1' || !code) return;
     const r = revOf(params.get('rev'));
     if (!trees[r]) return;
-    if (r !== activeRev && rev !== 'all') setRev(r);
+    if (r !== activeRev) setRev(r);
     setQuery('');
     openCode(code, r);
   }, [params, trees]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Under 'All revs' every loaded tree answers, newest first, each hit tagged
-  // with its revision.
   const results = useMemo(() => {
     if (!data || !query.trim()) return null;
-    if (rev !== 'all') return searchCaen(data, query);
-    return [3, 2, 1].flatMap((r) => (trees[r] ? searchCaen(trees[r], query, { limit: 60 }) : []));
-  }, [data, trees, rev, query]);
-
-  const counts = useMemo(() => {
-    const c = { s: 0, d: 0, g: 0, c: 0 };
-    for (const it of Object.values(data?.items || {})) c[it.l] += 1;
-    return c;
-  }, [data]);
+    return searchCaen(data, query);
+  }, [data, query]);
 
   // THE SEARCH, drawn as every source tab draws it (WorkspaceSearch): the
   // words box — a code or the words of an activity: the
@@ -251,6 +224,7 @@ export default function Caen() {
           kind: `Rev. ${o.rev || 3}`,
           title: it?.n ? `${o.code} ${sentenceCase(it.n)}` : o.code,
           tip: it?.n ? `${o.code} — ${it.n}${o.rev !== 3 ? ` (Rev. ${o.rev})` : ''}` : o.code,
+          href: `/caen?code=${encodeURIComponent(o.code)}&rev=${o.rev || 3}&open=1`,
         };
       })}
       activeId={activeCode}
@@ -258,44 +232,6 @@ export default function Caen() {
       onClose={(id) => { setOpened((list) => list.filter((o) => o.id !== id)); if (id === activeCode) setActiveCode(null); }}
       onSearch={() => setActiveCode(null)}
       railLabel="Codes open in this tab"
-      // History — this tab's log (components/HistoryMenu): every code
-      // opened; picking one opens it again.
-      history={{
-        tab: 'caen',
-        tip: 'Every code opened, with the time',
-        emptyText: 'Nothing yet. Every code you open is listed here.',
-        onPick: (e) => {
-          const d = e.data || {};
-          if (!d.code) return;
-          if (d.rev && d.rev !== rev && rev !== 'all') setRev(d.rev);
-          openCode(d.code, d.rev || 3);
-        },
-      }}
-      masthead={(
-        <PageMasthead
-          eyebrow="Nomenclatorul CAEN"
-          eyebrowMuted="source: insse.ro/cms/ro/caen"
-          title="CAEN codes"
-          compact={false}
-          actions={data ? (
-            <div className="cn-mast-meta">
-              <div>
-                <div className="cn-mast-num">{counts.c}</div>
-                <div>Classes</div>
-              </div>
-              <span className="cn-mast-sep" />
-              <div>
-                <div className="cn-mast-num">{counts.s}</div>
-                <div>Sections</div>
-              </div>
-            </div>
-          ) : null}
-        >
-          The classification of economic activities a company’s object of activity is written in —
-          every section, division, group and class of Rev. 3 with the National Institute of
-          Statistics’ own notes, and where each Rev. 2 code went.
-        </PageMasthead>
-      )}
       // Typing in the search goes back to the search view.
       bar={{
         // No find in this tab: the words box is the search view's (below);
@@ -320,16 +256,9 @@ export default function Caen() {
           <>
             <BarPicker
               solo
-              label="View"
-              options={VIEWS}
-              value={view}
-              onChange={setView}
-            />
-            <BarPicker
-              solo
               label="Revision"
               options={REVS}
-              value={rev}
+              value={activeRev}
               onChange={setRev}
             />
           </>
@@ -347,22 +276,25 @@ export default function Caen() {
         <main className="cn-detail is-open" ref={detailRef}>
           <CaenCard trees={trees} code={shown.code} rev={shown.rev} onPick={openCode} />
         </main>
-      ) : view === 'outline' || view === 'atlas' ? (
-        // ── Outline / Atlas: the tree on show, read another way. A class
-        // picked here is selected (the URL, the history), not opened as an
-        // item — the card stands beside it.
-        (() => {
-          const tree = data;
-          const r = tree.rev || activeRev;
-          const sel = selectedRev === r ? selected : '';
-          const pick = (c, rr) => select(c, rr || r);
-          return view === 'outline'
-            ? <CaenOutline data={tree} trees={trees} rev={r} selected={sel} onPick={pick} cardRef={detailRef} />
-            : <CaenAtlas data={tree} trees={trees} rev={r} selected={sel} onPick={pick} onClose={() => setParams({}, { replace: false, state: { internal: true } })} />;
-        })()
+      ) : !query.trim() ? (
+        // ── The ATLAS (the one view since 2026-10-02): the sections as tiles,
+        // the divisions as cards — under the search, as one compact row. A
+        // class picked here is selected (the URL, the history); the card
+        // stands beside it.
+        <>
+          {React.cloneElement(searchView, { asked: true })}
+          <CaenAtlas
+            data={data}
+            trees={trees}
+            rev={data.rev || activeRev}
+            selected={selectedRev === (data.rev || activeRev) ? selected : ''}
+            onPick={(c, rr) => select(c, rr || data.rev || activeRev)}
+            onClose={() => setParams({}, { replace: false, state: { internal: true } })}
+          />
+        </>
       ) : (
         <>
-        {searchView}
+        {React.cloneElement(searchView, { asked: true })}
         <div className="cn-body">
           <aside className="cn-side">
             {/* The search box is in the tab bar above (LegalTabs). */}
@@ -380,8 +312,8 @@ export default function Caen() {
                 <p className="cn-empty-title">Pick a code</p>
                 <p className="cn-empty-sub">
                   Search by number or by the words of an activity, or browse the sections on the left.
-                  A number from an older document works too: pick its revision above, or “All revs”, and
-                  it opens as what it was — and where it went.
+                  A number from an older document works too: pick its revision above, and it opens
+                  as what it was — and where it went.
                 </p>
               </div>
             )}

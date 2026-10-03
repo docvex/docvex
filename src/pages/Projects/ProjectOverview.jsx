@@ -39,6 +39,7 @@ import FilterTabs from '../../components/FilterTabs';
 import DangerZone, { DangerRow } from '../../components/DangerZone';
 import Tooltip from '../../components/Tooltip';
 import StatusBadge from '../../components/StatusBadge';
+import Toggle from '../../components/Toggle';
 import './ProjectDashboard.css';
 import './ProjectDossier.css';
 import { AI_MONTHLY_TOKENS } from '../../lib/plan';
@@ -809,7 +810,7 @@ export default function ProjectOverview() {
           dedupeKey: `wipe-ai:${project.id}`,
         });
       } else {
-        const { cleared } = wipeProjectFileData(project.id, localFolderPath);
+        const { cleared } = await wipeProjectFileData(project.id, localFolderPath);
         notify({
           category: 'file',
           variant: 'info',
@@ -1242,20 +1243,16 @@ export default function ProjectOverview() {
             own advisor chats go to a private copy only you can read.
           </p>
           <div className="pjd-sync-row">
-            <button
-              type="button"
-              role="switch"
-              aria-checked={Boolean(sync?.enabled)}
-              aria-label="Sync this project with your account"
-              className={`pjd-toggle${sync?.enabled ? ' is-on' : ''}`}
+            <Toggle
+              on={Boolean(sync?.enabled)}
+              label={sync?.enabled ? 'On' : 'Off'}
+              ariaLabel="Sync this project with your account"
               disabled={!isAdmin || !!syncBusy || !!sync?.missingBucket || !localFolderPath}
-              onClick={() => {
+              onChange={() => {
                 if (sync?.enabled) { setConfirmSyncOff(true); return; }
                 runSync('on');
               }}
-            >
-              <span className="pjd-toggle-knob" />
-            </button>
+            />
             <span className="pjd-sync-state">
               {syncBusy === 'on' ? 'Turning on…'
                 : syncBusy === 'off' ? 'Removing the copy…'

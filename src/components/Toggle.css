@@ -63,3 +63,6 @@
 }
 .tgl:hover::before { opacity: 1; }
 @media (prefers-reduced-motion: reduce) { .tgl::before { display: none; } }
+
+/* Disabled: faded, no hover light, not pressable. */
+.tgl:disabled { opacity: 0.5; cursor: default; }

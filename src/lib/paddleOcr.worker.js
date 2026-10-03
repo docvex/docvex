@@ -8,6 +8,10 @@
 //               { id, ok: false, error }
 import * as ort from 'onnxruntime-web/wasm';
 import { PaddleOcrService } from 'paddleocr';
+import { patchCharPositions } from './paddleCharPos';
+
+// Each letter's position as the recogniser saw it (lib/paddleCharPos).
+patchCharPositions();
 
 let enginePromise = null;
 
@@ -54,7 +58,7 @@ self.onmessage = async ({ data }) => {
   try {
     const ocr = await engine(base);
     const res = await ocr.recognize(image, { ordering: { sortByReadingOrder: true, sameLineThresholdRatio: 0.5 } });
-    const results = (res || []).map((r) => ({ text: r.text, confidence: r.confidence, box: r.box }));
+    const results = (res || []).map((r) => ({ text: r.text, confidence: r.confidence, box: r.box, charPos: r.charPos || null }));
     self.postMessage({ id, ok: true, results });
   } catch (err) {
     self.postMessage({ id, ok: false, error: String(err?.message || err) });

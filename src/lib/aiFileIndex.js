@@ -22,7 +22,8 @@
 //   • Indexing runs on Haiku (cheapest model); only the final match step needs
 //     a stronger one, and by then it's reading 25-word summaries.
 
-import { askProjectAi } from './projectAi';
+// Every call goes through the app's one AI engine (lib/aiEngine, loaded on use).
+const askTool = async (opts) => (await import('./aiEngine')).askAi({ surface: 'tool', usageAction: 'ai-file-index', ...opts });
 import { isCloudMediaAllowed } from './cloudMedia';
 import { textForFile, isContentSearchable, captionsFor } from './fileContentSearch';
 import { encodeVisualThumb, isVisualFile } from './visualThumb';
@@ -255,10 +256,10 @@ async function describeTextBatch(batch, signal) {
     ].filter(Boolean).join('\n'));
   }
   if (signal?.aborted) return;
-  const res = await askProjectAi({
+  const res = await askTool({
     messages: [{ role: 'user', content: `${INDEX_SYSTEM}\n\nFiles:\n${parts.join('\n')}` }],
     model: INDEX_MODEL,
-    tools: false,
+    signal,
   });
   if (signal?.aborted || res.error) return;
   absorb(batch, res.text);
@@ -286,10 +287,10 @@ async function describeImageBatch(batch, signal) {
     for (const file of batch) putDescription(file, `${file.name} — ${file.mimeType || 'media file'} (contents could not be read)`);
     return;
   }
-  const res = await askProjectAi({
+  const res = await askTool({
     messages: [{ role: 'user', content: [{ type: 'text', text: `${INDEX_SYSTEM}\n\nEach image below is numbered with its file name.` }, ...blocks] }],
     model: INDEX_MODEL,
-    tools: false,
+    signal,
   });
   if (signal?.aborted || res.error) return;
   absorb(shown, res.text);

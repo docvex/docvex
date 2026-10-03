@@ -7,6 +7,7 @@
 
 import COURTS_LIST from './courts.json';
 import { courtsSearch, courtsHearings } from './platform';
+import { supabase } from './supabaseClient';
 import {
   cacheGet, cachePut, cachePutMany, cacheList, cacheStats, cacheClear, onCacheChange, isUnreachable, queryKey, sameRecord, fold,
 } from './sourceCache';
@@ -139,12 +140,52 @@ function searchKept(q) {
   ));
 }
 
-/** `searchCases`, the portal first and the copy when it cannot answer. */
+// ── BACKUP SOURCES (2026-10-02) ──────────────────────────────────────────
+// portal.just.ro is often offline — and when its HTTPS address fails, a
+// search by a party's name is refused rather than sent in clear. Then the
+// same question goes to the `court-files` function, which asks EasyAPI, then
+// DosarJust (third parties — their keys stay on the server) and answers in the
+// portal's own record shape. Only after that is the copy on this machine read.
+// An answer from a backup says so: `source: 'backup:<provider>'`.
+const BACKUP_ERRORS = new Set(['insecure_party_search']);
+const wantsBackup = (error) => isUnreachable(error) || BACKUP_ERRORS.has(error);
+// A court the backup names in words ("Tribunalul București") is matched back
+// to the portal's id, so the page labels and filters it as one of its own.
+const byFoldedLabel = new Map(COURTS_LIST.map((c) => [fold(c.label), c.id]));
+const courtIdOf = (v) => (byId.has(v) ? v : byFoldedLabel.get(fold(v)) || v);
+async function askBackup(action, q) {
+  try {
+    const { data, error } = await supabase.functions.invoke('court-files', {
+      body: { action, q: { ...q, institutieLabel: q.institutie ? courtLabel(q.institutie) : '' } },
+    });
+    if (error || !data?.ok) return null;
+    return data;
+  } catch { return null; }
+}
+async function searchBackup(q) {
+  const b = await askBackup('search', q);
+  if (!b) return null;
+  const dosare = (b.dosare || []).map((d) => repairDosar({ ...d, institutie: courtIdOf(d.institutie) }));
+  return { ok: true, total: b.total ?? dosare.length, dosare, provider: b.provider };
+}
+async function hearingsBackup(q) {
+  const b = await askBackup('hearings', q);
+  return b ? { ok: true, sedinte: (b.sedinte || []).map(cleanRecord), provider: b.provider } : null;
+}
+
+/** `searchCases`, the portal first, then a backup service, then the copy
+ *  kept on this machine. */
 export async function searchCasesKept(q) {
   const res = await searchCases(q);
   if (res?.ok) {
     cachePutMany(TAB, [[`q:${queryKey(q)}`, res], ...(res.dosare || []).slice(0, 60).map((d) => [fileKey(d), d])]);
     return { ...res, source: 'live' };
+  }
+  if (!wantsBackup(res?.error)) return res;
+  const b = await searchBackup(q);
+  if (b) {
+    cachePutMany(TAB, [[`q:${queryKey(q)}`, b], ...b.dosare.slice(0, 60).map((d) => [fileKey(d), d])]);
+    return { ...b, source: `backup:${b.provider}`, portalError: res?.error || 'unreachable' };
   }
   if (!isUnreachable(res?.error)) return res;
   const saved = cacheGet(TAB, `q:${queryKey(q)}`)?.data;
@@ -157,6 +198,9 @@ export async function listHearingsKept(q) {
   const res = await listHearings(q);
   const key = `h:${queryKey(q)}`;
   if (res?.ok) { cachePut(TAB, key, res); return { ...res, source: 'live' }; }
+  if (!wantsBackup(res?.error)) return res;
+  const b = await hearingsBackup(q);
+  if (b) { cachePut(TAB, key, b); return { ...b, source: `backup:${b.provider}`, portalError: res?.error || 'unreachable' }; }
   if (!isUnreachable(res?.error)) return res;
   const saved = cacheGet(TAB, key)?.data;
   return saved ? { ...saved, sedinte: (saved.sedinte || []).map(cleanRecord), ok: true, source: 'archive', portalError: res?.error } : res;

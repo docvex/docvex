@@ -442,7 +442,12 @@ export async function deleteProject(projectId) {
     await disableSync(projectId);
   } catch { /* nothing synced, offline, or no bucket */ }
   const { error } = await supabase.from('projects').delete().eq('id', projectId);
-  if (!error) notifyProjectsChanged();
+  if (!error) {
+    notifyProjectsChanged();
+    // The project's pseudonymisation vault (real names / CNPs ↔ tokens) has no
+    // use once the project is gone (GDPR Art. 5(1)(e)).
+    try { await window.electronAPI?.vaultDelete?.(projectId); } catch { /* none kept */ }
+  }
   return { data: null, error };
 }
 

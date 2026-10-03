@@ -266,7 +266,7 @@ async function pdfGroups(blob, warnings) {
   try {
     const pdfjs = await loadPdfModule();
     const data = new Uint8Array(await blob.arrayBuffer());
-    const doc = await pdfjs.getDocument({ data }).promise;
+    const doc = await pdfjs.getDocument({ data, isEvalSupported: false }).promise;
     try {
       const meta = await doc.getMetadata();
       const info = meta?.info || {};

@@ -13,7 +13,6 @@ import '../components/DocRibbon.css';
 import PageMasthead from '../components/PageMasthead';
 import FilterTabs from '../components/FilterTabs';
 import Tooltip from '../components/Tooltip';
-import HistoryButton from '../components/HistoryMenu';
 import { WorkspaceSearchTab, WorkspaceRail } from '../components/LegalWorkspace';
 import { BarDatePicker, BarDateRange, isoOf } from '../components/BarCalendar';
 import { BarPicker } from '../components/LegalBar';
@@ -37,6 +36,13 @@ import '../components/RefPill.css';
 import '../components/useMorphPill.css';
 import NotificationToast from '../components/NotificationToast';
 import '../components/NotificationCenter.css';
+import ThinkingStatus from '../components/AiThinking';
+import SourcesCheckCard from '../components/SourcesCheckCard';
+import { LoadingNote } from './Legislation';
+import '../components/Sidebar.css';
+import '../components/SwitchProjectLoader.css';
+import '../components/UpdateProgressBar.css';
+import '../components/DocBrief.css';
 import { TEST_NOTIFICATIONS } from '../notifications/testNotifications';
 import {
   DS_TOKENS, DS_FAMILIES, tokenKey, currentValue, loadOverrides, saveOverrides, onDesignChange,
@@ -396,7 +402,7 @@ export default function DesignSystem() {
               <div className="aichat-attachments dsg-filepills-row">
                 {['WhatsApp Image 2026-09-20 at 20.44.jpg', 'WhatsApp Image 2026-09-20 at 20.44 (1).jpg', 'proprietara - unzipped/00000939-contract inchiriat Carmen Sylva 2025.docx'].map((n) => (
                   <span className="aichat-attach-chip" key={n}>
-                    {AI_ICONS.file({ width: 13, height: 13 })}
+                    <span className="dsg-pill-ext"><ExtGlyph ext={n.split('.').pop()} /></span>
                     <Tooltip content={n}><span className="aichat-attach-name">{n}</span></Tooltip>
                     <button type="button" className="aichat-attach-x" aria-label={`Remove ${n}`}>{AI_ICONS.x({ width: 12, height: 12 })}</button>
                   </span>
@@ -406,7 +412,7 @@ export default function DesignSystem() {
               <div className="dsg-filepills-row">
                 {['proprietara - unzipped/00000939-contract inchiriat Carmen Sylva 2025.docx', 'WhatsApp Image 2026-09-20 at 20.44.jpg'].map((n) => (
                   <span className="aichat-attach-chip is-static" key={n}>
-                    {AI_ICONS.file({ width: 12, height: 12 })}
+                    <span className="dsg-pill-ext"><ExtGlyph ext={n.split('.').pop()} /></span>
                     <Tooltip content={n}><span className="aichat-attach-name">{n}</span></Tooltip>
                   </span>
                 ))}
@@ -567,6 +573,28 @@ export default function DesignSystem() {
         </div>
         <div className="dsg-gallery">
           <NotificationsSample />
+        </div>
+      </section>
+
+      {/* ── Spinners & loaders ────────────────────────────────────────────
+          Every loading indicator the app draws, by the real component or
+          class (LoadersSample). The Doc Viewer's, the Playbook's, Settings'
+          and the Files tab's rules are MIRRORED in DesignSystem.css under
+          .dsg-ld (their stylesheets are bound to their own page or window) —
+          keep them in step. */}
+      <section className="dsg-section" data-ds={family}>
+        <div className="dsg-section-head">
+          <div>
+            <h2 className="dsg-h">Spinners &amp; loaders</h2>
+            <p className="dsg-sub">
+              Everything that says "working on it": the rings that turn, the AI's thinking line, the dots and
+              waves, the progress bars, the skeleton and the busy marks on a file or a paragraph. Each is shown
+              as it stands in the app, with where it is used.
+            </p>
+          </div>
+        </div>
+        <div className="dsg-gallery">
+          <LoadersSample />
         </div>
       </section>
 
@@ -757,7 +785,6 @@ function WorkspaceSample() {
         <div className="lgt-bar is-pinned">
           <div className="lgt-line2">
             <WorkspaceSearchTab active={active == null} onClick={() => setActive(null)} />
-            <HistoryButton iconOnly className="lg-searchtab-hist" tab="design-system" tip="The tab's history" emptyText="Nothing here — this is a sample." onPick={() => {}} />
             <div className="lgt-search">
               <span className="lgt-search-glyph">{SearchGlyph}</span>
               <input placeholder={current ? 'Find in this act' : 'Any words'} readOnly aria-label="Sample search" />
@@ -1248,6 +1275,113 @@ function LegalHighlightsSample() {
 // ── The Notifications section ──────────────────────────────────────────────
 // Every sample notification as the real toast, held open. A file notification
 // with its thumbnail's glyph is added (the phone upload's arrival).
+// ── Spinners & loaders ─────────────────────────────────────────────────────
+// Every loader in the app, held running. Components where they stand alone
+// (ThinkingStatus, LoadingNote, SourcesCheckCard); the markup of the rest,
+// since their components read app state (SwitchProjectLoader, UpdateProgressBar)
+// or aren't exported (SwitchSpinner, AiBusyMark).
+const LD_RELOAD = (
+  <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <path d="M21 12a9 9 0 1 1-3-6.7L21 8" /><path d="M21 3v5h-5" />
+  </svg>
+);
+const LD_RINGS = [
+  ['lgb-spin', 'Tab loading · Legislation / Research', <span className="lgb-spin" />],
+  ['nav-dot is-spin nav-cat-spin', 'Sidebar · a chat thinking', <span className="nav-dot is-spin nav-cat-spin" />],
+  ['nav-dot is-spin', 'Sidebar · a row running (Research)', <span className="nav-dot is-spin" />],
+  ['fx-cat-head-spinner', 'Files · a section still searching', <span className="fx-cat-head-spinner" />],
+  ['dv-audio-captions-spinner', 'Doc Viewer · transcribing', <span className="dv-audio-captions-spinner" />],
+  ['pbk-word-spin', 'Playbook · document updating', <span className="pbk-word-spin" />],
+  ['dvi-modal-scan-spin', 'Doc Viewer · scan button', <span className="dvi-modal-scan-spin" style={{ color: 'var(--accent)' }} />],
+  ['lg-spinner', 'Legislation · loading note', <span className="lg-spinner" />],
+  ['scc-spin', 'Sources check · pending', <span className="scc-spin" />],
+  ['set-mm-spinner', 'Settings · motion preview', <span className="set-mm-spinner" />],
+  ['lgb-switching-spin', 'Legislation · switching tab', <span className="lgb-switching-spin" />],
+  ['spinner', 'A page loading (RouteFallback)', <div className="spinner" />],
+  ['dv-preview-spinner', 'Doc Viewer · loading a version', <span className="dv-preview-spinner" />],
+  ['switch-project-loader-spinner', 'Switching project', <div className="switch-project-loader-spinner" />],
+  ['dv-boot-spinner', 'Doc Viewer · opening a file (dark ground)', <span className="dsg-ld-dark"><span className="dv-boot-spinner" /></span>],
+];
+function LoadersSample() {
+  return (
+    <div className="dsg-ld">
+      <Sample name="Spinning rings" of="every border-ring spinner, smallest to largest — the class under each" wide row>
+        {LD_RINGS.map(([cls, where, el]) => (
+          <div className="dsg-ld-item" key={cls}>
+            <div className="dsg-ld-stage">{el}</div>
+            <p className="dsg-ld-name">.{cls.split(' ').join('.')}</p>
+            <p className="dsg-ld-where">{where}</p>
+          </div>
+        ))}
+      </Sample>
+
+      <Sample name="Spinning icons" of="an icon that turns while its action runs — .is-spinning / .is-busy" row>
+        <div className="dsg-ld-item">
+          <div className="dsg-ld-stage"><button type="button" className="lgb-icobtn lgb-reload is-spinning" aria-label="Reloading">{LD_RELOAD}</button></div>
+          <p className="dsg-ld-name">.lgb-reload.is-spinning</p>
+          <p className="dsg-ld-where">Legislation · reloading a tab</p>
+        </div>
+        <div className="dsg-ld-item">
+          <div className="dsg-ld-stage"><button type="button" className="dv-ai-refresh is-busy">{LD_RELOAD} Recapture</button></div>
+          <p className="dsg-ld-name">.dv-ai-refresh.is-busy</p>
+          <p className="dsg-ld-where">Doc Viewer · Data tab, recapturing</p>
+        </div>
+      </Sample>
+
+      <Sample name="AI thinking" of="components/AiThinking — the gavel, the shimmering word, the dots (Research, the Doc Viewer advisor)" row>
+        <div className="ai-chat-page dsg-ld-plain"><ThinkingStatus label="Reading the act" /></div>
+        <div className="ai-chat-page dsg-ld-plain"><ThinkingStatus query="summary" /></div>
+      </Sample>
+
+      <Sample name="Loading note" of="pages/Legislation LoadingNote (and Research's drawer) — a ring and a line" row>
+        <LoadingNote delay={0}>Reading the act…</LoadingNote>
+        <LoadingNote delay={0} className="is-foot">Laying out the rest of the act…</LoadingNote>
+      </Sample>
+
+      <Sample name="Status lines" of="a ring before what is happening" row>
+        <div className="dv-audio-captions-status"><span className="dv-audio-captions-spinner" /> Transcribing…</div>
+        <div className="set-mm-spinner-wrap"><span className="set-mm-spinner" /><span className="set-mm-spin-cap">Spinner</span></div>
+        <span className="pbk-word-updating"><span className="pbk-word-spin" /> Updating…</span>
+      </Sample>
+
+      <Sample name="Sources check, pending" of="components/SourcesCheckCard — under an AI-written version while the platforms are asked" wide>
+        <SourcesCheckCard pending at={Date.now()} />
+      </Sample>
+
+      <Sample name="Overlays" of="a veil over what is loading — the Doc Viewer's version loader, its seek dots, the text-reading shimmer" wide row>
+        <div className="dsg-ld-box"><div className="dv-preview-loading"><span className="dv-preview-spinner" /></div></div>
+        <div className="dsg-ld-box"><div className="dv-seek-loading"><div className="dv-seek-loading-dots"><span /><span /><span /></div></div></div>
+        <div className="dsg-ld-box"><div className="dv-ocr-loading" /></div>
+      </Sample>
+
+      <Sample name="Busy marks" of="on the thing being worked on — a file the AI is writing (Files), a paragraph the AI is editing (Word preview)" wide row>
+        <div className="dsg-ld-thumb"><ExtGlyph ext="docx" /><span className="fx-ai-busy"><span className="fx-ai-busy-spin" /></span></div>
+        <div className="dv-docx dsg-ld-para">
+          <p className="dv-docx-para is-ai-busy">1.1. Vânzătorul transmite cumpărătorului dreptul de proprietate asupra imobilului descris la art. 2.</p>
+        </div>
+      </Sample>
+
+      <Sample name="Progress bars" of="the update download (UpdateProgressBar, indeterminate) and the brief's steps (DocBrief)" wide>
+        <div className="dsg-ld-bar">
+          <div className="update-progress-track"><div className="update-progress-bar" /></div>
+          <span className="dsg-ld-where">Downloading the update…</span>
+        </div>
+        <div className="dsg-ld-bar">
+          <div className="dbr-progress"><span style={{ width: '40%' }} /></div>
+          <span className="dsg-ld-where">2 of 5 steps</span>
+        </div>
+      </Sample>
+
+      <Sample name="Skeleton" of="pages/Settings — the shimmering placeholder (the Minimize motion preview)">
+        <div className="set-mm-skel">
+          <div className="set-mm-skel-thumb" />
+          <div className="set-mm-skel-lines"><span /><span /></div>
+        </div>
+      </Sample>
+    </div>
+  );
+}
+
 function NotificationsSample() {
   const list = React.useMemo(() => [
     ...TEST_NOTIFICATIONS.map((n, i) => ({ ...n, id: `dsg-toast-${i}`, persistent: true, createdAt: new Date().toISOString() })),
@@ -1437,63 +1571,6 @@ const FIELD_ROWS = [
     body: <span className="dv-docx-para is-selected">Termenul este de <span className="dv-field is-filled">30 de zile</span>, penalitatea de <span className="dv-field is-active">________</span>, dobânda <span className="dv-field is-active is-filled">0,1% pe zi</span>.</span>,
   },
 ];
-// The picked paragraph's AUTOFILL (components/DocConstructor, docked under the
-// paragraph): per person, the kind switch and the data collections as files.
-const SAMPLE_COLLECTIONS = [
-  { kind: 'org', file: 'SC ALFA DISTRIBUTIE SRL.dvc', meta: 'Persoană juridică · RO 14399840' },
-  { kind: 'org', file: 'BETA IMPEX SA.dvc', meta: 'Persoană juridică · RO 6859662' },
-  { kind: 'pfa', file: 'Popescu Ion PFA.dvc', meta: 'PFA / II · 38912577' },
-  { kind: 'person', file: 'Ion Popescu.dvc', meta: 'Persoană fizică · 1780512123456' },
-  { kind: 'person', file: 'Maria Ionescu.dvc', meta: 'Persoană fizică · 2850304125789' },
-];
-const DSG_PEN = (
-  <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-    <path d="M12 20h9" /><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" />
-  </svg>
-);
-const DSG_CHECK = (
-  <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-    <polyline points="20 6 9 17 4 12" />
-  </svg>
-);
-function AutofillSample() {
-  const [chosen, setChosen] = useState(0);
-  // ONE choice per party: every data collection, as its file. The one picked
-  // decides how the party's part is written (a company's also says who signs
-  // for it and in what capacity).
-  return (
-    <div className="dsg-autofill">
-      <div className="dcx-people">
-        <div className="dcx-party-group">
-          <section className="dcx-person">
-            <header className="dcx-person-head"><span className="dcx-person-name">Parte1</span></header>
-            <ul className="dcx-person-list">
-              <li>
-                <button type="button" className={`dcx-person-opt is-custom${chosen === -1 ? ' is-on' : ''}`} onClick={() => setChosen(-1)}>
-                  <span className="dcx-person-av">{DSG_PEN}</span>
-                  <span className="dcx-person-text">Custom</span>
-                  <span className="dcx-person-mark">{DSG_CHECK}</span>
-                </button>
-              </li>
-              {SAMPLE_COLLECTIONS.map((c, i) => (
-                <li key={c.file}>
-                  <button type="button" className={`dcx-person-opt${chosen === i ? ' is-on' : ''}`} onClick={() => setChosen(i)}>
-                    <span className="dcx-person-file"><ExtGlyph ext="dvc" /></span>
-                    <span className="dcx-person-text">
-                      <span className="dcx-person-rec">{c.file}</span>
-                      <span className="dcx-person-meta">{c.meta}</span>
-                    </span>
-                    <span className="dcx-person-mark">{DSG_CHECK}</span>
-                  </button>
-                </li>
-              ))}
-            </ul>
-          </section>
-        </div>
-      </div>
-    </div>
-  );
-}
 
 function EmptyFieldsSample() {
   const crimson = '#9F1239';
@@ -1540,9 +1617,6 @@ function EmptyFieldsSample() {
             </p>
           </div>
         </div>
-
-        <p className="dsg-refs-label">The picked paragraph’s autofill · docked under it — per party, the data collections that fill it (the one picked decides how the part is written)</p>
-        <AutofillSample />
 
         <p className="dsg-refs-label">What is read as a blank · lib/docConstructor BLANK_PATTERNS — each is drawn as the slot above</p>
         <div className="dsg-fields-src">

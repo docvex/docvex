@@ -82,7 +82,7 @@ Deno.serve(async (req: Request) => {
       if (!resendResp.ok) {
         email_status = 'rejected';
         email_error = (await resendResp.text()).slice(0, 500);
-        console.warn("[send-welcome] resend rejected", resendResp.status, email_error);
+        console.warn("[send-welcome] resend rejected", resendResp.status); // status only: the error body can echo the address
       }
     } catch (err) {
       email_status = 'failed';

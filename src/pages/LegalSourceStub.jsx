@@ -1,7 +1,6 @@
 import React from 'react';
 import { useLocation } from 'react-router-dom';
 import './LegalSourceStub.css';
-import PageMasthead from '../components/PageMasthead';
 import LegalWorkspace from '../components/LegalWorkspace';
 import { PLANNED_SOURCES as SOURCES } from '../lib/legalSources';
 
@@ -27,15 +26,7 @@ export default function LegalSourceStub() {
     // bar's second line; nothing can be opened yet, so there is no rail.
     <LegalWorkspace
       className="lss-page"
-      masthead={(
-        <PageMasthead eyebrow={src.eyebrow} eyebrowMuted={`source: ${src.site}`} title={src.title} compact={false}>
-          {src.blurb}
-        </PageMasthead>
-      )}
       searchActive
-      // The History button every tab has — this one's log stays empty until
-      // the source is connected.
-      history={{ tab: pathname.slice(1), tip: 'Nothing is logged here until the source is connected', emptyText: 'Nothing yet. This source is not connected.', onPick: () => {} }}
     >
       {/* Drawn as the Doc Viewer advisor's empty state ("Ask about this
           document"): a bare thin-stroke mark, the sentence under it, nothing

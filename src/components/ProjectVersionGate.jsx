@@ -18,7 +18,9 @@ import React, { useEffect, useState } from 'react';
 import { Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { useSelectedProject } from '../context/SelectedProjectContext';
 import { useUpdates } from '../context/UpdatesContext';
-import { projectVersionCheck, rememberedProjectVersion, versionBlocks } from '../lib/projectSync';
+// The remembered stamp is read synchronously from lib/projectVersion; the
+// account-sync module (lib/projectSync) is loaded only for the network check.
+import { rememberedProjectVersion, versionBlocks } from '../lib/projectVersion';
 import { compareVersions } from '../lib/appVersion';
 import './ProjectVersionGate.css';
 
@@ -47,8 +49,12 @@ export default function ProjectVersionGate() {
     let lastCheck = 0;
     const check = async () => {
       lastCheck = Date.now();
-      const res = await projectVersionCheck(projectId);
-      if (alive) setGate({ projectId, required: res.required, settled: true });
+      let res = null;
+      try {
+        const { projectVersionCheck } = await import('../lib/projectSync');
+        res = await projectVersionCheck(projectId);
+      } catch { /* offline / no module: the remembered stamp stands */ }
+      if (alive && res) setGate({ projectId, required: res.required, settled: true });
     };
     check();
     const giveUp = window.setTimeout(() => {

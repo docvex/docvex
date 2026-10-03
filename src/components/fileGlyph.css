@@ -100,7 +100,3 @@
   stroke-linejoin: round;
 }
 
-/* A Data collection (.dvc) — the identity card's colours, its mark a small
-   web: three filled nodes and the lines between them. */
-.fx-glyph-collection .fx-idn-mark circle { fill: var(--accent); stroke: none; }
-.fx-glyph-collection .fx-idn-mark path { stroke-width: 1.2; opacity: 0.8; }

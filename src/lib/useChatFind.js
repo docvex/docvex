@@ -66,20 +66,39 @@ export function useChatFind({ containerRef, query, name, scope }) {
           return node.nodeValue && node.nodeValue.length ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_REJECT;
         },
       });
+      // Text nodes are searched one by one — except inside an element marked
+      // `data-find-block` (a picture's text line, one node per LETTER), whose
+      // nodes are searched as ONE string and the match mapped back onto them.
+      const groups = [];
       let node = walker.nextNode();
       while (node) {
-        const hay = node.nodeValue.toLowerCase();
+        const block = node.parentElement?.closest?.('[data-find-block]') || null;
+        const last = groups[groups.length - 1];
+        if (block && last && last.block === block) last.nodes.push(node);
+        else groups.push({ block, nodes: [node] });
+        node = walker.nextNode();
+      }
+      for (const { nodes } of groups) {
+        const starts = [];
+        let hay = '';
+        for (const n of nodes) { starts.push(hay.length); hay += n.nodeValue; }
+        hay = hay.toLowerCase();
+        const locate = (pos, end) => {
+          // The node holding character `pos` (for an end, the one it closes).
+          let i = 0;
+          while (i + 1 < nodes.length && (end ? starts[i + 1] < pos : starts[i + 1] <= pos)) i += 1;
+          return [nodes[i], pos - starts[i]];
+        };
         let from = 0;
         let at = hay.indexOf(q, from);
         while (at !== -1) {
           const range = new Range();
-          range.setStart(node, at);
-          range.setEnd(node, at + q.length);
+          range.setStart(...locate(at, false));
+          range.setEnd(...locate(at + q.length, true));
           ranges.push(range);
           from = at + q.length;
           at = hay.indexOf(q, from);
         }
-        node = walker.nextNode();
       }
     }
     rangesRef.current = ranges;

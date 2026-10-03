@@ -1,7 +1,9 @@
 // Keeps a column that stands beside the Doc Viewer's floating side panel (the
 // page list of a Word file / a PDF) LEVEL with it: its top at the top of the
 // panel's topmost card (the Quick actions card when there is one, else the side
-// panel itself) and its bottom at the side panel's bottom.
+// panel itself). Its BOTTOM is the document section's own (the stylesheet's
+// inset): the section ends above the files strip, and the page list runs to
+// its foot whatever the side panel does (2026-10-03).
 //
 // The panel floats at a fixed inset of the viewer's main row, but the column
 // lives inside a pane whose own top isn't the row's (a header, a padding…), so
@@ -21,14 +23,12 @@ export function alignWithSidePanel(el) {
       .map((c) => c.getBoundingClientRect())
       .filter((r) => r.height > 1 && r.width > 1);
     const frame = frameOf()?.getBoundingClientRect();
-    if (!cards.length || !frame) { el.style.removeProperty('--rail-top'); el.style.removeProperty('--rail-bottom'); return; }
+    el.style.removeProperty('--rail-bottom');
+    if (!cards.length || !frame) { el.style.removeProperty('--rail-top'); return; }
     const top = Math.min(...cards.map((r) => r.top));
-    const bottom = Math.max(...cards.map((r) => r.bottom));
     // Only written when it changed: this runs per frame while things settle.
     const t = `${Math.max(0, Math.round(toLayoutPx(top - frame.top)))}px`;
-    const b = `${Math.max(0, Math.round(toLayoutPx(frame.bottom - bottom)))}px`;
     if (el.style.getPropertyValue('--rail-top') !== t) el.style.setProperty('--rail-top', t);
-    if (el.style.getPropertyValue('--rail-bottom') !== b) el.style.setProperty('--rail-bottom', b);
   };
   measure();
   const ro = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(measure);

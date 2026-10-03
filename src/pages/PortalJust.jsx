@@ -1,16 +1,14 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import './PortalJust.css';
-import PageMasthead from '../components/PageMasthead';
 import LegalTabs, { LegalSearchBox } from '../components/LegalTabs';
-import LegalWorkspace, { WorkspaceSearch, WorkspaceClear, SourceStatus, KeptFigures } from '../components/LegalWorkspace';
-import { BinIcon } from '../components/HistoryMenu';
+import LegalWorkspace, { LegislationMasthead, WorkspaceSearch, WorkspaceClear, SourceStatus } from '../components/LegalWorkspace';
+import { BinIcon } from '../components/LegalWorkspace';
 import CourtMap from '../components/CourtMap';
 import { LegalBar, BarDice, BarPicker, BarInput, BarGo } from '../components/LegalBar';
 import Tooltip from '../components/Tooltip';
 import { isElectron } from '../lib/platform';
 import { recallPage, usePageMemory } from '../lib/pageMemory';
-import { logHistory } from '../lib/tabHistory';
 import { takeRecord } from '../lib/legalBrowser';
 import {
   COURTS, KIND_LABEL, courtLabel, hasCaseQuery, searchCases, listHearings,
@@ -43,6 +41,7 @@ const ERRORS = {
   stale_app: 'This window is newer than the app running behind it — restart Docvex (npm start) to load the courts’ portal.',
   service_fault: 'The portal refused the search — check the case number’s form (1234/3/2026).',
   empty_query: 'Give it a case number, a party or an object.',
+  insecure_party_search: 'The portal can only be reached without encryption right now, so a search by a person’s name was not sent. Search by case number instead, or try again later.',
 };
 const errorText = (code) => ERRORS[code] || (String(code || '').startsWith('http_') ? `The portal answered with an error (${code.slice(5)}).` : 'The search failed.');
 
@@ -114,9 +113,6 @@ export default function PortalJust() {
     setResults({ total: res.total, dosare: casesSorted(res.dosare) });
     setSource(res.source); sourceRef.current = res.source; setPortalError(res.portalError || '');
     // The tab's history: the search as it was asked, and what it found.
-    const label = [q.numar ? `File ${q.numar}` : '', q.parte ? `“${q.parte}”` : '', q.obiect ? `object “${q.obiect}”` : '', q.institutie ? courtLabel(q.institutie) : '']
-      .filter(Boolean).join(' · ') || 'Everything';
-    logHistory('portal-just', { kind: 'search', label, detail: `${res.total} ${res.total === 1 ? 'file' : 'files'}`, data: { mode: 'cases', query: q } });
     return res;
   }, []);
 
@@ -166,8 +162,6 @@ export default function PortalJust() {
     if (!res?.ok) { setError(errorText(res?.error)); setSedinte([]); setSource(''); return; }
     setSedinte(res.sedinte);
     setSource(res.source); sourceRef.current = res.source; setPortalError(res.portalError || '');
-    const n = (res.sedinte || []).reduce((m, s) => m + (s.dosare || []).length, 0);
-    logHistory('portal-just', { kind: 'search', label: `${courtLabel(q.institutie)} · ${fmtDate(q.day)}`, detail: `${n} ${n === 1 ? 'hearing' : 'hearings'}`, data: { mode: 'docket', docket: q } });
   }, []);
 
   // A file opened is logged too (once, however often it is reopened in a
@@ -185,7 +179,6 @@ export default function PortalJust() {
     keepFile(d);
     setSync((m) => ({ ...m, [id]: { state: '', live: null } }));
     if (from === 'archive') checkFile(d).then((r) => setSync((m) => ({ ...m, [id]: r }))).catch(() => {});
-    logHistory('portal-just', { kind: 'open', label: d.numar, detail: [courtLabel(d.institutie), d.obiect].filter(Boolean).join(' — '), data: { numar: d.numar, institutie: d.institutie }, dedupe: `o:${d.institutie}:${d.numar}` });
   }, []);
 
   // A link in: `?nr=1234/3/2026` searches that number and opens the file when
@@ -261,38 +254,11 @@ export default function PortalJust() {
     />
   );
 
-  const masthead = (
-    <PageMasthead
-      eyebrow="Court files and courts"
-      eyebrowMuted="source: portal.just.ro"
-      title="Court files"
-      compact={false}
-      actions={(
-        <KeptFigures
-          count={kept.count}
-          bytes={kept.bytes}
-          lead={results ? (
-            <>
-              <div>
-                <div className="lg-mast-num">{results.total}</div>
-                <div>{results.total === 1 ? 'File found' : 'Files found'}</div>
-              </div>
-              <span className="lg-mast-sep" />
-            </>
-          ) : null}
-        />
-      )}
-    >
-      Case files as the courts publish them — the parties, every hearing with its solution, and
-      the appeals — read live from the courts’ own service by number, party or object, or as a
-      court’s docket for a day.
-    </PageMasthead>
-  );
 
   if (!isElectron) {
     return (
       <div className="lws pj-page">
-        {masthead}
+        <LegislationMasthead />
         <LegalTabs />
         <div className="pj-empty">
           <p className="pj-empty-title">Only in the desktop app</p>
@@ -385,12 +351,12 @@ export default function PortalJust() {
       // The open file AS THE SERVICE GAVE IT (the Source view): the Dosar
       // record CautareDosare answered, in its own fields.
       source={open ? { site: 'portal.just.ro', service: 'portalquery.just.ro/query.asmx — CautareDosare', data: open } : null}
-      masthead={masthead}
       items={files.map((f) => ({
         id: f.id,
         kind: courtLabel(f.dosar.institutie),
         title: f.dosar.numar,
         tip: [f.dosar.numar, courtLabel(f.dosar.institutie), f.dosar.obiect].filter(Boolean).join(' — '),
+        href: f.dosar.numar ? `/portal-just?nr=${encodeURIComponent(f.dosar.numar)}` : '',
       }))}
       activeId={activeFile}
       onSelect={setActiveFile}
@@ -398,32 +364,15 @@ export default function PortalJust() {
       onClose={(id) => { setFiles((list) => list.filter((f) => f.id !== id)); if (id === activeFile) setActiveFile(null); }}
       onSearch={() => setActiveFile(null)}
       railLabel="Court files open in this tab"
-      // History — this tab's log (components/HistoryMenu): a search runs
-      // again (a docket lists again), a file opens again by its number.
-      history={{
-        tab: 'portal-just',
-        tip: 'Every search run and every file opened, with the time',
-        extra: (
+      // No find in this tab: the search is the main column's (below).
+      bar={{ noSearch: true, status, trailing: (
           <Tooltip content={kept.count ? 'Forget every file kept on this machine' : 'No file is kept on this machine'}>
             <button type="button" className="lgt-tool-btn is-danger" disabled={!kept.bytes} onClick={clearKept}>
               <span className="lgt-tool-ico">{BinIcon}</span><span>Kept files</span>
             </button>
           </Tooltip>
-        ),
-        emptyText: 'Nothing yet. Every search you run and every file you open is listed here.',
-        onPick: async (e) => {
-          const d = e.data || {};
-          setOpen(null);
-          if (e.kind === 'search' && d.mode === 'docket') { setMode('docket'); setDocket(d.docket); runDocket(d.docket); return; }
-          if (e.kind === 'search') { setMode('cases'); setQuery((q) => ({ ...q, ...d.query })); runCases(d.query); return; }
-          setMode('cases'); setQuery((q) => ({ ...q, numar: d.numar || '', institutie: d.institutie || '' }));
-          const res = await runCases({ numar: d.numar, institutie: d.institutie });
-          const hit = res?.dosare?.find((x) => x.numar === d.numar && x.institutie === d.institutie) || (res?.dosare?.length === 1 ? res.dosare[0] : null);
-          if (hit) openFile(hit);
-        },
-      }}
-      // No find in this tab: the search is the main column's (below).
-      bar={{ noSearch: true, status }}
+        
+      ) }}
     >
       {open ? (
         <CaseFile dosar={open} />
@@ -443,6 +392,11 @@ export default function PortalJust() {
                 runDocket(q);
               }}
             />
+          ) : null}
+          {(results || sedinte) && String(source).startsWith('backup:') ? (
+            <p className="pj-note is-warn">
+              {`portal.just.ro could not answer, so these answers come from ${String(source).slice(7)}, a backup service — they may be a few hours behind the courts.`}
+            </p>
           ) : null}
           {(results || sedinte) && source === 'archive' ? (
             <p className="pj-note is-warn">

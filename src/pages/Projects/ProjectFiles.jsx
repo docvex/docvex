@@ -16,7 +16,7 @@ import {
   linkProjectFolder,
   legacyProjectDir,
 } from '../../lib/localFolder';
-import { openDocx, isDocxFile, openFileWindow, canViewInBrowser, openDocViewerWindow, prepareWhatsAppZip, prepareWhatsAppFolder, detectWhatsApp, notifyFilesRemoved, onFilesRemoved, onFilesChanged, pathForFile } from '../../lib/platform';
+import { openDocx, isDocxFile, openFileWindow, canViewInBrowser, openDocViewerWindow, prepareWhatsAppZip, prepareWhatsAppFolder, detectWhatsApp, notifyFilesRemoved, onFilesRemoved, onFilesChanged, pathForFile, getDocViewerState, onDocViewerState } from '../../lib/platform';
 import { livePartnerOf, isLivpName, unpackLivp } from '../../lib/livePhoto';
 import { openDocxInWindow } from '../../lib/openDocxWindow';
 import { emptyDocumentBlob, docKindFromName, mimeForKind } from '../../lib/documentGen';
@@ -33,22 +33,15 @@ import {
   parentOf,
   joinPath,
 } from '../../lib/optimisticFiles';
-// Data collections (`.dvc`) — the AI scan's output. The scanner itself
-// (lib/dataCollections: OCR, captions, face matching) is imported on press.
-const isCollectionFile = (name) => /\.dvc$/i.test(String(name || '').trim());
-import { loadScanTags, setScanTags, isScanTagged, subscribeScanTags, relInProject as scanRel } from '../../lib/scanTags';
-import { loadFileGroups, subscribeFileGroups, addFileGroups, addToFileGroup, renameFileGroup, removeFileGroup, removeFromFileGroup, findSamePairs, proposeGroups, clustersOf, SAME_KINDS } from '../../lib/fileGroups';
-import { sha256Of, dhashOf, hamming, shingles, likeness } from '../../lib/fileSimilarity';
 import { getPrefetchedProjectFiles } from '../../lib/projectFilesPrefetch';
 import { prefetchMetadata } from '../../lib/metadataPrefetch';
 import { extractTextOnImport } from '../../lib/autoExtract';
 import PhoneUploadModal from '../../components/PhoneUploadModal';
 import { subscribeIncoming, decideIncoming, fmtBytes as fmtIncomingBytes } from '../../lib/phoneUploadIncoming';
-import { useScanState, setScanState, requestScanStop, scanStopRequested, clearScanStop, finishScan, isScanRunning } from '../../lib/scanRunner';
 import './ProjectScoped.css';
 import './ProjectFiles.css';
 
-import { hasExtractedText, subscribeAiData, bestTextFor, getAiFacet } from '../../lib/aiData';
+import { hasExtractedText, subscribeAiData } from '../../lib/aiData';
 import { loadCaptions } from '../../lib/captionsHistory';
 import { subscribeIndex } from '../../lib/projectIndexClient';
 
@@ -141,42 +134,6 @@ const parentRel = (rel) => { const i = rel.lastIndexOf('/'); return i >= 0 ? rel
 const lastSegment = (rel) => rel.slice(rel.lastIndexOf('/') + 1);
 // `p`'s path inside `root`, as written (forward slashes), '' for the root
 // itself, null for anything outside it.
-// WHAT A COLLECTION IS JUDGED BY (lib/fileGroups findSamePairs): the bytes,
-// the text — saved extracted text first, else read now from a Word / PDF /
-// text file (≤15 MB; kept for the session by path + size + time) — what the AI
-// scan understood, the pictures' look, the identity-document readers.
-const GROUP_TEXT = new Map();
-const GROUP_TEXT_EXT = /\.(docx?|pdf|txt|md|rtf|odt|html?|csv)$/i;
-async function groupTextOf(f) {
-  const saved = bestTextFor(f.path);
-  if (saved) return saved;
-  const u = getAiFacet(f.path, 'understanding')?.data;
-  if (!GROUP_TEXT_EXT.test(f.name) || f.size > 15 * 1024 * 1024) return u?.text || '';
-  const key = `${f.path}|${f.size}|${f.mtime}`;
-  if (GROUP_TEXT.has(key)) return GROUP_TEXT.get(key);
-  let text = '';
-  try {
-    const { extractFileText } = await import('../../lib/extractFileText');
-    text = (await extractFileText(await readLocalBlob(f.path), f.name))?.text || '';
-  } catch { text = ''; }
-  GROUP_TEXT.set(key, text);
-  return text;
-}
-async function groupingDeps(signal) {
-  const RO = await import('../../lib/roIdDocuments');
-  return {
-    hash: sha256Of, dhash: dhashOf, hamming, shingles, likeness, signal,
-    textOf: groupTextOf,
-    understandingOf: (f) => getAiFacet(f.path, 'understanding')?.data || null,
-    decodeCnp: RO.decodeCnp, parseMrz: RO.parseMrz,
-  };
-}
-const groupFileOf = (root, lf) => {
-  const rel = relOfPath(root, lf?.path);
-  if (!rel || rel.split('/').some((seg) => seg.startsWith('.'))) return null;
-  return { rel, path: lf.path, name: lf.name, size: Number(lf.sizeBytes) || 0, mtime: lf.mtimeIso ? Date.parse(lf.mtimeIso) || 0 : 0 };
-};
-
 function relOfPath(root, p) {
   const r = String(root || '').replace(/\\/g, '/').replace(/\/+$/, '');
   const q = String(p || '').replace(/\\/g, '/').replace(/\/+$/, '');
@@ -363,56 +320,6 @@ export default function ProjectFiles({ embedded = false } = {}) {
   // count between renders (React: "Rendered more hooks than during the
   // previous render").
   const [renameTargetPath, setRenameTargetPath] = useState(null);
-  // True while "Create identity" is scanning — declared up here with the other
-  // hooks, above the early returns (see the note above).
-  // The AI scan of the whole folder (lib/dataCollections) — its progress while
-  // it runs, null otherwise. Kept in lib/scanRunner, NOT in this page: the scan
-  // goes on when the Files tab is left, and its progress is here on return
-  // (the app sidebar shows a spinner beside Files meanwhile).
-  const filesScan = useScanState(localFolder);
-  // Files tagged for the AI scan (lib/scanTags) — only these are scanned, and
-  // each wears the AI mark in the listing.
-  const [scanTags, setScanTagsState] = useState(() => loadScanTags(''));
-  useEffect(() => {
-    setScanTagsState(loadScanTags(localFolder || ''));
-    return subscribeScanTags((dir) => { if (dir === localFolder) setScanTagsState(loadScanTags(localFolder)); });
-  }, [localFolder]);
-  // COLLECTIONS (lib/fileGroups): custom folders pointing at files anywhere
-  // in the project; the one open (its id) takes the grid's place.
-  const [fileGroups, setFileGroupsState] = useState(() => loadFileGroups(''));
-  const [openGroupId, setOpenGroupId] = useState(null);
-  const [collectBusy, setCollectBusy] = useState(false);
-  useEffect(() => {
-    setFileGroupsState(loadFileGroups(localFolder || ''));
-    return subscribeFileGroups((dir) => { if (dir === localFolder) setFileGroupsState(loadFileGroups(localFolder)); });
-  }, [localFolder]);
-  // Browsing anywhere else closes the collection.
-  useEffect(() => { setOpenGroupId(null); }, [folderStack, filesTab, localFolder]);
-  // How the open collection's files connect — the neural network's links
-  // (lib/dataCollections loadScanGraph) and its duplicate sets — read when it
-  // opens and whenever its files change; `key` says which collection it is for.
-  const [groupGraph, setGroupGraph] = useState({ key: '', pairs: [] });
-  useEffect(() => {
-    const g = openGroupId ? fileGroups.find((c) => c.id === openGroupId) : null;
-    if (!g || !localFolder) return undefined;
-    const key = `${g.id}|${g.rels.join('|')}`;
-    let dead = false;
-    (async () => {
-      const byRel = new Map();
-      for (const lf of localFilesRef.current) {
-        const f = groupFileOf(localFolder, lf);
-        if (f) byRel.set(f.rel, f);
-      }
-      const list = g.rels.map((r) => byRel.get(r)).filter(Boolean);
-      if (list.length < 2) return; // the listing isn't here yet: keep what is known
-      let pairs = [];
-      try { pairs = await findSamePairs(list, await groupingDeps()); } catch { pairs = []; }
-      if (!dead) setGroupGraph({ key, pairs });
-    })();
-    return () => { dead = true; };
-    // …and again once the project's files have loaded (opened before the
-    // listing arrived, it had nothing to compare).
-  }, [openGroupId, fileGroups, localFolder, projectId, localFiles.length]);
   // Path of a just-created folder the workspace should select (not open) —
   // set after an archive is extracted.
   const [selectTargetPath, setSelectTargetPath] = useState(null);
@@ -480,6 +387,35 @@ export default function ProjectFiles({ embedded = false } = {}) {
   const viewLocalFiles = useMemo(() => applyOpsToAll(localFiles, pendingOps), [localFiles, pendingOps]);
   const viewTrashItems = useMemo(() => applyOpsToTrash(trashItems, pendingOps), [trashItems, pendingOps]);
   const busyPaths = useMemo(() => pendingPaths(pendingOps), [pendingOps]);
+  // THE VIEWER'S STATE (main.js docViewerState): `busy` — files the AI is
+  // writing right now (a spinner on their icon, even with the viewer closed:
+  // the work goes on in the background); `hidden` — new documents nobody has
+  // prompted yet, left out of the listing until the first prompt (and deleted
+  // if the viewer closes first). `creating` covers the moment between this
+  // page writing a new document and main reporting it hidden, so it never
+  // flashes into the grid.
+  const [viewerState, setViewerState] = useState({ busy: [], hidden: [] });
+  const [creating, setCreating] = useState(() => new Set());
+  useEffect(() => {
+    let alive = true;
+    getDocViewerState().then((st) => { if (alive && st) setViewerState(st); }).catch(() => {});
+    const off = onDocViewerState((st) => { if (st) setViewerState(st); });
+    return () => { alive = false; off(); };
+  }, []);
+  const aiBusyPaths = useMemo(() => new Set((viewerState.busy || []).map(normPath)), [viewerState]);
+  const hiddenPaths = useMemo(() => {
+    const out = new Set((viewerState.hidden || []).map(normPath));
+    for (const p of creating) out.add(p);
+    return out;
+  }, [viewerState, creating]);
+  // Main has taken over a new document once it lists it hidden.
+  useEffect(() => {
+    if (!creating.size) return;
+    const mainHidden = new Set((viewerState.hidden || []).map(normPath));
+    if ([...creating].some((p) => mainHidden.has(p))) {
+      setCreating((cur) => new Set([...cur].filter((p) => !mainHidden.has(p))));
+    }
+  }, [viewerState, creating]);
   // EXTRACTED TEXT — which files on show have any (the mark on their
   // thumbnail). Re-read when the store changes anywhere (a reading saved,
   // a file's knowledge arriving from the index), at most every 250ms.
@@ -2170,7 +2106,6 @@ export default function ProjectFiles({ embedded = false } = {}) {
       // Content-probed (see the waByPath effect) — an extracted WhatsApp
       // export folder keeps its mark whatever it's renamed to.
       isWhatsApp: waByPath[dir.path] === true,
-      scanTagged: !!localFolder && isScanTagged(scanTags, `${scanRel(localFolder, dir.path)}/`),
       // In flight (renamed, moved or created, the disk not done yet) — the
       // workspace dims it and keeps hands off until it settles.
       pending: !!dir._pending || busyPaths.has(normPath(dir.path)),
@@ -2214,14 +2149,12 @@ export default function ProjectFiles({ embedded = false } = {}) {
     // notification, and rebuilt these for every file in the folder each time).
     let fixed = DRAFT_FIXED.get(lf);
     if (!fixed) {
-      // A Data collection wears its own glyph (extCategory 'collection').
-      const isDvc = isCollectionFile(lf.name);
       fixed = {
         ext: fileExtOf(lf.name),
         sizeLabel: lf.sizeBytes != null ? formatBytes(lf.sizeBytes) : '',
         modifiedLabel: formatDate(lf.mtimeIso),
         sortTime: lf.mtimeIso ? Date.parse(lf.mtimeIso) || 0 : 0,
-        descriptor: isDvc ? null : describeLocalFile({ localFile: lf }),
+        descriptor: describeLocalFile({ localFile: lf }),
       };
       DRAFT_FIXED.set(lf, fixed);
     }
@@ -2243,13 +2176,15 @@ export default function ProjectFiles({ embedded = false } = {}) {
       // FilesWorkspace falls back to its name heuristic until the probe lands).
       isWhatsApp: lf.path ? waByPath[lf.path] : undefined,
       descriptor: fixed.descriptor,
-      scanTagged: !!localFolder && isScanTagged(scanTags, scanRel(localFolder, lf.path || lf.name)),
       hasText: !!lf.path && hasTextOf.has(lf.path),
+      aiBusy: !!lf.path && aiBusyPaths.has(normPath(lf.path)),
       pending: !!lf._pending || busyPaths.has(normPath(lf.path)),
       _raw: lf,
     };
   };
-  const draftItems = browseFiles.map(toDraftItem);
+  const draftItems = browseFiles
+    .filter((lf) => !(lf.path && hiddenPaths.has(normPath(lf.path))))
+    .map(toDraftItem);
 
   // Waiting phone files whose destination is the folder on show, first.
   const samePath = (a, b) => String(a || '').replace(/[\\/]+$/, '').toLowerCase() === String(b || '').replace(/[\\/]+$/, '').toLowerCase();
@@ -2295,31 +2230,7 @@ export default function ProjectFiles({ embedded = false } = {}) {
 
   // Surface the bin as the first item in every folder (it opens the one
   // project-wide view regardless of where you are in the tree).
-  // The COLLECTIONS stand at the project's root, after the Trash: a custom
-  // icon each (FilesWorkspace CollectionGlyph), opened into their own page.
-  // Its first four files, for the tile's 2×2 grid of thumbnails.
-  const localByRel = new Map();
-  if (!folderStack.length && fileGroups.length) {
-    for (const lf of viewLocalFiles) {
-      const r = typeof lf?.path === 'string' ? relOfPath(localFolder, lf.path) : null;
-      if (r) localByRel.set(r, lf);
-    }
-  }
-  const groupEntries = folderStack.length ? [] : fileGroups.map((c) => ({
-    previewItems: c.rels.map((r) => localByRel.get(r)).filter(Boolean).slice(0, 4).map(toDraftItem),
-    id: `collection:${c.id}`,
-    kind: 'folder',
-    name: c.name,
-    empty: !c.rels.length,
-    status: 'synced',
-    collectionEntry: true,
-    collectionId: c.id,
-    binCount: c.rels.length,
-    sizeLabel: `${c.rels.length} file${c.rels.length === 1 ? '' : 's'}`,
-    modifiedLabel: c.at ? formatDate(new Date(c.at).toISOString()) : '',
-    sortTime: c.at || 0,
-  }));
-  const draftFolders = [binEntryItem, ...groupEntries, ...realDraftFolders];
+  const draftFolders = [binEntryItem, ...realDraftFolders];
 
   // Files deleted as part of a folder share a `folderGroup`; collapse each
   // group into ONE folder item (Windows-style) so the bin shows the deleted
@@ -2370,132 +2281,6 @@ export default function ProjectFiles({ embedded = false } = {}) {
 
   // Breadcrumb. In the bin view, the crumb chain is Home › Trash (clicking
   // Home exits back to drafts).
-  const openGroup = openGroupId ? fileGroups.find((c) => c.id === openGroupId) || null : null;
-  // The project's files by their path inside it — what a collection points at.
-  const projectFileItems = () => {
-    const map = new Map();
-    for (const lf of viewLocalFiles) {
-      if (typeof lf?.path !== 'string') continue;
-      const rel = relOfPath(localFolder, lf.path);
-      if (!rel || rel.split('/').some((seg) => seg.startsWith('.'))) continue;
-      map.set(rel, toDraftItem(lf));
-    }
-    return map;
-  };
-  // AN OPEN COLLECTION is drawn BY THE FILES GRID ITSELF: its files are the
-  // grid's items (so clicking, double-clicking, the right-click menu, multi-
-  // select, the rubber band, drag and drop, the keys, rename and delete behave
-  // exactly as anywhere in Files), laid out in SECTIONS (`collectionLayout`,
-  // ids per section): Duplicates and Linked files — every group on its own
-  // ground — then the other files. A file in two sections is two items
-  // (`<section>:<id>`). Its menu adds "Remove from collection".
-  let collectionItems = null;
-  let collectionLayout = null;
-  if (openGroup && filesTab === 'drafts') {
-    const byRel = projectFileItems();
-    const present = openGroup.rels.filter((r) => byRel.has(r));
-    // The pairs re-checked just now, else the ones it was made with.
-    const graphNow = groupGraph.key.startsWith(`${openGroup.id}|`) && groupGraph.pairs.length ? groupGraph : { pairs: openGroup.pairs || [] };
-    const { sections: kinds, loose, why } = clustersOf(present, graphNow);
-    collectionItems = [];
-    const mk = (sec, rel, tie) => {
-      const base = byRel.get(rel);
-      const it = { ...base, id: `${sec}:${base.id}`, tie, collectionRel: rel, collectionId: openGroup.id };
-      collectionItems.push(it);
-      return it.id;
-    };
-    const sections = kinds.map(({ kind, groups }) => ({
-      key: kind,
-      label: SAME_KINDS[kind].label,
-      icon: SAME_KINDS[kind].icon,
-      boxed: true,
-      tie: { label: SAME_KINDS[kind].tie, tone: SAME_KINDS[kind].tone },
-      groups: groups.map((g) => g.map((r) => mk(kind[0], r, { why: why.get(`${kind}|${r}`) || '' }))),
-    }));
-    if (loose.length) {
-      sections.push({ key: 'files', label: sections.length ? 'Other files' : 'Files', icon: 'file-doc', boxed: false, groups: [loose.map((r) => mk('f', r, null))] });
-    }
-    const counts = kinds.map(({ kind, groups }) => `${groups.length} ${kind === 'exact' ? `set${groups.length === 1 ? '' : 's'} of exact duplicates` : kind === 'content' ? `set${groups.length === 1 ? '' : 's'} with the same content` : `document${groups.length === 1 ? '' : 's'} in parts`}`);
-    const missing = openGroup.rels.length - present.length;
-    collectionLayout = {
-      id: openGroup.id,
-      name: openGroup.name,
-      sub: [
-        `${present.length} file${present.length === 1 ? '' : 's'}`,
-        ...counts,
-        openGroup.source === 'ai' ? 'grouped by DocVex' : '',
-        missing ? `${missing} no longer in the project` : '',
-      ].filter(Boolean).join(' · '),
-      sections,
-    };
-  }
-
-  // COLLECT (the footer): the selected items become ONE collection (a folder
-  // brings everything under it); with nothing selected, the NEURAL NETWORK
-  // groups the project — the scan's typed links between files (lib/
-  // dataCollections loadScanGraph) and the duplicate files (identical bytes, or
-  // one name with a copy mark), joined into connected groups, each named after
-  // the Data collection covering most of it (lib/fileGroups proposeGroups).
-  const fxCollect = async (selected = []) => {
-    if (!localFolder || collectBusy) return;
-    const relOf = (path) => relOfPath(localFolder, path);
-    if (selected.length) {
-      const rels = new Set();
-      for (const it of selected) {
-        if (it.collectionEntry || it.binEntry || it.incoming) continue;
-        if (it.kind === 'folder' && it._dir?.path) {
-          const base = relOf(it._dir.path);
-          for (const lf of viewLocalFiles) {
-            const r = relOf(lf.path);
-            if (r && base != null && (base === '' || r.startsWith(`${base}/`))) rels.add(r);
-          }
-        } else if (it._raw?.path) {
-          const r = relOf(it._raw.path);
-          if (r) rels.add(r);
-        }
-      }
-      if (!rels.size) return;
-      const n = fileGroups.length + 1;
-      addFileGroups(localFolder, [{ name: `Collection ${n}`, rels: [...rels], source: 'manual' }]);
-      notify({ category: 'file', variant: 'success', title: 'Collection made', body: `${rels.size} file${rels.size === 1 ? '' : 's'} grouped in “Collection ${n}” — at the top of Home. Right-click it to rename.`, dedupeKey: 'fx-collect' });
-      return;
-    }
-    setCollectBusy(true);
-    try {
-      const all = viewLocalFiles.map((lf) => groupFileOf(localFolder, lf)).filter((f) => f && !isCollectionFile(f.name));
-      const pairs = await findSamePairs(all, await groupingDeps());
-      const exists = new Set(fileGroups.flatMap((c) => c.rels));
-      const byRel = new Map(all.map((f) => [f.rel, f]));
-      const titleOf = (rel) => {
-        const f = byRel.get(rel);
-        const u = f ? getAiFacet(f.path, 'understanding')?.data : null;
-        if (!u) return '';
-        const who = u.idDocument?.holder || u.subject || '';
-        return [u.documentType, who].filter(Boolean).join(' — ').slice(0, 80);
-      };
-      const proposals = proposeGroups({ pairs, exists, titleOf });
-      if (!proposals.length) {
-        notify({
-          category: 'file', variant: 'info', title: 'Nothing new to group',
-          body: 'No exact duplicates, no files with the same content in another format and no documents in several parts were found that aren’t already in a collection.',
-          dedupeKey: 'fx-collect',
-        });
-        return;
-      }
-      addFileGroups(localFolder, proposals.map((g) => ({ ...g, source: 'ai' })));
-      const n = (k) => proposals.filter((g) => g.kind === k).length;
-      notify({
-        category: 'file', variant: 'success', title: `${proposals.length} collection${proposals.length === 1 ? '' : 's'} made`,
-        body: [n('exact') && `${n('exact')} of exact duplicates`, n('content') && `${n('content')} of the same content in other formats`, n('document') && `${n('document')} of one document in parts`].filter(Boolean).join(', ') + ' — at the top of Home.',
-        dedupeKey: 'fx-collect',
-      });
-    } catch (e) {
-      notify({ category: 'file', variant: 'error', title: 'Couldn’t make collections', body: e?.message || 'Something went wrong while grouping the files.', dedupeKey: 'fx-collect' });
-    } finally {
-      setCollectBusy(false);
-    }
-  };
-
   const fxCrumbs = filesTab === 'trash'
     ? [
         { label: 'Home', path: '__drafts' },
@@ -2504,14 +2289,12 @@ export default function ProjectFiles({ embedded = false } = {}) {
     : [
         { label: 'Home', path: '__root' },
         ...folderStack.map((seg, i) => ({ label: seg.name, path: `__stack:${i}` })),
-        ...(openGroup ? [{ label: openGroup.name, path: '__collection' }] : []),
       ];
-  const fxCanUp = filesTab !== 'drafts' ? true : (folderStack.length > 0 || !!openGroup);
+  const fxCanUp = filesTab !== 'drafts' ? true : folderStack.length > 0;
 
   // ── Workspace action handlers ─────────────────────────────────────────
   const fxOpen = (item) => {
     if (item.binEntry) { setFilesTab('trash'); return; }        // open the recycle bin
-    if (item.collectionEntry) { setOpenGroupId(item.collectionId); return; } // open a collection
     if (item.kind === 'folder') {
       // Double-clicking any folder — including a WhatsApp export — browses its
       // contents. The export's reconstructed conversation is reachable from the
@@ -2519,9 +2302,6 @@ export default function ProjectFiles({ embedded = false } = {}) {
       if (item._dir) handleEnterFolder(item._dir);
       return;
     }
-    // Data collections (the AI scan's `.dvc` files) open in the Doc Viewer as
-    // what the AI gathered, not the JSON they are stored as.
-    if (isCollectionFile(item.name)) { openCollectionInViewer(item._raw); return; }
     handleOpenLocalFile(item._raw);
   };
   // The menu's "Open content(s)". For a folder it browses the files (bypassing
@@ -2576,25 +2356,20 @@ export default function ProjectFiles({ embedded = false } = {}) {
   };
   const fxCrumbNav = (path) => {
     if (path === '__drafts') { setFilesTab('drafts'); return; } // leave the bin
-    if (path === '__bin' || path === '__collection') return;
-    if (openGroup) setOpenGroupId(null);
+    if (path === '__bin') return;
     if (path === '__root') handleNavigateCrumb(-1);
     else if (typeof path === 'string' && path.startsWith('__stack:')) handleNavigateCrumb(Number(path.slice(8)));
   };
   const fxUp = () => {
     if (filesTab !== 'drafts') { setFilesTab('drafts'); return; }
-    if (openGroup) { setOpenGroupId(null); return; }
     handleNavigateCrumb(folderStack.length - 2);
   };
   const fxRename = (item, newName) => {
     if (item?.pending) return;
-    if (item?.collectionEntry) { renameFileGroup(localFolder, item.collectionId, newName); return; }
     if (item.kind === 'folder') { if (item._dir?.name) handleRenameFolder(item._dir, (newName || '').trim()); return; }
     handleRenameLocalFile(item._raw, newName);
   };
   const fxDelete = (item) => {
-    // A collection: the grouping goes, never a file.
-    if (item?.collectionEntry) { removeFileGroup(localFolder, item.collectionId); return; }
     // A waiting phone file isn't a project file yet: "delete" means reject it.
     if (item?.incoming) { fxIncoming(item, 'reject'); return; }
     // Already on its way somewhere (renamed, moved, created) — hands off.
@@ -2675,167 +2450,6 @@ export default function ProjectFiles({ embedded = false } = {}) {
       notify({ category: 'file', variant: 'error', title: 'Couldn’t create file', body: err?.message || String(err), dedupeKey: 'fx-newfile-error' });
     }
   };
-  // ── Data collections ──────────────────────────────────────────────────
-  // What the AI gathered about one subject (lib/dataCollections) — made only
-  // by the AI scan; opened in the Doc Viewer.
-  // Nothing here is edited in a dialog: a record is a file, so creating one
-  // writes a blank record and opens it in the Doc Viewer — the same place an
-  // existing identity opens, and where it is actually filled in.
-  const openCollectionInViewer = (raw) => {
-    if (!raw?.path) return;
-    openDocViewerWindow({ path: raw.path, name: raw.name, mime: 'application/json' });
-  };
-
-  // The AI scan: read every file in the project (text, a picture's text, an
-  // audio or video file's captions), have the AI understand each one, connect
-  // them into Data collections. A second run only reads what is new or changed
-  // since — with nothing new it costs nothing. One progress toast, updated.
-  // `opts` (the scan button's card): `features` — which kinds of file are read
-  // and which steps run (lib/dataCollections SCAN_FEATURES); `force` — read
-  // and understand everything again.
-  const fxScanFiles = async (opts = {}) => {
-    if (isScanRunning(filesScan)) { requestScanStop(localFolder); return; }   // pressed again = stop
-    if (!localFolder) {
-      notify({ category: 'file', variant: 'info', title: 'Connect a folder first', body: 'Choose a folder on your computer, then the AI can scan it.', dedupeKey: 'fx-scan-nofolder' });
-      return;
-    }
-    // The folder this scan belongs to — fixed now, whatever the page shows
-    // later (it may be left, or switched to another project).
-    const scanDir = localFolder;
-    clearScanStop(scanDir);
-    const setFilesScan = (next) => setScanState(scanDir, next);
-    // How it ended — the gauges jump to 100% or drop back and say so for a
-    // moment (lib/scanRunner finishScan); null = nothing to show (not started).
-    let outcome = null;
-    const say = (body, extra = {}) => notify({
-      category: 'file', variant: 'info', icon: 'sparkles', title: 'Scanning the files', body,
-      dedupeKey: 'fx-files-scan', dedupeStrategy: 'replace', persistent: true, ...extra,
-    });
-    const STAGE = {
-      list: () => 'Listing the files…',
-      read: (p) => `Reading ${p.index + 1} of ${p.total} — \u201c${p.name}\u201d…`,
-      understand: (p) => `Understanding the files — ${Math.min(p.index + 1, p.total)} of ${p.total}…`,
-      connect: (p) => (p.incremental ? `Fitting ${p.total} new file${p.total === 1 ? '' : 's'} into the collections…` : 'Connecting what the files say…'),
-      faces: (p) => (p.total ? `Comparing faces with the identity documents — ${p.index + 1} of ${p.total} (on this computer)…` : 'Comparing faces with the identity documents (on this computer)…'),
-      links: (p) => (p.total ? `Cross-referencing the files — ${Math.min(p.index + 1, p.total)} of ${p.total} group${p.total === 1 ? '' : 's'}…` : 'Cross-referencing the files…'),
-      save: () => 'Writing the data collections…',
-    };
-    setFilesScan({ stage: 'list', overall: 0, startedAt: Date.now() });
-    say(STAGE.list());
-    try {
-      const { scanProjectFiles } = await import('../../lib/dataCollections');
-      const tags = loadScanTags(scanDir);
-      if (!tags.size) {
-        notify({ category: 'file', variant: 'info', icon: 'sparkles', title: 'Tag files for the scan first', body: 'Right-click a file or a folder and choose \u201cTag for AI scan\u201d. Only tagged files are scanned; they show the AI mark.', dedupeKey: 'fx-files-scan', dedupeStrategy: 'replace' });
-        return;
-      }
-      const res = await scanProjectFiles(scanDir, {
-        tags,
-        projectId,
-        projectName: selectedProject?.name,
-        features: opts.features,
-        force: !!opts.force,
-        isCancelled: () => scanStopRequested(scanDir),
-        // The scan button's gauges read this: the latest event, plus what is
-        // kept across events (when it started, how many files there are).
-        onProgress: (p) => {
-          setFilesScan((prev) => ({
-            ...p,
-            startedAt: prev?.startedAt || Date.now(),
-            files: p.stage === 'read' ? p.total : prev?.files,
-            done: p.done ?? prev?.done,
-            skipped: p.skipped ?? prev?.skipped,
-            understood: p.understood ?? prev?.understood,
-          }));
-          // Files that needed no work pass silently (no toast per file).
-          if (p.quiet) return;
-          const line = STAGE[p.stage]?.(p); if (line) say(line);
-        },
-      });
-      const WHY = {
-        timed_out: 'took too long \u2014 tried again next scan', no_speech: 'no speech in it', no_text: 'no text in it', too_large: 'too large to transcribe here', decode_failed: 'the picture couldn\u2019t be opened',
-        unsupported: 'this file type can\u2019t be read', ocr_failed: 'the AI service couldn\u2019t be reached', ai_failed: 'the AI couldn\u2019t understand it',
-      };
-      const skippedNote = res.skipped?.length
-        ? ` Skipped ${res.skipped.length}: ${res.skipped.slice(0, 4).map((k) => `\u201c${k.name}\u201d (${WHY[k.error] || k.error || 'unreadable'})`).join('; ')}${res.skipped.length > 4 ? '\u2026' : ''}.`
-        : '';
-      if (res.error) {
-        const body = {
-          cancelled: 'The scan was stopped. What was read so far is kept, so the next scan picks up from there.',
-          none_tagged: 'None of the tagged files are in this project any more. Tag files for the scan and try again.',
-          empty: 'There are no files in this project to scan.',
-          nothing_read: `None of the files could be read.${skippedNote}`,
-          no_folder: 'No project folder is connected.',
-        }[res.error] || `${res.error}${skippedNote}`;
-        notify({ category: 'file', variant: res.error === 'cancelled' ? 'info' : 'error', title: res.error === 'cancelled' ? 'Scan stopped' : 'Couldn\u2019t scan the files', body, dedupeKey: 'fx-files-scan', dedupeStrategy: 'replace' });
-        outcome = res.error === 'cancelled' ? 'cancelled' : 'error';
-        return;
-      }
-      outcome = 'ok';
-      setBrowseTick((t) => t + 1);
-      await refetchLocalFiles();
-      const faceNote = (res.faceMatches ? ` ${res.faceMatches} face match${res.faceMatches === 1 ? '' : 'es'} with identity documents.` : '')
-        + (res.links ? ` ${res.links} link${res.links === 1 ? '' : 's'} between files.` : '')
-        + (res.linkErrors?.length ? ` Some files couldn\u2019t be cross-referenced (${res.linkErrors[0]}) \u2014 the next scan tries again.` : '');
-      const body = res.upToDate && !res.created && !res.updated
-        ? `Nothing new since the last scan \u2014 the ${res.collections.length} data collection${res.collections.length === 1 ? ' is' : 's are'} up to date.${faceNote}`
-        : [
-          res.created ? `${res.created} new data collection${res.created === 1 ? '' : 's'}` : '',
-          res.updated ? `${res.updated} updated` : '',
-          res.removed ? `${res.removed} removed` : '',
-        ].filter(Boolean).join(', ').replace(/^./, (c) => c.toUpperCase()) + `${res.read ? ` from ${res.read} file${res.read === 1 ? '' : 's'} read` : ''}.${faceNote}${skippedNote}`;
-      notify({
-        category: 'file', variant: 'success', icon: 'sparkles', title: 'Files scanned', body,
-        dedupeKey: 'fx-files-scan', dedupeStrategy: 'replace',
-        payload: actMeta('create', `${res.collections.length} data collections`, { filePath: res.collections[0]?.path }),
-      });
-    } catch (err) {
-      notify({ category: 'file', variant: 'error', title: 'Couldn\u2019t scan the files', body: err?.message || String(err), dedupeKey: 'fx-files-scan', dedupeStrategy: 'replace' });
-      if (!outcome) outcome = 'error';
-    } finally {
-      finishScan(scanDir, outcome);
-      clearScanStop(scanDir);
-    }
-  };
-
-  // ERASE THE SCAN'S MEMORY (the scan card's Erase memory): the Data
-  // collections go to the Trash, the links and the web index are wiped and
-  // what the AI understood of each file is forgotten. What was READ out of the
-  // files (extracted text, captions) is kept, so the next scan reads nothing
-  // again — it only asks the AI again.
-  const fxEraseScanMemory = async () => {
-    if (isScanRunning(filesScan) || !localFolder) return;
-    try {
-      const { eraseScanMemory } = await import('../../lib/dataCollections');
-      const res = await eraseScanMemory(localFolder, { projectId });
-      if (res.error) throw new Error(res.error);
-      setBrowseTick((t) => t + 1);
-      await refetchLocalFiles();
-      notify({
-        category: 'file', variant: 'success', icon: 'sparkles', title: 'Scan memory erased',
-        body: `${res.collections} data collection${res.collections === 1 ? '' : 's'} moved to the Trash; the links and what the AI understood of ${res.understood} file${res.understood === 1 ? '' : 's'} forgotten. The text read out of the files is kept.`,
-        dedupeKey: 'fx-files-scan', dedupeStrategy: 'replace',
-      });
-    } catch (err) {
-      notify({ category: 'file', variant: 'error', title: 'Couldn\u2019t erase the scan memory', body: err?.message || String(err), dedupeKey: 'fx-files-scan', dedupeStrategy: 'replace' });
-    }
-  };
-
-  // Tag / untag items for the AI scan. A folder is tagged as a whole (every
-  // file under it, now and later); untagging a file inside a tagged folder
-  // keeps just that file out.
-  const fxToggleScanTag = (items, on) => {
-    if (!localFolder) return;
-    const rels = (items || []).map((it) => {
-      const path = it?._raw?.path || it?._dir?.path;
-      if (!path) return '';
-      const rel = scanRel(localFolder, path);
-      return it.kind === 'folder' ? `${rel}/` : rel;
-    }).filter(Boolean);
-    if (!rels.length) return;
-    setScanTagsState(setScanTags(localFolder, rels, on));
-  };
-
   // Create new <type> file → write an empty styled Office file of the chosen kind
   // (docx / pptx / xlsx) to disk, then open it in a Doc Viewer window with the AI
   // generator armed (generate:true) so the user describes what they want and
@@ -2889,8 +2503,13 @@ export default function ProjectFiles({ embedded = false } = {}) {
     for (let n = 2; taken(base); n += 1) base = `Untitled ${n}`;
     const filename = `${base}${suffix}`;
     const dir = currentDir;
-    // Shows at once, dimmed, while the empty document is built and written.
-    const ids = beginOps([{ type: 'add', isDir: false, path: joinPath(dir, filename), entry: { sizeBytes: 0, mtimeIso: new Date().toISOString() } }]);
+    // NOT shown in the grid: a new document opens straight in the viewer and
+    // only appears here once the AI has been asked for something (main lists
+    // it hidden until then, and deletes it if the viewer closes first).
+    const newPath = normPath(joinPath(dir, filename));
+    setCreating((cur) => new Set(cur).add(newPath));
+    window.setTimeout(() => setCreating((cur) => { const n = new Set(cur); n.delete(newPath); return n; }), 15000);
+    const ids = [];
     try {
       // A PDF starts as zero bytes too: it isn't written, it's converted from
       // another file, and an empty file is what makes the viewer ask which.
@@ -2904,14 +2523,13 @@ export default function ProjectFiles({ embedded = false } = {}) {
         notify({ category: 'file', variant: 'error', title: `Couldn’t create “${filename}”`, body: error || res?.error || 'The file could not be written in this folder.', dedupeKey: 'fx-newfile-error' });
         return;
       }
-      await settleOps(ids, { dirs: [dir], expect: [res.path] });
-      notify({ category: 'file', variant: 'success', icon: 'plus', title: 'File created', body: `“${filename}” added to this folder.`, silent: true, payload: actMeta('create', filename, { filePath: res.path }) });
+      if (normPath(res.path) !== newPath) setCreating((cur) => new Set(cur).add(normPath(res.path)));
       // A brand-new file starts with a clean AI thread (drop any stale chat saved
       // at this exact path by a since-renamed file).
       clearConversation(res.path);
-      // Don't open it — select the new file and drop into rename mode so the
-      // user can name it first (the workspace applies this once it lists).
-      setRenameTargetPath(res.path);
+      // Straight into the viewer, the AI armed: the file shows in this folder
+      // after the first prompt.
+      openDocViewerWindow({ path: res.path, name: filename, mime: blob.type || '', generate: true, unprompted: true });
     } catch (err) {
       endOps(ids);
       notify({ category: 'file', variant: 'error', title: 'Couldn’t create file', body: err?.message || String(err), dedupeKey: 'fx-newfile-error' });
@@ -2974,14 +2592,7 @@ export default function ProjectFiles({ embedded = false } = {}) {
         fmtBytesFull(fxTotalBytes),
         fxUpdatedLabel ? `Updated ${fxUpdatedLabel}` : null,
       ].filter(Boolean).join(' · ');
-  // An open COLLECTION names itself in the page's own header (the same
-  // masthead a folder gets): its name as the title, what is in it under it.
-  const filesMasthead = collectionLayout ? {
-    eyebrow: 'Project files',
-    access: 'Home › Collection',
-    title: collectionLayout.name,
-    kicker: collectionLayout.sub,
-  } : filesTab === 'drafts' ? (inFolder ? {
+  const filesMasthead = filesTab === 'drafts' ? (inFolder ? {
     eyebrow: 'Project files',
     // The folder's location — Home plus any folders above it in the stack.
     access: ['Home', ...folderStack.slice(0, -1).map((s) => s.name)].join(' › '),
@@ -3068,8 +2679,8 @@ export default function ProjectFiles({ embedded = false } = {}) {
     onUp: fxUp,
     canBack: fxCanUp,
     canUp: fxCanUp,
-    folders: reuseList('folders', collectionLayout ? [] : filesTab === 'drafts' ? draftFolders : binFolderItems),
-    items: reuseList('items', collectionItems || (filesTab === 'drafts' ? [...incomingItems, ...draftItems] : binFileItems)),
+    folders: reuseList('folders', filesTab === 'drafts' ? draftFolders : binFolderItems),
+    items: reuseList('items', filesTab === 'drafts' ? [...incomingItems, ...draftItems] : binFileItems),
     onIncoming: fxIncoming,
     loading: filesTab === 'trash' ? trashLoading : localLoading,
     onOpen: fxOpen,
@@ -3088,28 +2699,6 @@ export default function ProjectFiles({ embedded = false } = {}) {
     onNewFile: (hasLocalFolderApi && filesTab === 'drafts' && Boolean(localFolder)) ? fxNewFile : undefined,
     onCreateTypedFile: (hasLocalFolderApi && filesTab === 'drafts' && Boolean(localFolder)) ? fxCreateTypedFile : undefined,
     onAddHighlightsSample: (hasLocalFolderApi && filesTab === 'drafts' && Boolean(localFolder)) ? fxAddHighlightsSample : undefined,
-    onScanFiles: (hasLocalFolderApi && filesTab === 'drafts' && Boolean(localFolder)) ? fxScanFiles : undefined,
-    onToggleScanTag: (hasLocalFolderApi && filesTab === 'drafts' && Boolean(localFolder)) ? fxToggleScanTag : undefined,
-    onEraseScanMemory: (hasLocalFolderApi && filesTab === 'drafts' && Boolean(localFolder)) ? fxEraseScanMemory : undefined,
-    // The Graph view (File explorer · Graph): what the AI scan read and linked.
-    graphSource: (hasLocalFolderApi && localFolder) ? { dir: localFolder, projectId } : null,
-    // Collections (lib/fileGroups): the footer's Collect, the open one's page.
-    onCollect: (hasLocalFolderApi && filesTab === 'drafts' && Boolean(localFolder)) ? fxCollect : undefined,
-    collectBusy,
-    collectionLayout,
-    onRemoveFromCollection: (items) => {
-      const byGroup = new Map();
-      for (const it of items || []) {
-        if (!it?.collectionId || !it.collectionRel) continue;
-        if (!byGroup.has(it.collectionId)) byGroup.set(it.collectionId, []);
-        byGroup.get(it.collectionId).push(it.collectionRel);
-      }
-      for (const [id, rels] of byGroup) removeFromFileGroup(localFolder, id, rels);
-    },
-    onOpenPath: (path, name) => openDocViewerWindow({ path, name: name || String(path).split(/[\\/]/).pop(), mime: '' }),
-    scanTaggedCount: scanTags.size,
-    scanDir: localFolder || null,
-    scanState: filesScan,
     renameTargetPath,
     onRenameTargetConsumed: () => setRenameTargetPath(null),
     selectTargetPath,
@@ -3138,12 +2727,6 @@ export default function ProjectFiles({ embedded = false } = {}) {
     onPasteItems: (filesTab === 'drafts' && Boolean(localFolder)) ? (items, ...rest) => handlePasteItems((items || []).filter((i) => !i?.incoming), ...rest) : undefined,
     onPasteCut: (filesTab === 'drafts' && Boolean(localFolder)) ? handlePasteCut : undefined,
     onMoveItems: (filesTab === 'drafts' && Boolean(localFolder)) ? (items, target, ...rest) => {
-      // Dropped on a COLLECTION: the files join it (nothing moves on disk).
-      if (target?.collectionEntry) {
-        const rels = (items || []).map((i) => (i?._raw?.path ? relOfPath(localFolder, i._raw.path) : null)).filter(Boolean);
-        if (rels.length) addToFileGroup(localFolder, target.collectionId, rels);
-        return;
-      }
       handleMoveItems((items || []).filter((i) => !i?.incoming), target, ...rest);
     } : undefined,
     onMoveToCrumb: (filesTab === 'drafts' && Boolean(localFolder)) ? fxMoveToCrumb : undefined,

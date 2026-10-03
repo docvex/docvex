@@ -119,7 +119,6 @@ export const BRIEF_QUESTIONS = [
   // ── 1. Ce? ──
   { id: 'title', step: 'what', type: 'text', title: 'Titlul documentului', hint: 'Clear and concise — „Contract de vânzare-cumpărare”, „Cerere de chemare în judecată”.', when: ALL },
   { id: 'object', step: 'what', type: 'text', multiline: true, title: 'Scopul, pe scurt', hint: 'Ce se transferă, ce se prestează, ce se protejează — e.g. “an NDA to protect an app idea”.', when: ALL },
-  { id: 'collections', step: 'what', type: 'collections', title: 'Data collections to draw on', hint: 'What the Files tab’s AI scan gathered — its facts, dates and names can go into the draft.', when: ALL, noAi: true },
   { id: 'preset', step: 'what', type: 'preset', title: 'Playbook preset', hint: 'The numbering and layout rules the document follows.', when: ALL, noAi: true },
 
   // ── 2. Cine cu cine? ──

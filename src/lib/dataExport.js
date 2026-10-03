@@ -7,7 +7,7 @@
 
 import { supabase } from './supabaseClient';
 import { listConversations } from './conversationHistory';
-import { readStoreForSync } from './secureStore';
+import { readStoreForSync, secureKeys, secureStorage } from './secureStore';
 
 async function localPart(userId) {
   const out = { conversations: [], keys: {} };
@@ -17,6 +17,16 @@ async function localPart(userId) {
   const all = { ...readStoreForSync('docvex') };
   for (const [k, raw] of Object.entries(all)) {
     if (!/^docvex[.:]/i.test(k) || !userId || !k.includes(userId) || raw == null) continue;
+    try { out.keys[k] = JSON.parse(raw); } catch { out.keys[k] = raw; }
+  }
+  // The encrypted store is THIS USER's (hydrated per account): everything in
+  // it is theirs — histories, research chats, kept answers — whether or not
+  // its key names the account (security audit 2026-10-01: those keyed by a
+  // path or a tab were left out).
+  for (const k of secureKeys('')) {
+    if (k in out.keys) continue;
+    const raw = secureStorage.getItem(k);
+    if (raw == null) continue;
     try { out.keys[k] = JSON.parse(raw); } catch { out.keys[k] = raw; }
   }
   return out;

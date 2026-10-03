@@ -24,8 +24,24 @@ export const isElectron = !!electronAPI;
 export const isMac =
   typeof navigator !== 'undefined' && /Mac/i.test(navigator.userAgent || '');
 
-// True in auxiliary windows — Doc Viewer (?docViewer=1) and the tray
-// "Extract text" windows (?snip / ?snipPanel / ?snipCountdown). These share
+// The tray's drop window (?trayDrop=1, main.js openTrayDropWindow).
+export const isTrayDropWindow =
+  typeof window !== 'undefined' && (() => {
+    try { return new URLSearchParams(window.location.search).get('trayDrop') === '1'; } catch { return false; }
+  })();
+
+// The tray drop window: copy dropped paths into a folder / hear macOS
+// menu-bar-icon drops.
+export function trayDropCopyIn(dir, paths) {
+  if (!electronAPI?.trayDropCopyIn) return Promise.resolve({ results: [], error: 'Restart DocVex to use this' });
+  return electronAPI.trayDropCopyIn({ dir, paths });
+}
+export function onTrayDropFiles(cb) {
+  return electronAPI?.onTrayDropFiles ? electronAPI.onTrayDropFiles(cb) : (() => {});
+}
+
+// True in auxiliary windows — the Doc Viewer (?docViewer=1) and the tray's
+// drop window (?trayDrop=1). These share
 // the renderer bundle with the main app window, but they must NOT each pay
 // for the main window's background infrastructure (project-files prefetch,
 // notifications history fetch + Realtime channel, chat-unread channel,
@@ -38,7 +54,7 @@ export const isAuxWindow =
   (() => {
     try {
       const q = new URLSearchParams(window.location.search);
-      return ['docViewer', 'snip', 'snipPanel', 'snipCountdown', 'trayMenu'].some((k) => q.get(k) === '1');
+      return q.get('docViewer') === '1' || q.get('trayDrop') === '1';
     } catch {
       return false;
     }
@@ -233,9 +249,25 @@ export function notifyDocViewerWarmReady() {
 export function notifyDocViewerFilePainted() {
   try { electronAPI?.notifyDocViewerFilePainted?.(); } catch { /* non-fatal */ }
 }
+export function setDocViewerFile(file) {
+  try { electronAPI?.setDocViewerFile?.({ path: file?.path, name: file?.name, mime: file?.mime || '', renamed: !!file?.renamed }); } catch { /* non-fatal */ }
+}
 export function onDocViewerOpenFile(handler) {
   if (!electronAPI?.onDocViewerOpenFile) return () => {};
   return electronAPI.onDocViewerOpenFile(handler);
+}
+// Preloading: ask the viewer to get a file ready before it is opened (the
+// Files tab, on hover / selection). A no-op until main and the preload carry
+// the channel (restart `npm start` after a main.js change).
+let lastPrepared = '';
+export function prepareDocViewerFile(file) {
+  if (!file?.path || file.path === lastPrepared) return;
+  lastPrepared = file.path;
+  try { electronAPI?.prepareDocViewerFile?.({ path: file.path, name: file.name || '', mime: file.mime || '' }); } catch { /* non-fatal */ }
+}
+export function onDocViewerPrepareFile(handler) {
+  if (!electronAPI?.onDocViewerPrepareFile) return () => {};
+  return electronAPI.onDocViewerPrepareFile(handler);
 }
 
 // Surface a known on-disk file for localfile:// preview without opening a
@@ -280,40 +312,29 @@ export function onDocViewerAddFile(cb) {
   return electronAPI?.onDocViewerAddFile ? electronAPI.onDocViewerAddFile(cb) : (() => {});
 }
 
-// Open doc-viewer windows registry — backs the main app sidebar's "Open files"
-// section. `listDocViewerTabs` snapshots the open viewers; `onDocViewerTabs`
-// subscribes to live open/close changes (unsubscribe fn returned); focus/close
-// act on a viewer by its window id.
-export function listDocViewerTabs() {
-  return electronAPI?.listDocViewerTabs ? electronAPI.listDocViewerTabs() : Promise.resolve([]);
-}
-// Report this doc-viewer window's AI advisor busy state to the main app's
-// "Open files" sidebar.
+// This doc-viewer window's AI busy state (main: the Files tab's spinner, and
+// a window closed while busy finishes in the background).
 export function setDocViewerAiStatus(busy) {
   electronAPI?.setDocViewerAiStatus?.(busy);
 }
-export function onDocViewerTabs(cb) {
-  return electronAPI?.onDocViewerTabs ? electronAPI.onDocViewerTabs(cb) : (() => {});
+// The first prompt about the document on show (a new document then appears in
+// the Files tab; main ignores it for any other file).
+export function docViewerPrompted() {
+  try { electronAPI?.docViewerPrompted?.(); } catch { /* non-fatal */ }
 }
-// A tab in a SEPARATE WINDOW: open one at a route, list the
-// ones open, follow them, focus one, and DOCK one — close it and bring what it
-// showed back into the main window. This window's own route is reported with
-// `reportTabWindowRoute` (only a tab window reports).
+// { busy, hidden } — the paths the AI is writing, and new documents not yet
+// prompted. Snapshot + live updates.
+export function getDocViewerState() {
+  return electronAPI?.getDocViewerState ? electronAPI.getDocViewerState() : Promise.resolve({ busy: [], hidden: [] });
+}
+export function onDocViewerState(cb) {
+  return electronAPI?.onDocViewerState ? electronAPI.onDocViewerState(cb) : (() => {});
+}
+// A tab in a SEPARATE WINDOW: the same app booted at a route. Opened only —
+// nothing tracks or lists them.
 export const isTabWindow = typeof window !== 'undefined' && new URLSearchParams(window.location.search).get('tabWindow') === '1';
 export function openTabWindow(route, title = '') { electronAPI?.openTabWindow?.(route, title); }
-export function listTabWindows() { return electronAPI?.listTabWindows ? electronAPI.listTabWindows() : Promise.resolve([]); }
-export function onTabWindows(cb) { return electronAPI?.onTabWindows ? electronAPI.onTabWindows(cb) : (() => {}); }
-export function reportTabWindowRoute(route, title) { if (isTabWindow) electronAPI?.reportTabWindowRoute?.(route, title); }
-export function focusTabWindow(id) { electronAPI?.focusTabWindow?.(id); }
-export function dockTabWindow(id) { electronAPI?.dockTabWindow?.(id); }
 export const canOpenTabWindow = !!electronAPI?.openTabWindow;
-
-export function focusDocViewerTab(id) {
-  electronAPI?.focusDocViewerTab?.(id);
-}
-export function closeDocViewerTab(id) {
-  electronAPI?.closeDocViewerTab?.(id);
-}
 // Send the MAIN window to an in-app route (or '@logout') and bring it forward —
 // for secondary windows (the Doc Viewer), which have no app shell of their own.
 export function navigateMainWindow(dest) {
@@ -430,6 +451,12 @@ export function courtsSearch(query) {
 }
 export function courtsHearings(query) {
   return legisCall('courtsHearings', query, LEGIS_DOWN);
+}
+/** Where a web address lands (redirects followed) and its site's icon as a
+ *  data: URL — `{ url }` → `{ ok, url, host, icon }`. Refuses this machine
+ *  and private networks (main.js `link:preview`). */
+export function linkPreview(url) {
+  return legisCall('linkPreview', { url }, LEGIS_DOWN);
 }
 export function anafBilant(payload) {
   return legisCall('anafBilant', payload, LEGIS_DOWN);

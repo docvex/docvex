@@ -15,6 +15,7 @@ import './styles/designSystem.css';
 import './styles/perf.css';
 import { initDesignSystem } from './lib/designSystem';
 import { initPerf } from './lib/perf';
+import { setLanguage, bootLanguage } from './lib/i18n';
 
 // The design system's overrides (Settings → System → Design system) go on
 // <html> before anything renders, so the first frame already follows them.
@@ -22,6 +23,9 @@ initDesignSystem();
 // The graphics preset (Settings → Optimization) likewise: data-perf on <html>
 // before the first frame, so a Low machine never paints the heavy look first.
 initPerf();
+// Interface language (lib/i18n) — started before the first render so no
+// English frame flashes; AppPrefsProvider then applies the user's own choice.
+setLanguage(bootLanguage());
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import { MemoryRouter } from 'react-router-dom';
@@ -31,7 +35,6 @@ import { AppPrefsProvider } from './context/AppPrefsContext';
 import { UpdatesProvider } from './context/UpdatesContext';
 import { NotificationsProvider } from './context/NotificationsContext';
 import { SelectedProjectProvider } from './context/SelectedProjectContext';
-import { ChatUnreadProvider } from './context/ChatUnreadContext';
 import NotificationCenter from './components/NotificationCenter';
 import AuthWindowGate from './components/AuthWindowGate';
 import { isElectron, isMac } from './lib/platform';
@@ -40,45 +43,28 @@ import { preloadBootRoute } from './AppRoutes';
 
 // Document-viewer windows (opened from the Files page) boot straight into the
 // full-screen /doc-viewer route, carrying the file's path/name/mime through.
-// Tray "Extract text" overlay windows boot into /snip with the frozen
-// screenshot's path. Every other window is the main app.
+// Every other window is the main app.
 const launchParams = new URLSearchParams(window.location.search);
 const isDocViewer = launchParams.get('docViewer') === '1';
 // The dedicated sign-in window (main.js openAuthWindow) — the same renderer
 // booted straight into /auth at the Cabinet's fixed size. The app window is
 // never reshaped into a login box any more.
 const isAuthWindow = launchParams.get('authWindow') === '1';
-const isSnip = launchParams.get('snip') === '1';
-const isSnipPanel = launchParams.get('snipPanel') === '1';
-const isSnipCountdown = launchParams.get('snipCountdown') === '1';
-// The app-drawn system-tray menu (main.js anchors it to the tray icon).
-const isTrayMenu = launchParams.get('trayMenu') === '1';
+// The tray's drop window (main.js openTrayDropWindow) — a small card, no title bar.
+const isTrayDrop = launchParams.get('trayDrop') === '1';
 // A tab opened in a SEPARATE WINDOW (the sidebar's "Open in a new window"):
 // the whole app, booted at that tab's route. Not the main window — no toasts,
 // no notification sources, no background sync.
 const isTabWindow = launchParams.get('tabWindow') === '1';
 const tabRoute = launchParams.get('route') || '/files';
 // Only the main app window shows notification toasts / runs the notification
-// source hooks — aux windows (Doc Viewer, snip overlay, snip launcher,
-// countdown) must not pop toasts over their own surfaces.
-const isMainWindow = !isDocViewer && !isSnip && !isSnipPanel && !isSnipCountdown && !isTrayMenu && !isAuthWindow && !isTabWindow;
-
-// The Snipping-Tool launcher panel and the delayed-capture countdown ride in
-// TRANSPARENT windows (their cards paint themselves; everything else must
-// stay invisible). Flag the document before first paint so index.css drops
-// the opaque page background before anything renders.
-if (isSnipPanel) document.documentElement.classList.add('is-snip-panel');
-if (isSnipCountdown) document.documentElement.classList.add('is-snip-countdown');
-// Same deal for the tray menu — only its card paints.
-if (isTrayMenu) document.documentElement.classList.add('is-tray-menu');
+// source hooks — aux windows (the Doc Viewer) must not pop toasts over their own surfaces.
+const isMainWindow = !isDocViewer && !isTrayDrop && !isAuthWindow && !isTabWindow;
 
 // Frameless Electron build draws a custom title bar — flag the document
 // BEFORE first paint so the layout reserves --titlebar-h (no startup shift).
-// Web keeps the browser chrome and skips this. The tray "Extract text"
-// overlay is chromeless edge-to-edge (the frozen screenshot must fill the
-// display exactly), so it skips the reservation too — as do the launcher
-// panel (it draws its own mini title bar) and the countdown badge.
-if (isElectron && !isSnip && !isSnipPanel && !isSnipCountdown && !isTrayMenu) {
+// Web keeps the browser chrome and skips this.
+if (isElectron && !isTrayDrop) {
   document.documentElement.classList.add('with-titlebar');
   // macOS keeps the native traffic-light buttons (titleBarStyle:'hidden' in
   // main.js) floating over our bar, so the title bar insets its brand to clear
@@ -91,19 +77,13 @@ const initialEntries = isAuthWindow
   ? [tabRoute]
   : isDocViewer
   ? [`/doc-viewer?${launchParams.toString()}`]
-  : isTrayMenu
-  ? [`/tray-menu?${launchParams.toString()}`]
-  : isSnipCountdown
-    ? [`/snip-countdown?${launchParams.toString()}`]
-    : isSnipPanel
-      ? [`/snip-panel?${launchParams.toString()}`]
-      : isSnip
-        ? [`/snip?${launchParams.toString()}`]
-        // Main window boots straight into the project's Files tab — the tab
-        // people actually work in. (Signed out, ProtectedRoute bounces to
-        // /auth; with no project selected, the page shows its "pick a project"
-        // CTA.) The Activity feed stays one click away on the sidebar's "/".
-        : ['/files'];
+  : isTrayDrop
+  ? ['/tray-drop']
+  // Main window boots straight into the project's Files tab — the tab
+  // people actually work in. (Signed out, ProtectedRoute bounces to
+  // /auth; with no project selected, the page shows its "pick a project"
+  // CTA.) The Activity feed stays one click away on the sidebar's "/".
+  : ['/files'];
 
 // Provider order:
 //   AuthProvider                — session
@@ -117,7 +97,6 @@ const initialEntries = isAuthWindow
 //   NotificationsProvider       — needs Auth + Updates via its source hooks.
 //                                 NotificationCenter renders inside it (toast
 //                                 stack at z 9999).
-//   ChatUnreadProvider          — chat unread badges.
 if (isMainWindow) preloadBootRoute();
 ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>
@@ -130,15 +109,13 @@ ReactDOM.createRoot(document.getElementById('root')).render(
           <AppPrefsProvider>
             <SelectedProjectProvider>
               <UpdatesProvider>
-                {/* Aux windows (Doc Viewer / snip overlay / snip launcher)
+                {/* Aux windows (the Doc Viewer)
                     restore the cached session on boot — suppress the source
                     hooks there so "Signed in as …" only toasts in the main
                     window, and don't mount the toast stack at all: toasts
                     render ONLY in the main window. */}
                 <NotificationsProvider sourcesEnabled={isMainWindow}>
-                  <ChatUnreadProvider>
-                    <App />
-                  </ChatUnreadProvider>
+                  <App />
                   {isMainWindow && <NotificationCenter />}
                 </NotificationsProvider>
               </UpdatesProvider>

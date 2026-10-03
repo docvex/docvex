@@ -5,10 +5,7 @@ import { PaneChromeProvider, usePaneChromeSlotValue, usePaneChromePortalRef, use
 import Tooltip from './Tooltip';
 import './SplitView.css';
 
-// Single-pane content shell for the main window. (The former multi-pane
-// split-view system — vertical / horizontal / "T" / quad layouts plus the
-// user-saved "custom layouts" presets — was removed; the app now always renders
-// ONE pane.) Navigation lives in the app's vertical sidebar; this shell keeps
+// Single-pane content shell for the main window. Navigation lives in the app's vertical sidebar; this shell keeps
 // the in-content chrome the pages rely on: a header bar that pages portal their
 // description/toolbar into (PaneChrome + PaneChromeContext), and a footer
 // (PaneFooter) for things like the chat composer.
@@ -17,21 +14,6 @@ function RefreshIcon() {
   return <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="23 4 23 10 17 10" /><polyline points="1 20 1 14 7 14" /><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15" /></svg>;
 }
 
-// Side-rail icons — stroke style matches the DocVex hub's sidebar nav icons
-// (currentColor stroke, 18px, so they inherit hover/active colour).
-const Svg = (p) => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" {...p} />;
-const NAV_ICONS = {
-  dashboard: <Svg><rect x="3" y="3" width="7" height="7" rx="1" /><rect x="14" y="3" width="7" height="7" rx="1" /><rect x="14" y="14" width="7" height="7" rx="1" /><rect x="3" y="14" width="7" height="7" rx="1" /></Svg>,
-  files: <Svg><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" /></Svg>,
-  chat: <Svg><path d="M21 11.5a8.38 8.38 0 0 1-9 8.5 9 9 0 0 1-4-1L3 21l1.5-4a8.5 8.5 0 0 1 4-11.5 8.38 8.38 0 0 1 12.5 6z" /></Svg>,
-  network: <Svg><circle cx="5" cy="6" r="2" /><circle cx="19" cy="6" r="2" /><circle cx="12" cy="12" r="2.2" /><circle cx="6" cy="19" r="2" /><circle cx="18" cy="18" r="2" /><path d="M6.7 7.2 10.3 10.8M17.3 7.2 13.7 10.8M10.4 13.4 7.4 17.5M13.7 13.4 16.5 16.6" /></Svg>,
-  ai: <Svg><path d="M12 3l1.8 4.6L18 9l-4.2 1.4L12 15l-1.8-4.6L6 9l4.2-1.4z" /><path d="M18 14l.8 2.2L21 17l-2.2.8L18 20l-.8-2.2L15 17l2.2-.8z" /></Svg>,
-  activity: <Svg><path d="M3 12h4l3 8 4-16 3 8h4" /></Svg>,
-  projects: <Svg><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" /><path d="M3 11h18" /></Svg>,
-  versions: <Svg><line x1="6" y1="3" x2="6" y2="15" /><circle cx="18" cy="6" r="3" /><circle cx="6" cy="18" r="3" /><path d="M18 9a9 9 0 0 1-9 9" /></Svg>,
-  newsletter: <Svg><path d="M4 4h13a1 1 0 0 1 1 1v13a2 2 0 0 0 2 2H6a2 2 0 0 1-2-2z" /><line x1="8" y1="8" x2="14" y2="8" /><line x1="8" y1="12" x2="14" y2="12" /><line x1="8" y1="16" x2="11" y2="16" /></Svg>,
-  account: <Svg><circle cx="12" cy="8" r="4" /><path d="M4 21a8 8 0 0 1 16 0" /></Svg>,
-};
 
 // Destinations the in-pane navigation offers. Mirrors ONLY the sidebar's
 // Projects-section navigation (the selected project's pages) when a project is
@@ -40,17 +22,15 @@ const NAV_ICONS = {
 function paneDestinations(selectedProject) {
   return selectedProject?.id
     ? [
-        { label: 'Files', to: '/files', icon: NAV_ICONS.files },
-        { label: 'Chat', to: '/chat', icon: NAV_ICONS.chat },
-        { label: 'Neural network', to: '/network', icon: NAV_ICONS.network },
-        { label: 'Updates', to: '/versions', icon: NAV_ICONS.versions },
+        { label: 'Files', to: '/files' },
+        { label: 'Updates', to: '/versions' },
       ]
     : [
-        { label: 'Activity', to: '/', icon: NAV_ICONS.activity },
-        { label: 'Projects', to: '/projects', icon: NAV_ICONS.projects },
-        { label: 'Versions', to: '/versions', icon: NAV_ICONS.versions },
-        { label: 'Legislation', to: '/legislation', icon: NAV_ICONS.newsletter },
-        { label: 'Account', to: '/account', icon: NAV_ICONS.account },
+        { label: 'Activity', to: '/' },
+        { label: 'Projects', to: '/projects' },
+        { label: 'Updates', to: '/versions' },
+        { label: 'Legislation', to: '/legislation' },
+        { label: 'Account', to: '/account' },
       ];
 }
 
@@ -91,12 +71,7 @@ function PaneChrome({ onRefresh }) {
     '/caen': 'CAEN codes',
     '/newsletter': 'Legal newsfeed',
     '/account': 'Profile & settings',
-    '/admin': 'Developer console',
     '/files': 'Project files & folders',
-    '/chat': 'Team & private chat',
-    '/network': 'Neural network',
-    '/todos': 'Project to-dos',
-    '/mail': 'AI-drafted replies',
     '/debug': 'Developer tools',
   };
   let destDesc = DEST_DESC[currentPath];
@@ -137,8 +112,7 @@ function PaneChrome({ onRefresh }) {
 }
 
 // Window footer — symmetric to PaneChrome but at the BOTTOM of the pane. The
-// routed page portals content into it via usePaneChromeFooterEl (e.g. the chat
-// composer). The element collapses (CSS `:empty`) when the page publishes
+// routed page portals content into it via usePaneChromeFooterEl . The element collapses (CSS `:empty`) when the page publishes
 // nothing.
 function PaneFooter() {
   const setFooterEl = usePaneChromeFooterRef();
@@ -148,7 +122,7 @@ function PaneFooter() {
 // Routes that render WITHOUT the in-content chrome bar — the personal
 // destinations plus the Hub (/projects) and Account (/account). They each carry
 // their own page masthead, so the chrome's title would just duplicate it.
-const CHROMELESS_FULLSCREEN_ROUTES = new Set(['/', '/research', '/newsletter', '/legislation', '/caen', '/portal-just', '/anaf', '/firme', '/bpi', '/ancpi', '/rejust', '/unbr', '/eurlex', '/roadmap', '/playbook', '/versions', '/settings', '/design', '/debug', '/mail', '/admin', '/projects', '/account', '/files', '/chat', '/network']);
+const CHROMELESS_FULLSCREEN_ROUTES = new Set(['/', '/research', '/newsletter', '/legislation', '/caen', '/portal-just', '/anaf', '/firme', '/bpi', '/ancpi', '/rejust', '/unbr', '/eurlex', '/playbook', '/versions', '/settings', '/design', '/debug', '/projects', '/account', '/files']);
 
 // The project Overview / settings page (/projects/:id, no further segment) is
 // also chromeless — it carries its own Versions-style masthead + compact

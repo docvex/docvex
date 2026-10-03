@@ -20,13 +20,13 @@
 
 /* ── HIGH and below: no looping decorative animation ─────────────────────── */
 :root:is([data-perf="high"], [data-perf="medium"], [data-perf="low"]) :is(
-  .dz-card, .fx-branch-inline, .fx-sb-pill, .doc-tab-ai-tag,
+  .dz-card, .fx-branch-inline, .fx-sb-pill,
   .project-files-morph-ai-group, .project-files-morph-pill.is-confirm.is-danger,
   .account-danger, .dv-docx .dv-lawref, .dv-docx .dv-xref, .dv-textword.dv-lawref, .file-preview-pdf-text .dv-lawref, .dsg-refs .dv-lawref, .dsg-refs .dv-xref,
   .vb-msg.mentions-me .vb-msg-bubble, .pjd-status-pill, .pjd-danger, .cc-log-chip,
   .project-files-branch-status-item, .project-files-branch-status-dot, .lh-nofolder,
   .tm-head, .tb-update-dot, .updates-page .rail-col.is-latest .rail-node,
-  .fx-editmode-dot, .doc-tab-ai-dot, .fx-branch-inline.is-waiting .fx-dot,
+  .fx-editmode-dot, .fx-branch-inline.is-waiting .fx-dot,
   .fx-sb-pill.is-waiting .fx-dot, .cc-mesh path, .cc-avatar-glow,
   .dv-live-badge.is-playing svg, .mx-spark-pulse,
   .sidebar.picker-open .project-picker-name.is-scrolling .project-picker-name-inner

@@ -44,8 +44,7 @@ export function openProjectVault(projectId, { detectors = [] } = {}) {
 }
 
 // ── Layer 2: the names the project knows ────────────────────────────────
-// Read from the project's data collections (records) and the AI scan's
-// parties; re-read at most once a minute. Each known name + CNP / CUI pair is
+// Read from the project's records; re-read at most once a minute. Each known name + CNP / CUI pair is
 // LINKED in the vault up front, so the name and the identifier share a number
 // whichever the vault meets first.
 const REFRESH_MS = 60 * 1000;
@@ -57,13 +56,9 @@ export function refreshKnownEntities(projectId, vault) {
   const work = (async () => {
     const dir = projectDirOf(projectId);
     if (!dir) return;
-    const [{ listProjectIdentities }, { loadScanIndex }] = await Promise.all([import('../identities'), import('../dataCollections')]);
-    const [records, web] = await Promise.all([
-      listProjectIdentities(dir).catch(() => []),
-      loadScanIndex(dir, { projectId }).catch(() => null),
-    ]);
-    const parties = Object.values(web?.files || {}).flatMap((f) => (Array.isArray(f?.understanding?.parties) ? f.understanding.parties : []));
-    const entities = knownEntitiesFrom({ records, parties });
+    const { listProjectIdentities } = await import('../identities');
+    const records = await listProjectIdentities(dir).catch(() => []);
+    const entities = knownEntitiesFrom({ records, parties: [] });
     for (const e of entities) {
       if (e.kind === 'person' && e.cnp) vault.link({ type: 'CNP', value: e.cnp }, { type: 'PERSOANA', value: e.name });
       if (e.kind === 'company' && e.cui) vault.link({ type: 'CUI', value: e.cui }, { type: 'FIRMA', value: e.name });

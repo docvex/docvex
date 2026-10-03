@@ -10,6 +10,8 @@ import MiniHeaderFade from '../components/MiniHeaderFade';
 import FilterTabs from '../components/FilterTabs';
 import FileThumbnail from '../components/FileThumbnail';
 import { glyphForFile } from '../components/fileGlyph';
+// The Files tab's own folder glyph — the app has one file-icon style.
+import { FolderOrBinGlyph } from '../components/FilesWorkspace';
 import './Activity.css';
 
 // Activity = the merged home of what used to be the (empty) "/" Activity
@@ -74,13 +76,6 @@ const BellOffIcon = (
     <path d="M13.73 21a2 2 0 0 1-3.46 0" /><path d="M18.63 13A17.89 17.89 0 0 1 18 8" /><path d="M6.26 6.26A5.86 5.86 0 0 0 6 8c0 7-3 9-3 9h14" /><path d="M18 8a6 6 0 0 0-9.33-5" /><line x1="1" y1="1" x2="23" y2="23" />
   </svg>
 );
-// Filled folder — folder-event rows show this instead of a file thumbnail.
-const FolderGlyph = (
-  <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" stroke="none" aria-hidden="true">
-    <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
-  </svg>
-);
-
 // How long a row has to stay on screen before it counts as read.
 const AUTO_READ_DWELL_MS = 800;
 
@@ -170,7 +165,7 @@ const ActivityRow = React.memo(function ActivityRow({ notification, ctx, onRemov
            the Files grid. */
         <div className="avt-file-row">
           <span className={`avt-file-thumb${file.folder ? ' is-folder' : ''}`}>
-            {file.folder ? FolderGlyph : (
+            {file.folder ? <FolderOrBinGlyph item={{ empty: false }} size={16} /> : (
               <FileThumbnail
                 mimeType={guessMimeFromName(file.fileName)}
                 name={file.fileName}

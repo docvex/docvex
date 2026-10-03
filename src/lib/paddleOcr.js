@@ -47,6 +47,9 @@ async function readBytes(url) {
   });
 }
 
+// Another file served from public/ocr/ (copy-ocr-assets.mjs), as bytes.
+export function readOcrAsset(name) { return readBytes(ocrBase() + name); }
+
 // THE ENGINE RUNS IN A WEB WORKER (paddleOcr.worker.js): reading a picture is
 // seconds of WebAssembly, and on the window's own thread the whole window froze
 // for that long — for EVERY picture the Files tab's AI scan read. One worker per
@@ -104,7 +107,8 @@ export function getPaddleOcr() {
   if (!enginePromise) {
     enginePromise = (async () => {
       const base = ocrBase();
-      const [ort, { PaddleOcrService }] = await Promise.all([import('onnxruntime-web/wasm'), import('paddleocr')]);
+      const [ort, { PaddleOcrService }, { patchCharPositions }] = await Promise.all([import('onnxruntime-web/wasm'), import('paddleocr'), import('./paddleCharPos')]);
+      patchCharPositions();
       ort.env.wasm.wasmPaths = `${base}ort/`;
       // Threads need SharedArrayBuffer, which only a cross-origin-isolated page has.
       ort.env.wasm.numThreads = globalThis.crossOriginIsolated ? Math.min(4, navigator.hardwareConcurrency || 2) : 1;
@@ -131,7 +135,8 @@ const fixRo = (t) => String(t).replace(/\s+/g, ' ').trim()
   .replace(/ş/g, 'ș').replace(/Ş/g, 'Ș').replace(/ţ/g, 'ț').replace(/Ţ/g, 'Ț');
 
 // A canvas → every line of text on it: `{ text, conf (0–100), x0, y0, x1, y1,
-// thick, along, cx, cy, angle }` in the canvas's pixels, in reading order.
+// thick, along, cx, cy, angle, chars }` in the canvas's pixels, in reading order
+// (`chars`: every letter's centre, spaces left out, or null).
 // `thick` / `along` are the line's height and length measured ON its box (a
 // tilted line's axis-aligned box is taller than its letters), `angle` its tilt
 // in degrees (clockwise, as CSS rotates), `cx` / `cy` its centre.
@@ -165,7 +170,10 @@ export async function readLines(canvas) {
       : 0;
     const cx = pts ? pts.reduce((n, p) => n + p.x, 0) / 4 : (x0 + x1) / 2;
     const cy = pts ? pts.reduce((n, p) => n + p.y, 0) / 4 : (y0 + y1) / 2;
-    out.push({ text, conf: Math.round((r.confidence || 0) * 100), x0, y0, x1, y1, thick, along, cx, cy, angle });
+    // Each letter's centre on the picture (lib/paddleCharPos), the spaces left
+    // out — in the order of the line's letters.
+    const chars = Array.isArray(r.charPos) ? r.charPos.filter((c) => c && c.ch && !/\s/.test(c.ch)).map((c) => ({ x: c.x, y: c.y })) : null;
+    out.push({ text, conf: Math.round((r.confidence || 0) * 100), x0, y0, x1, y1, thick, along, cx, cy, angle, chars });
   }
   return out;
 }

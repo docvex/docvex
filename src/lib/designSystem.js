@@ -16,7 +16,6 @@
 // rules, and answers with the tokens to change. Nothing is applied until
 // the user accepts.
 
-import { askProjectAi } from './projectAi';
 
 export const DS_KEY = 'docvex:design-system:v1';
 
@@ -205,7 +204,9 @@ export async function askDesign(prompt, over) {
   ].join('\n\n');
   let res;
   try {
-    res = await askProjectAi({ messages: [{ role: 'user', content: text }], tools: false, model: 'claude-sonnet-4-6', usageAction: 'design-system' });
+    // The app's one AI engine, loaded on use (this file is in the startup bundle).
+    const askAi = (await import('./aiEngine')).askAi;
+    res = await askAi({ surface: 'tool', messages: [{ role: 'user', content: text }], model: 'claude-sonnet-4-6', usageAction: 'design-system' });
   } catch (e) { return { error: e?.message || 'ai_failed' }; }
   if (res?.error) return { error: res.error };
   const m = /\{[\s\S]*\}/.exec(res?.text || '');

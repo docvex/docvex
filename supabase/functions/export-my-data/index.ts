@@ -33,6 +33,8 @@ Deno.serve(async (req: Request) => {
   if (userErr || !user) return json({ error: "unauthenticated" }, 401);
   const uid = user.id;
   const email = (user.email ?? "").toLowerCase();
+  // An exact, case-insensitive match: `_` and `%` in an address are literal.
+  const emailPattern = email.replace(/[\\%_]/g, (c) => "\\" + c);
 
   const admin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, { auth: { persistSession: false } });
   const errors: string[] = [];
@@ -81,12 +83,28 @@ Deno.serve(async (req: Request) => {
     invitations_sent: await rows("invitations_sent", admin.from("project_invitations")
       .select("project_id, email, role, created_at, expires_at, accepted_at").eq("invited_by", uid)),
     invitations_received: email ? await rows("invitations_received", admin.from("project_invitations")
-      .select("project_id, role, created_at, expires_at, accepted_at").ilike("email", email)) : [],
+      .select("project_id, role, created_at, expires_at, accepted_at").ilike("email", emailPattern)) : [],
     connected_mailboxes: await rows("user_mail_connections", admin.from("user_mail_connections")
       .select("provider, email, scope, created_at, updated_at").eq("user_id", uid)),
     phone_upload_sessions: sessions,
     phone_upload_files: sessionIds.length ? await rows("phone_upload_files", admin.from("phone_upload_files")
       .select("session_id, name, size, mime, status, created_at, decided_at").in("session_id", sessionIds)) : [],
+    // Added after the security audit (2026-10-01, GDPR Art. 15 / 20).
+    public_keys: await rows("user_public_keys", admin.from("user_public_keys")
+      .select("x25519, ed25519, created_at, updated_at").eq("user_id", uid)),
+    key_backup: await rows("user_key_backups", admin.from("user_key_backups")
+      .select("blob, updated_at").eq("user_id", uid)),
+    newsletter: email ? await rows("newsletter_subscribers", admin.from("newsletter_subscribers")
+      .select("email, status, consent_text, consent_source, requested_at, confirmed_at, last_sent_at").ilike("email", emailPattern)) : [],
+    website_forms: email ? await rows("enrollments", admin.from("enrollments")
+      .select("type, name, email, firm, message, created_at").ilike("email", emailPattern)) : [],
+    ai_calls_last_two_days: await rows("ai_call_log", admin.from("ai_call_log")
+      .select("fn, at").eq("user_id", uid)),
+    notes: [
+      "Values starting with 'e2e:v1:' are end-to-end encrypted: only a device holding the project's key can read them, and DocVex's servers cannot.",
+      "The key backup is encrypted with your recovery passphrase.",
+      "What DocVex keeps on your computer (documents, extracted text, conversations) is not on the server and is not in this file.",
+    ],
     synced_private_data: [] as Array<{ name: string; content: unknown }>,
     errors,
   };

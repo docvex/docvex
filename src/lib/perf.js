@@ -20,14 +20,16 @@ const KEY = 'docvex.perf.v1';
 // a WebGL context (tens of ms), so boot uses this and re-checks it on idle.
 const DETECT_KEY = 'docvex.perf.detected.v1';
 
-export const PERF_LEVELS = ['ultra', 'high', 'medium', 'low'];
+// Two levels a person can pick, Quality and Performance (ids kept as
+// 'ultra' / 'low', which perf.css keys on). The stylesheets still know 'high'
+// and 'medium', but nothing sets them any more; a device that had picked one
+// reads as Auto (readPreset) and a cached detection of one is measured again.
+export const PERF_LEVELS = ['ultra', 'low'];
 
 export const PERF_PRESETS = [
-  { id: 'auto', label: 'Auto', blurb: 'Picks a preset for this computer from its graphics chip, processor and memory.' },
-  { id: 'ultra', label: 'Ultra', blurb: 'Everything on: frosted glass, cursor light, ambient motion, full shadows and transitions.' },
-  { id: 'high', label: 'High', blurb: 'Frosted glass and cursor light stay; looping decorative motion stops.' },
-  { id: 'medium', label: 'Medium', blurb: 'Solid surfaces instead of blur, the background light stays still instead of following the mouse, lighter shadows. Transitions stay.' },
-  { id: 'low', label: 'Low', blurb: 'The lightest the app can draw: no blur, shadows, ambient motion or transitions. Best for older office PCs.' },
+  { id: 'auto', label: 'Auto', blurb: 'Picks Quality or Performance for this computer from its graphics chip, processor and memory.' },
+  { id: 'ultra', label: 'Quality', blurb: 'Everything on: frosted glass, cursor light, ambient motion, full shadows and transitions.' },
+  { id: 'low', label: 'Performance', blurb: 'The lightest the app can draw: no blur, shadows, ambient motion or transitions. Best for older office PCs.' },
 ];
 
 // What each level keeps. A feature not listed is ON at every level.
@@ -41,7 +43,7 @@ export const PERF_FEATURES = {
 };
 
 let preset = 'auto';
-let level = 'high';
+let level = 'ultra';
 let detected = null;
 const subs = new Set();
 
@@ -90,9 +92,9 @@ function measure() {
   let pick;
   if (software || !gpu) pick = 'low';
   else if ((cores && cores <= 4) || (memory && memory <= 4)) pick = 'low';
-  else if (integrated) pick = /iris xe|iris plus|780m|680m/.test(g) && cores >= 8 ? 'high' : 'medium';
-  else if (discrete && cores >= 8) pick = 'high';
-  else pick = 'medium';
+  else if (integrated) pick = /iris xe|iris plus|780m|680m/.test(g) && cores >= 8 ? 'ultra' : 'low';
+  else if (discrete && cores >= 8) pick = 'ultra';
+  else pick = 'low';
   return { level: pick, gpu, cores, memory, software, integrated, discrete };
 }
 

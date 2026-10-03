@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { createContext, useContext, useEffect, useRef } from 'react';
 import Tooltip from './Tooltip';
 import { toLayoutPx } from '../lib/appZoom';
 import './DocRibbon.css';
@@ -11,19 +11,10 @@ import { subscribePointer } from '../lib/pointer';
 //
 //  • DocQuickActions — the section under the panel's tab strip: whole-document
 //    actions (Counters, Open in Word) as a grid of tiles.
-//  • DocThemeGrid    — the body of the panel's **Theme** tab: the document
-//    themes (lib/docThemes.js) as a grid of thumbnails, each a little page set
-//    in the theme's own fonts and colours over a strip of its palette.
 //
-// (The **Add** tab has nothing in it yet.) Both are driven by props — the Word
-// preview pane owns the state and publishes it to the panel through the
+// (The Theme and Add tabs were removed on 2026-10-02.) Driven by props — the
+// Word preview pane owns the state and publishes it to the panel through the
 // advisor context (`docTools`).
-
-const CheckGlyph = (
-  <svg viewBox="0 0 12 12" width="9" height="9" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-    <polyline points="2.5 6.5 5 9 9.5 3.5" />
-  </svg>
-);
 
 // The sidebar tabs' cursor-tracked wash: every `selector` button under the node
 // gets its own --item-spot-x/y (layout px) as the pointer moves over the node.
@@ -70,67 +61,22 @@ export function useItemSpots(selector, live = true) {
   return ref;
 }
 
-function ThemeThumb({ theme, active, lockReason, onPick }) {
-  const locked = !!lockReason && !active;
-  const { sample, fonts, palette } = theme;
-  return (
-    <Tooltip content={locked ? lockReason : theme.description}>
-      <button
-        type="button"
-        className={`drb-theme${active ? ' is-active' : ''}${locked ? ' is-locked' : ''}`}
-        onClick={() => { if (!locked) onPick?.(theme.id); }}
-        // aria-disabled, not `disabled`: a disabled button swallows the hover
-        // that has to show WHY it is locked.
-        aria-disabled={locked || undefined}
-        aria-pressed={active}
-        aria-label={`${theme.name} theme`}
-      >
-        {/* The page sheet is white in both app themes, so the thumbnail is too. */}
-        <span className="drb-theme-sheet" aria-hidden="true">
-          <span className="drb-theme-page">
-            <span className="drb-theme-title" style={{ color: sample.title, fontFamily: fonts.head, borderBottomColor: sample.rule }}>Aa</span>
-            <span className="drb-theme-heading" style={{ color: sample.heading, fontFamily: fonts.head }}>Heading</span>
-            <span className="drb-theme-lines" style={{ color: sample.body }}>
-              <i /><i /><i />
-            </span>
-          </span>
-          <span className="drb-theme-palette">
-            {palette.map((hex) => <i key={hex} style={{ background: hex }} />)}
-          </span>
-        </span>
-        <span className="drb-theme-name">
-          {active && <span className="drb-theme-check">{CheckGlyph}</span>}
-          {theme.name}
-        </span>
-      </button>
-    </Tooltip>
-  );
-}
-
-// The Theme tab's body: the themes in a grid.
-export function DocThemeGrid({ themes = [], themeId = '', onPickTheme = null, lockReason = '' }) {
-  const rootRef = useItemSpots('.drb-theme');
-  return (
-    <div className="drb-themes" ref={rootRef}>
-      {themes.map((theme) => (
-        <ThemeThumb
-          key={theme.id}
-          theme={theme}
-          active={theme.id === themeId}
-          lockReason={lockReason}
-          onPick={onPickTheme}
-        />
-      ))}
-    </div>
-  );
-}
-
 // The section under the panel's tabs. `actions`: [{ id, label, tooltip?, icon,
 // onClick, pressed? }] — `pressed` (a boolean) makes the tile a toggle.
 // `disabled`: a paragraph is open, and none of these is about the paragraph.
-export function DocQuickActions({ actions = [], disabled = false, catalogue = [], always = false }) {
-  // (Re-bound when the section appears: with no actions it renders nothing.)
-  const rootRef = useItemSpots('.drb-action', actions.length > 0);
+// Quick actions that belong to the VIEWER, not to a file (the files strip's
+// toggle): provided once at the viewer's root and added to whatever card a
+// pane draws, so they are on the card for every kind of file.
+export const QuickExtrasContext = createContext([]);
+
+export function DocQuickActions({ actions: own = [], disabled = false, catalogue = [], always = false }) {
+  const extras = useContext(QuickExtrasContext);
+  const actions = extras.length ? own.concat(extras.filter((x) => !own.some((a) => a.id === x.id))) : own;
+  // No pointer-following light here (2026-10-03): the card sits on a 32px
+  // backdrop blur, and redrawing a tile per mouse move (plus writing the
+  // light's position onto EVERY tile) re-blurred the document behind it on
+  // every frame — hovering the tiles lagged badly. The hover is a flat wash.
+  const rootRef = useRef(null);
   // A hairline between neighbouring tiles — but never after the LAST tile of a
   // row, where it would hang in the card's margin. Which tile ends a row depends
   // on how the grid wrapped, and CSS can't ask: a tile whose successor sits

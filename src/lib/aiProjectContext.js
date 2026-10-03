@@ -5,15 +5,11 @@
 //   • members + roles                     (Supabase)
 //   • the local-folder file inventory     (names, folders, sizes, dates)
 //   • cached per-file AI descriptions     (lib/aiFileIndex)
-//   • the team chat                       (chat_messages; DMs stay private)
 //   • the case timeline                   (lib/caseTimeline)
 //   • OCR text snippets                   (lib/extractionHistory)
 //   • audio/video captions (transcripts)  (lib/captionsHistory)
 //   • extracted file metadata             (lib/metadataHistory)
 //   • saved AI data — text read off pictures / scans (lib/aiData)
-//   • every DATA COLLECTION (.dvc) in full — summary, facts, the record,
-//     timeline, sources, connections, the web of names and linked collections
-//   • what the AI scan UNDERSTOOD of each file (the `understanding` facet)
 //
 // The advisor is meant to answer ANY question about the project's files from
 // this — "I don't have access to that file" must never be the answer to
@@ -24,7 +20,6 @@
 // that fail (offline, RLS, quota) are skipped silently — the digest is
 // best-effort by design.
 
-import { listChatMessages } from './chat';
 import { listMembers } from './projects';
 import { loadCaseTimeline } from './caseTimeline';
 import { listOcrHistories } from './extractionHistory';
@@ -38,14 +33,11 @@ import { readLocalBlob } from './localFolder';
 // Per-section character budgets (≈ tokens ÷ 4). Generous but bounded.
 const CAP = {
   files: 5000,
-  chat: 6000,
   timeline: 5000,
   snippets: 4000,
   captions: 6000,
   metadata: 3000,
   aiData: 12000,
-  collections: 40000,
-  understanding: 20000,
   total: 110000,
 };
 
@@ -97,17 +89,6 @@ function membersSection(members) {
   return members
     .map((m) => `- ${profileName(m.profile) || m.user_id} — ${m.role}`)
     .join('\n');
-}
-
-function chatSection(messages, nameById) {
-  const live = (messages || []).filter((m) => !m.deleted_at && (m.body || '').trim());
-  if (!live.length) return '';
-  const lines = live.map((m) => {
-    const who = nameById.get(m.author_id) || 'Member';
-    const pin = m.pinned_at ? ' [pinned]' : '';
-    return `[${dayTime(m.created_at)}] ${who}${pin}: ${clip(m.body, 280)}`;
-  });
-  return `Last ${live.length} team-chat message(s), oldest first (private DMs are not shared):\n${lines.join('\n')}`;
 }
 
 function timelineSection(timeline) {
@@ -183,121 +164,14 @@ function metadataSection(projectFiles) {
   return out.length ? `Extracted file metadata:\n${out.join('\n')}` : '';
 }
 
-// ── Data collections ─────────────────────────────────────────────────────
-// A collection file (.dvc, JSON — lib/dataCollections) rendered as READABLE
-// TEXT, whole: what the AI gathered about one subject and where each thing came
-// from. Read here straight off the file (no dependency on the scan module).
-const isCollectionName = (name) => /\.dvc$/i.test(String(name || ''));
-const RECORD_SKIP = new Set(['kind', 'id', 'people', 'contacts', 'photo', 'photos', 'avatar']);
-export function collectionToText(doc, name = '') {
-  if (!doc || typeof doc !== 'object') return '';
-  const out = [];
-  out.push(`## ${doc.title || name || 'Data collection'}${name ? ` (file: ${name})` : ''}`);
-  if (doc.subject) out.push(`Subject: ${doc.subject}`);
-  if (doc.summary) out.push(`Summary: ${doc.summary}`);
-  const rec = doc.record && typeof doc.record === 'object' ? doc.record : null;
-  if (rec) {
-    const bits = Object.entries(rec)
-      .filter(([k, v]) => !RECORD_SKIP.has(k) && v != null && typeof v !== 'object' && String(v).trim())
-      .map(([k, v]) => `${k}: ${String(v).trim()}`);
-    out.push(`Record (${rec.kind === 'org' ? 'company / persoană juridică' : 'person / persoană fizică'}): ${bits.join(' · ') || '(empty)'}`);
-    const people = Array.isArray(rec.people) ? rec.people.filter((pp) => pp?.name) : [];
-    if (people.length) out.push(`People in the company: ${people.map((pp) => `${pp.name}${pp.role ? ` (${pp.role})` : ''}${pp.sharePct ? ` ${pp.sharePct}%` : ''}`).join('; ')}`);
-    const contacts = Array.isArray(rec.contacts) ? rec.contacts.filter((c) => c?.value) : [];
-    if (contacts.length) out.push(`Contacts: ${contacts.map((c) => `${c.label || 'contact'}: ${c.value}`).join('; ')}`);
-  }
-  const facts = Array.isArray(doc.facts) ? doc.facts : [];
-  if (facts.length) {
-    out.push('Facts:');
-    for (const f of facts) if (f?.label) out.push(`- ${f.label}: ${f.value || ''}${Array.isArray(f.sources) && f.sources.length ? ` [from ${f.sources.slice(0, 3).join(', ')}]` : ''}`);
-  }
-  const tl = Array.isArray(doc.timeline) ? doc.timeline : [];
-  if (tl.length) {
-    out.push('Timeline:');
-    for (const t of tl) if (t?.event) out.push(`- ${t.date ? `[${t.date}] ` : ''}${t.event}`);
-  }
-  const src = Array.isArray(doc.sources) ? doc.sources : [];
-  if (src.length) {
-    out.push('Source files:');
-    for (const x of src) if (x?.name) out.push(`- ${x.rel || x.name}${x.role ? ` — ${x.role}` : ''}${x.understood ? ` — understood: ${clip(x.understood, 600)}` : ''}`);
-  }
-  const con = Array.isArray(doc.connections) ? doc.connections : [];
-  if (con.length) {
-    out.push('How the files connect:');
-    for (const k of con) if (k?.from && k?.to) out.push(`- ${k.from} <-> ${k.to}${k.why ? `: ${k.why}` : ''}`);
-  }
-  const ents = Array.isArray(doc.entities) ? doc.entities.map((e) => e?.name).filter(Boolean) : [];
-  if (ents.length) out.push(`Names held: ${ents.join(', ')}`);
-  const rel = Array.isArray(doc.related) ? doc.related : [];
-  if (rel.length) out.push(`Linked collections: ${rel.map((r) => `${r.title || r.file}${Array.isArray(r.names) && r.names.length ? ` (shared: ${r.names.slice(0, 4).join(', ')})` : ''}`).join('; ')}`);
-  // Face matches (biometric, V12) are never sent to the AI.
-  return out.join('\n');
-}
-
-export async function readCollectionText(path, name) {
-  try {
-    const blob = await readLocalBlob(path);
-    if (!blob) return '';
-    return collectionToText(JSON.parse(await blob.text()), name);
-  } catch { return ''; }
-}
-
-async function collectionsSection(projectFiles) {
-  const cols = projectFiles.filter((f) => f.path && isCollectionName(f.name)).slice(0, 40);
-  const out = [];
-  for (const f of cols) {
-    const text = await readCollectionText(f.path, f.name);
-    if (text) out.push(clip(text, 6000));
-  }
-  return out.length ? `The project's DATA COLLECTIONS — everything the AI scan gathered, one subject each:\n${out.join('\n\n')}` : '';
-}
-
-// What the AI scan understood of each file (summary, facts, names, dates).
-function understandingSection(projectFiles) {
-  const out = [];
-  for (const f of projectFiles) {
-    if (!f.path) continue;
-    const u = getAiFacet(f.path, 'understanding')?.data;
-    if (!u) continue;
-    const bits = [];
-    // How official the document is (lib/docAuthority) — what decides between
-    // files that disagree about a person or a company.
-    bits.push(`Official: ${documentAuthority({ name: f.name, u }).label}${u.documentType ? ` · ${u.documentType}` : ''}`);
-    if (u.summary) bits.push(clip(u.summary, 500));
-    const facts = Array.isArray(u.facts) ? u.facts : [];
-    if (facts.length) bits.push(`Facts: ${facts.slice(0, 12).map((x) => (typeof x === 'string' ? x : `${x?.label || ''}${x?.value ? `: ${x.value}` : ''}`)).filter(Boolean).join('; ')}`);
-    const ents = Array.isArray(u.entities) ? u.entities : [];
-    if (ents.length) bits.push(`Names: ${ents.slice(0, 12).map((x) => (typeof x === 'string' ? x : x?.name)).filter(Boolean).join(', ')}`);
-    const dates = Array.isArray(u.dates) ? u.dates : [];
-    if (dates.length) bits.push(`Dates: ${dates.slice(0, 8).map((x) => (typeof x === 'string' ? x : [x?.date, x?.event].filter(Boolean).join(' '))).filter(Boolean).join('; ')}`);
-    if (u.idDocument?.holder) bits.push(`Identity document of ${u.idDocument.holder}${u.idDocument.type ? ` (${u.idDocument.type})` : ''}`);
-    // The checked reading of an identity document (lib/roIdDocuments).
-    const r = u.roId;
-    if (r && (r.cnp || r.document_number || r.passport_number)) {
-      bits.push(`ID reading: ${[r.document_type, r.document_series && `seria ${r.document_series}`, r.document_number && `nr. ${r.document_number}`, r.passport_number && `pașaport ${r.passport_number}`, r.cnp && `CNP ${r.cnp}`, r.birth_date && `născut ${r.birth_date}`, r.expiry_date && `valabil până la ${r.expiry_date}${r.expired ? ' (EXPIRAT)' : ''}`].filter(Boolean).join(', ')}${Array.isArray(r.warnings) && r.warnings.length ? ` — warnings: ${r.warnings.slice(0, 4).join(' ')}` : ''}`);
-    }
-    // The law of the document's time (lib/legalHistory).
-    const h = u.legalHistory;
-    if (h?.detected_era) {
-      bits.push(`Legal era: ${h.era_label}${h.year ? ` (dated ${h.year})` : ''}${h.property_status_risks?.length ? ` — title risks: ${h.property_status_risks.map((x) => x.risk_type).join(', ')}` : ''}${h.decrees?.length ? ` — cites ${h.decrees.map((d) => d.key).join(', ')}` : ''}${h.surface_conversions?.length ? ` — surfaces: ${h.surface_conversions.slice(0, 4).map((x) => `${x.original_value} ≈ ${x.calculated_square_meters} m²`).join('; ')}` : ''}`);
-    }
-    if (bits.length) out.push(`## ${f.folderPath ? `${f.folderPath}/` : ''}${f.name}\n${bits.join('\n')}`);
-    if (out.length >= 80) break;
-  }
-  return out.length ? `What the AI scan understood of each file:\n${out.join('\n')}` : '';
-}
 
 // Build the digest. `project` is the selected project row; `files` is the
 // recursive local-folder listing ({ name, path, folderPath, sizeBytes,
 // mtimeIso }). Network sources load in parallel; every source is optional.
 export async function buildProjectDigest({ project, files = [] }) {
   if (!project?.id) return '';
-  const [membersRes, chatRes] = await Promise.all([
-    listMembers(project.id).catch(() => ({ data: [] })),
-    listChatMessages(project.id, { limit: 60 }).catch(() => ({ data: [] })),
-  ]);
+  const membersRes = await listMembers(project.id).catch(() => ({ data: [] }));
   const members = membersRes?.data || [];
-  const nameById = new Map(members.map((m) => [m.user_id, profileName(m.profile)]));
 
   const projectCard = [
     `Name: ${project.name || 'Untitled'}`,
@@ -310,14 +184,11 @@ export async function buildProjectDigest({ project, files = [] }) {
     section('Project', projectCard, 2500),
     section('Members', membersSection(members), 1500),
     section('Files', filesSection(files), CAP.files),
-    section('Team chat', chatSection(chatRes?.data, nameById), CAP.chat),
     section('Case timeline', timelineSection(loadCaseTimeline(project.id)), CAP.timeline),
     section('Extracted text snippets (OCR)', snippetsSection(files), CAP.snippets),
     section('Audio/video captions', captionsSection(files), CAP.captions),
     section('File metadata', metadataSection(files), CAP.metadata),
     section('Text read from pictures and scans', aiDataSection(files), CAP.aiData),
-    section('Data collections', await collectionsSection(files), CAP.collections),
-    section('File understandings (AI scan)', understandingSection(files), CAP.understanding),
   ].filter(Boolean);
 
   const body = sections.join('\n\n');
@@ -326,12 +197,12 @@ export async function buildProjectDigest({ project, files = [] }) {
 
 // ── Only what the question needs (V9, 2026-09-29) ─────────────────────────
 // The full digest (up to 110k characters — every collection, every file's
-// understanding, the team chat) used to ride on every question. GDPR Art.
+// reading, the team chat) used to ride on every question. GDPR Art.
 // 5(1)(c): send what the question needs. `focusDigest` keeps the project card
 // and a short file list, then the ITEMS (a `## ` block, or a chat line) that
 // share words, names or numbers with the question, best first, within
 // `budget`. A question naming nothing in particular ("rezumă dosarul") gets
-// the collections' and understandings' opening lines instead of everything.
+// the collections' opening lines instead of everything.
 const STOP = new Set('care este sunt pentru despre dintre acest aceasta aceste acesta unde cand cine cum ceva toate toti dosar dosarul fisier fisierul fisiere document documentul documente proiect proiectul what which where when with from that this have about into their there file files document documents project please spune zice poti vreau'.split(' '));
 const foldWord = (s) => String(s || '').normalize('NFD').replace(/\p{M}/gu, '').toLowerCase();
 function termsOf(text) {
@@ -370,7 +241,7 @@ export function focusDigest(digest, question, { budget = 28000 } = {}) {
   const matched = items.filter((x) => x.s > 0).sort((a, b) => b.s - a.s);
   const pool = matched.length ? matched
     // Nothing named: the openings of what the AI worked out, not the raw text.
-    : items.filter((x) => x.head === '# Data collections' || x.head === '# File understandings (AI scan)')
+    : items.filter((x) => x.head === '# Data collections')
       .map((x) => ({ ...x, p: x.p.slice(0, 600) }));
   for (const x of pool) {
     if (used + x.p.length + 2 > budget) continue;

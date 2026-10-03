@@ -688,24 +688,8 @@
 .pjd-page .project-dashboard-card,
 .pjd-page .dz-card { border-radius: 0; }
 
-/* ── Sync with account (Overview) ─────────────────────────────
-   The switch is the Settings page's own (.set-toggle), rebuilt here under this
-   page's prefix rather than reaching across into another page's stylesheet. */
+/* ── Sync with account (Overview) — the switch is components/Toggle. */
 .pjd-sync-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-top: 4px; }
-.pjd-toggle {
-  flex: none; width: 36.8px; height: 21.6px; border-radius: 999px;
-  border: 1px solid var(--border); background: var(--bg-elevated);
-  cursor: pointer; padding: 0; position: relative;
-  transition: background 160ms, border-color 160ms;
-}
-.pjd-toggle.is-on { background: var(--accent); border-color: var(--accent); }
-.pjd-toggle:disabled { cursor: default; opacity: 0.5; }
-.pjd-toggle-knob {
-  position: absolute; top: 1.6px; left: 1.6px; width: 16.8px; height: 16.8px;
-  border-radius: 50%; background: #fff; box-shadow: 0 1px 2.4px rgba(0, 0, 0, 0.25);
-  transition: transform 180ms cubic-bezier(0.4, 0, 0.2, 1);
-}
-.pjd-toggle.is-on .pjd-toggle-knob { transform: translateX(15.2px); }
 .pjd-sync-state { flex: 1 1 260px; min-width: 0; font-size: 12px; color: var(--text-secondary); }
 /* How far through a sync it is — the only place a long upload shows progress. */
 .pjd-sync-prog { display: flex; flex-direction: column; gap: 5px; margin-top: 10px; }
@@ -727,4 +711,157 @@
 .pjd-hero-title.is-pending {
   opacity: 0.55;
   transition: opacity 160ms ease;
+}
+
+/* =========================================================================
+   THE DESIGN SYSTEM'S RULES (Design system tab; src/styles/designSystem.css)
+   Laid over the dossier's own look, scoped to the page: no card fills or
+   shadows (--ds-card-fill / -shadow), solid hairlines (--ds-hairline), the
+   token radii, the label recipe for every small-caps heading, the gallery's
+   button, controls on the control tint, and hovers a NEUTRAL wash of the text
+   colour (--bg-elevated reads blue on Ink). Colour stays with tokens.css.
+   ========================================================================= */
+.pjd-page {
+  --pjd-wash: color-mix(in srgb, var(--text-primary) 6%, transparent);
+  --pjd-tint: color-mix(in srgb, var(--text-primary) var(--ds-control-tint, 4%), transparent);
+}
+
+/* Surfaces: on the page ground, framed by a hairline only. */
+.pjd-page .pjd-meta-strip,
+.pjd-page .pjd-ov2-bar {
+  background: var(--ds-card-fill, transparent);
+  box-shadow: var(--ds-card-shadow, none);
+  border-color: var(--ds-hairline, var(--border));
+  border-radius: var(--ds-card-radius, 14px);
+}
+.pjd-page .pjd-meta-cell,
+.pjd-page .pjd-ov2-stat { border-color: var(--ds-hairline, var(--border)); }
+.pjd-page .pjd-ov2-avts .member-avatar { border-color: var(--bg-page); }
+
+/* A panel is a SECTION: no frame of its own, its head over a hairline. */
+.pjd-page .pjd-panel,
+.pjd-page .project-dashboard-card,
+.pjd-page .project-dashboard-coming-soon,
+.pjd-page .project-dashboard-error {
+  background: var(--ds-card-fill, transparent);
+  box-shadow: var(--ds-card-shadow, none);
+  border: 0;
+  border-radius: 0;
+  padding: 0;
+}
+.pjd-page .pjd-grid,
+.pjd-page .pjd-rail,
+.pjd-page .pjd-stack,
+.pjd-page .pjd-ai-grid,
+.pjd-page .pjd-settings { gap: calc(var(--ds-section-gap, 20px) * 1.4); }
+.pjd-page .pjd-panel-head {
+  margin-bottom: 12px; padding-bottom: 8px;
+  border-bottom: 1px solid var(--ds-hairline, var(--border));
+}
+.pjd-page .pjd-panel-title,
+.pjd-page .pjd-meta-label,
+.pjd-page .pjd-ai-stat-label,
+.pjd-page .pjd-ai-meter-label,
+.pjd-page .pjd-field-label,
+.pjd-page .pjd-cap-matrix .pjd-cap-cap-th {
+  font-family: var(--font-body);
+  font-size: var(--ds-label-size, 9.6px);
+  letter-spacing: var(--ds-label-tracking, 0.07em);
+  font-weight: 700; text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+/* Hairlines are solid. */
+.pjd-page .pjd-activity-row,
+.pjd-page .pjd-role-card-actions { border-color: var(--ds-hairline, var(--border)); border-style: solid; }
+.pjd-page .pjd-tabstrip { border-bottom-color: var(--ds-hairline, var(--border)); }
+
+/* Rows: a neutral wash on hover. */
+.pjd-page .pjd-member-row { border-radius: var(--ds-row-radius, 8px); }
+.pjd-page .pjd-member-row:hover { background: var(--pjd-wash); }
+
+/* Buttons — the gallery's button. */
+.pjd-page .pjd-btn-primary,
+.pjd-page .pjd-btn-ghost,
+.pjd-page .pjd-danger-btn {
+  height: 30px; padding: 0 12px; gap: 6px;
+  border-radius: var(--ds-row-radius, 8px);
+  font-size: 12px; font-weight: 600;
+  transition: background 120ms ease, border-color 120ms ease;
+}
+.pjd-page .pjd-btn-ghost,
+.pjd-page .pjd-danger-btn {
+  background: var(--ds-card-fill, transparent);
+  border: 1px solid var(--ds-hairline, var(--border));
+  color: var(--text-primary);
+}
+.pjd-page .pjd-btn-ghost:hover,
+.pjd-page .pjd-danger-btn:hover { background: color-mix(in srgb, var(--text-primary) 7%, transparent); border-color: var(--border-strong); color: var(--text-primary); }
+.pjd-page .pjd-btn-xs { height: 24px; padding: 0 8px; font-size: 10.4px; }
+/* Danger says so at rest: the soft pill recipe in the danger tone. */
+.pjd-page .pjd-danger-btn.destructive,
+.pjd-page .pjd-ai-meter-reset {
+  background: color-mix(in srgb, var(--danger) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--danger) 55%, transparent);
+  color: var(--danger-text, var(--danger));
+}
+.pjd-page .pjd-danger-btn.destructive:hover,
+.pjd-page .pjd-ai-meter-reset:hover:not(:disabled) { background: color-mix(in srgb, var(--danger) 22%, transparent); border-color: var(--danger); color: var(--danger-text, var(--danger)); }
+.pjd-page .pjd-ai-meter-reset { border-radius: var(--ds-pill-radius, 999px); height: var(--ds-pill-h, 20px); padding: 0 var(--ds-pill-pad, 9px); font-weight: var(--ds-pill-weight, 650); }
+
+/* Fields — the control recipe: a faint tint, a hairline, the row radius. */
+.pjd-page .pjd-input,
+.pjd-page .pjd-juris-select,
+.pjd-page .pjd-ai-input {
+  background-color: var(--pjd-tint);
+  border: 1px solid var(--ds-hairline, var(--border));
+  border-radius: var(--ds-row-radius, 8px);
+}
+.pjd-page .pjd-input:hover,
+.pjd-page .pjd-ai-input:hover { background-color: color-mix(in srgb, var(--text-primary) var(--ds-control-tint-hover, 8%), transparent); }
+.pjd-page .pjd-input:focus,
+.pjd-page .pjd-ai-input:focus { background-color: var(--pjd-tint); border-color: var(--accent); box-shadow: none; }
+
+/* Tags — the soft pill recipe. */
+.pjd-page .pjd-ai-tag {
+  border-radius: var(--ds-pill-radius, 999px);
+  border: 1px solid color-mix(in srgb, var(--info, var(--accent)) var(--ds-pill-ring, 45%), transparent);
+  background: color-mix(in srgb, var(--info, var(--accent)) var(--ds-pill-tint, 14%), transparent);
+  color: var(--info, var(--accent));
+  font-size: var(--ds-tag-size, 10.4px); font-weight: var(--ds-pill-weight, 650);
+  letter-spacing: var(--ds-tag-tracking, 0.01em);
+}
+
+/* Progress tracks: the control tint, no frame. */
+.pjd-page .pjd-usage-bar,
+.pjd-page .pjd-ai-stat-bar,
+.pjd-page .pjd-ov2-bar-track,
+.pjd-page .pjd-sync-bar { background: var(--pjd-tint); border: 0; }
+
+/* Roles: cards on the page ground; a custom role a faint accent tint. */
+.pjd-page .pjd-role-card {
+  background: var(--ds-card-fill, transparent);
+  border-color: var(--ds-hairline, var(--border));
+  border-radius: var(--ds-row-radius, 8px);
+}
+.pjd-page .pjd-role-card.is-custom { background: color-mix(in srgb, var(--accent) 6%, transparent); }
+.pjd-page .pjd-cap-matrix thead th,
+.pjd-page .pjd-cap-group td { background: var(--bg-page); }
+.pjd-page .pjd-cap-matrix th,
+.pjd-page .pjd-cap-matrix td { border-bottom-color: var(--ds-hairline, var(--border)); }
+
+/* The sync confirmation — the CALLOUT: a hairline box, no fill. */
+.pjd-page .pjd-sync-confirm {
+  background: transparent;
+  border: 1px solid var(--ds-hairline, var(--border));
+  border-radius: var(--ds-row-radius, 8px);
+}
+
+/* Member rows from the members list (ProjectDashboard.css). */
+.pjd-page .member-row.is-expanded { background: var(--pjd-wash); }
+.pjd-page .project-edit-cancel:hover:not(:disabled) { background: color-mix(in srgb, var(--text-primary) 7%, transparent); }
+.pjd-page .pjd-tab-count {
+  background: color-mix(in srgb, var(--text-primary) var(--ds-pill-tint, 14%), transparent);
+  border-color: color-mix(in srgb, var(--text-primary) 25%, transparent);
+  border-radius: var(--ds-pill-radius, 999px);
 }

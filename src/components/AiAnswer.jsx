@@ -1,7 +1,8 @@
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { SAFE_MD } from '../lib/safeMarkdown';
+import { SAFE_MD, SafeLink } from '../lib/safeMarkdown';
+import { CiteLink, sourceIndex } from './WebSources';
 import { findFollowableRefs, caenContextOf, findLawRefs, dropOverlaps } from '../lib/lawRefs';
 import { useMorphPill } from './useMorphPill';
 import { refHitPill } from './RefHitPill';
@@ -147,7 +148,10 @@ function useReveal(text, { on, streaming, revealKey, onTick, onDone }) {
   return on ? Math.min(n, text.length) : text.length;
 }
 
-export default function AiAnswer({ text = '', typing = false, streaming = false, revealKey, onTyped, onTick, onRef, highlight = true, className = '' }) {
+// `sources` — the answer's web sources (project-ai web search): its [n](url)
+// links to one of them are drawn as citation chips that open at once; every
+// other link still asks first (lib/safeMarkdown).
+export default function AiAnswer({ text = '', typing = false, streaming = false, revealKey, onTyped, onTick, onRef, highlight = true, className = '', sources = null }) {
   const hitsRef = useRef([]);
   // Resuming: a stream under this key left the answer part-way typed.
   const kept = revealKey ? REVEAL.get(revealKey) : null;
@@ -161,11 +165,22 @@ export default function AiAnswer({ text = '', typing = false, streaming = false,
   // keystroke in the composer re-parsed every past answer. Reusing the same
   // element makes React skip ReactMarkdown, and the rehype pass's `hits` stay
   // the ones it filled.
+  // The answer's own citation links: [n] pointing at one of its sources.
+  const cites = useMemo(() => {
+    const byUrl = sourceIndex(sources);
+    if (!byUrl.size) return null;
+    const A = ({ href, children }) => {
+      const s = byUrl.get(String(href || ''));
+      const label = React.Children.toArray(children).join('');
+      return s && /^\d+$/.test(label) ? <CiteLink source={s}>{label}</CiteLink> : <SafeLink href={href}>{children}</SafeLink>;
+    };
+    return { ...SAFE_MD.components, a: A };
+  }, [sources]);
   const md = useMemo(() => {
     const hits = [];
     const rehype = highlight ? [[rehypeLegalRefs, { ctx: caenContextOf(shown), hits }]] : [];
-    return { hits, el: <ReactMarkdown {...SAFE_MD} remarkPlugins={REMARK} rehypePlugins={rehype}>{shown}</ReactMarkdown> };
-  }, [shown, highlight]);
+    return { hits, el: <ReactMarkdown {...SAFE_MD} components={cites || SAFE_MD.components} remarkPlugins={REMARK} rehypePlugins={rehype}>{shown}</ReactMarkdown> };
+  }, [shown, highlight, cites]);
   hitsRef.current = md.hits;
 
   const fire = (e) => {

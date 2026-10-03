@@ -3,10 +3,8 @@ import { createPortal } from 'react-dom';
 import FileThumbnail from './FileThumbnail';
 import { ExtGlyph, extCategory } from './fileGlyph';
 import Tooltip from './Tooltip';
-import { ScanButton } from './ScanGauges';
 import { useMorphPill } from './useMorphPill';
 import { usePaneChromeSlot, usePaneChromePortalEl } from '../context/PaneChromeContext';
-import { useAppPrefs } from '../context/AppPrefsContext';
 import { useAuth } from '../context/AuthContext';
 import { setDraggedFiles, clearDraggedFiles, getDraggedFiles } from '../lib/fileDragBus';
 import { toLayoutPx } from '../lib/appZoom';
@@ -18,11 +16,9 @@ import { registerHoverSpot } from '../lib/pointer';
 import MiniHeaderFade from './MiniHeaderFade';
 import { BarPicker } from './LegalBar';
 import { openedAt, markOpened, subscribeOpened } from '../lib/recentFiles';
+import { prepareDocViewerFile } from '../lib/platform';
 import './LegalBar.css';
 import './FilesWorkspace.css';
-
-// (The Graph view moved to the Neural network tab — pages/Projects/ProjectNetwork;
-// Insights moved into each data collection's page — components/DataCollectionView.)
 
 // Platform hint for the search shortcut chip (⌘F on macOS, Ctrl F elsewhere).
 const isMacPlatform = typeof navigator !== 'undefined' && /Mac|iP(hone|ad|od)/.test(navigator.platform || '');
@@ -167,21 +163,6 @@ function FolderGlyph({ filled = false, size = 42, color }) {
   );
 }
 
-// Generic document glyph — the new-file draft tile/row placeholder.
-function GenericFileGlyph({ size = 42 }) {
-  return (
-    <svg
-      className="fx-file-glyph"
-      width={size} height={size} viewBox="0 0 24 24"
-      fill="none" stroke="currentColor" strokeWidth={1.4}
-      strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"
-    >
-      <path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z" />
-      <polyline points="14 3 14 8 19 8" />
-    </svg>
-  );
-}
-
 // A FILLED trash can — shown for the Recycle bin entry when it holds at least
 // one file, so a glance reads "the bin has something in it". The empty bin uses
 // the outline trash icon instead.
@@ -206,45 +187,7 @@ function FullBinGlyph({ size = 42 }) {
 // folder glyph (optionally a custom colour).
 // Exported alongside ItemThumbnail: a surface borrowing the Files tiles needs
 // the folder glyph too, or its folders come out as generic documents.
-// A COLLECTION (lib/fileGroups): a custom folder pointing at files wherever
-// they are — drawn as a stack of cards in the accent (or its own colour).
-export function CollectionGlyph({ size = 42, color }) {
-  const tone = color || 'var(--accent)';
-  return (
-    <span className="fx-coll-glyph" style={{ '--fx-coll-tone': tone, width: size, height: size }} aria-hidden="true">
-      <svg viewBox="0 0 48 48" width={size} height={size} fill="none">
-        <rect x="13" y="6" width="26" height="20" rx="3.5" fill="currentColor" opacity="0.28" />
-        <rect x="9" y="11" width="30" height="23" rx="4" fill="currentColor" opacity="0.5" />
-        <rect x="5" y="17" width="38" height="26" rx="5" fill="currentColor" />
-        <path d="M17 30.5h14M17 35.5h9" stroke="var(--bg-page)" strokeWidth="2.4" strokeLinecap="round" opacity="0.9" />
-      </svg>
-    </span>
-  );
-}
-
-// A COLLECTION's tile: a FIXED square of 2×2 cells, each the thumbnail of
-// one of its first four files (or that file's type icon); cells without a
-// file stay as faint slots. The list view keeps the small glyph.
-function CollectionMosaic({ items }) {
-  const cells = [0, 1, 2, 3].map((i) => items[i] || null);
-  return (
-    <span className="fx-coll-mosaic" aria-hidden="true">
-      {cells.map((it, i) => (
-        // eslint-disable-next-line react/no-array-index-key
-        <span key={it ? it.id : `empty${i}`} className={`fx-coll-cell${it ? '' : ' is-empty'}`}>
-          {it ? <FileThumbnail descriptor={it.descriptor} glyph={<ItemGlyph item={it} />} /> : null}
-        </span>
-      ))}
-    </span>
-  );
-}
-
 export function FolderOrBinGlyph({ item, size = 42, color }) {
-  if (item.collectionEntry) {
-    return size >= 30 && item.previewItems?.length
-      ? <CollectionMosaic items={item.previewItems} />
-      : <CollectionGlyph size={size} color={color} />;
-  }
   if (item.binEntry) {
     const s = Math.round(size * 0.92);
     const full = item.binCount > 0;
@@ -336,8 +279,6 @@ const FX_LIST_THRESHOLD = 100;
 const FX_GROUPS = [
   { key: 'trash', label: 'Trash', icon: 'trash' },
   { key: 'folders', label: 'Folders & compressed folders', icon: 'folder' },
-  // What the AI scan made of the files — one per subject.
-  { key: 'collections', label: 'Data collections', icon: 'sparkles' },
   { key: 'media', label: 'Media', icon: 'image' },
   { key: 'office', label: 'Office documents', icon: 'file-doc' },
   { key: 'other', label: 'Other files', icon: 'inbox' },
@@ -405,7 +346,7 @@ export function ItemGlyph({ item }) {
 // the left edge of the file's preview (Office: fileGlyph's OFFICE_SPECS
 // colours; PDF: a muted brick red — Acrobat's own #E1251B shouted), so a rendered page still says what it is.
 const OFFICE_STRIPE = { doc: '#185ABD', xls: '#107C41', ppt: '#C43E1C', pdf: '#B5473F' };
-function officeStripe(item) {
+export function officeStripe(item) {
   if (!item || item.kind === 'folder' || item.binEntry) return undefined;
   const c = OFFICE_STRIPE[extCategory(item.ext)];
   return c ? { '--fx-office': c } : undefined;
@@ -497,18 +438,11 @@ function trashHoverContent(item) {
 // other file. The right-click MENU header keeps its WhatsApp treatment via
 // whatsappMenuHeader.)
 
-// "Remove from collection" (an open collection's file menu): the page sets
-// it each render — (item, isMultiSelected) → removes the item, or every
-// selected item when the menu was opened on a multi-selection.
-let collectionRemoveBulk = null;
-
 // Right-click menu for a file / folder item. Tab-aware: in the bin, items
 // offer Restore + Delete forever; in drafts, the usual Open / Rename /
 // Properties / Open-file-location / Delete. Falsy entries collapse via
 // useMorphPill's filter.
-function itemMenuItems(item, { tab, onOpen, onOpenContent, onRename, onProperties, onOpenLocation, onDelete, onRestore, onEmptyBin, canEdit, selectMode, isMultiSelected, bulkCount, onBulkDelete, onCopy, onCut, onToggleScanTag, onIncoming, incomingCount = 0 }) {
-  const bulkOf = collectionRemoveBulk;
-  const collectionRemove = (it) => bulkOf?.(it, isMultiSelected);
+function itemMenuItems(item, { tab, onOpen, onOpenContent, onRename, onProperties, onOpenLocation, onDelete, onRestore, onEmptyBin, canEdit, selectMode, isMultiSelected, bulkCount, onBulkDelete, onCopy, onCut, onIncoming, incomingCount = 0 }) {
   // A file a phone sent that is WAITING to be let in (ProjectFiles
   // incomingItems): its own decisions, and nothing that would treat it as a
   // project file before it is one.
@@ -530,28 +464,6 @@ function itemMenuItems(item, { tab, onOpen, onOpenContent, onRename, onPropertie
         },
       },
       { key: 'props', label: 'Properties', onClick: () => onProperties?.(item) },
-    ];
-  }
-  // A COLLECTION (lib/fileGroups): open, rename, delete — deleting it removes
-  // the grouping only, never a file.
-  if (item.collectionEntry) {
-    return [
-      { key: 'open', label: 'Open', onClick: () => onOpen?.(item) },
-      canEdit && { key: 'rename', label: 'Rename', onClick: () => onRename?.(item) },
-      canEdit && {
-        key: 'delete',
-        label: 'Delete collection',
-        danger: true,
-        onClick: () => onDelete?.(item),
-        confirm: {
-          count: 1,
-          subtitle: 'The files stay where they are',
-          title: 'Delete this collection?',
-          message: `“${item.name}” will be removed. Its ${item.binCount || 0} file${item.binCount === 1 ? '' : 's'} are not touched.`,
-          confirmLabel: 'Delete',
-          cancelLabel: 'Cancel',
-        },
-      },
     ];
   }
   // The Recycle bin entry opens the bin; when it holds files it can also be
@@ -608,17 +520,9 @@ function itemMenuItems(item, { tab, onOpen, onOpenContent, onRename, onPropertie
     key: 'delete',
     label: bulk ? `Delete ${bulkCount} items` : (isFolder ? 'Delete folder' : 'Delete'),
     danger: true,
+    // No confirmation: a delete only moves to the Trash (recoverable for 30
+    // days, and undoable). Only emptying the Trash asks first.
     onClick: () => (bulk ? onBulkDelete?.() : onDelete?.(item)),
-    confirm: {
-      count: bulk ? bulkCount : 1,
-      subtitle: isFolder ? 'Removed from your computer' : 'Recoverable for 30 days',
-      title: bulk ? `Delete ${bulkCount} items?` : (isFolder ? 'Delete this folder?' : 'Delete this file?'),
-      message: isFolder
-        ? `${subject} will be deleted from your computer.`
-        : `${subject} will be moved to the Trash. It stays recoverable for 30 days.`,
-      confirmLabel: bulk ? `Delete ${bulkCount}` : 'Delete',
-      cancelLabel: 'Cancel',
-    },
   };
 
   if (isFolder) {
@@ -635,23 +539,12 @@ function itemMenuItems(item, { tab, onOpen, onOpenContent, onRename, onPropertie
   const isArchive = extCategory(item.ext) === 'zip';
   return [
     { key: 'open',   label: 'Open',               onClick: () => onOpen?.(item) },
-    // In an open collection (lib/fileGroups): take it out — the file stays.
-    item.collectionId && canEdit && { key: 'uncollect', label: bulk ? `Remove ${bulkCount} from collection` : 'Remove from collection', onClick: () => collectionRemove?.(item) },
     // A compressed file can be unpacked and browsed in place (zip extracts to a
     // sibling folder; other formats open in the OS archiver).
     isArchive && { key: 'open-content', label: 'Extract contents', onClick: () => onOpenContent?.(item) },
     !bulk && canEdit && { key: 'rename', label: 'Rename',  onClick: () => onRename?.(item) },
     canEdit && onCopy && { key: 'copy', label: bulk ? `Copy ${bulkCount} items` : 'Copy', onClick: () => onCopy?.(item) },
     canEdit && onCut && { key: 'cut', label: bulk ? `Cut ${bulkCount} items` : 'Cut', onClick: () => onCut?.(item) },
-    // The AI scan reads only what is tagged (lib/scanTags); a folder is tagged
-    // with everything under it.
-    onToggleScanTag && !item.binEntry && {
-      key: 'scan-tag',
-      label: item.scanTagged
-        ? (bulk ? `Remove ${bulkCount} from AI scan` : 'Remove from AI scan')
-        : (bulk ? `Tag ${bulkCount} for AI scan` : isFolder ? 'Tag folder for AI scan' : 'Tag for AI scan'),
-      onClick: () => onToggleScanTag(item, !item.scanTagged),
-    },
     { key: 'props',  label: 'Properties',         onClick: () => onProperties?.(item) },
     localPath && { key: 'loc', label: 'Open file location', onClick: () => onOpenLocation?.(item) },
     deleteEntry,
@@ -764,7 +657,6 @@ export function FileTile({ item, className = '', onClick, onDoubleClick, childre
 }
 
 // ── Tile ──────────────────────────────────────────────────────────────
-// The AI mark on a file or folder tagged for the AI scan (lib/scanTags).
 // The EXTRACTED-TEXT mark: the file's text has been read out of it (a
 // picture's or a scan's text, a recording's captions) and is kept.
 function TextMark() {
@@ -777,10 +669,14 @@ function TextMark() {
   );
 }
 
-function ScanMark() {
+// The AI-AT-WORK mark: a spinning ring in the thumbnail's bottom-RIGHT corner
+// while the AI is writing this file (main.js docViewerState `busy`) — also
+// when the viewer was closed meanwhile, since the work goes on in the
+// background and this is the only place that shows it.
+function AiBusyMark() {
   return (
-    <span className="fx-scan-mark" aria-label="Tagged for AI scan">
-      <Icon name="sparkles" size={10} filled />
+    <span className="fx-ai-busy" role="status" aria-label="The AI is writing this file">
+      <span className="fx-ai-busy-spin" aria-hidden="true" />
     </span>
   );
 }
@@ -794,7 +690,7 @@ function ScanMark() {
 const THUMB_AR_MIN = 0.58;
 const THUMB_AR_MAX = 4 / 3;
 const thumbAspects = new Map();   // item id → clamped height / width
-function usePhotoAspect(item) {
+export function usePhotoAspect(item) {
   const isPhoto = item.kind === 'file' && extCategory(item.ext) === 'img';
   const key = item.id;
   const ref = useRef(null);
@@ -820,7 +716,7 @@ function usePhotoAspect(item) {
   return { ref, style: ar ? { '--fx-thumb-ar': ar } : null };
 }
 
-const Tile = React.memo(function Tile({ item, tab, selected, onSelect, onOpen, onOpenContent, onRename, onProperties, onOpenLocation, onDelete, onRestore, onEmptyBin, canEdit, selectMode, isMultiSelected, bulkCount, onBulkDelete, onCopy, onCut, onToggleScanTag, onIncoming, incomingCount, renaming, onCommitName, onCancelName, draggable, beginItemDrag, endItemDrag, onFolderDragOver, onFolderDragLeave, onFolderDrop, dropFolderId, cutPaths, folderColors, onSetColor }) {
+const Tile = React.memo(function Tile({ item, tab, selected, onSelect, onOpen, onOpenContent, onRename, onProperties, onOpenLocation, onDelete, onRestore, onEmptyBin, canEdit, selectMode, isMultiSelected, bulkCount, onBulkDelete, onCopy, onCut, onIncoming, incomingCount, renaming, onCommitName, onCancelName, draggable, beginItemDrag, endItemDrag, onFolderDragOver, onFolderDragLeave, onFolderDrop, dropFolderId, cutPaths, folderColors, onSetColor }) {
   const isFolder = item.kind === 'folder';
   const status = item.status || 'synced';
   const isDropTarget = isFolder && dropFolderId === item.id;
@@ -831,9 +727,8 @@ const Tile = React.memo(function Tile({ item, tab, selected, onSelect, onOpen, o
   const morph = useMorphPill({
     // WhatsApp files use the SAME plain name pill as every other file (the
     // old rich "recognised as WhatsApp convo" hover pill was removed).
-    hoverContent: item.incoming ? `${item.name} — from your phone. Click to add it` : tab === 'trash' && !item.binEntry ? trashHoverContent(item) : item.tie?.why ? `${item.name}
-${item.tie.why}` : item.name,
-    menuItems: itemMenuItems(item, { tab, onOpen, onOpenContent, onRename, onProperties, onOpenLocation, onDelete, onRestore, onEmptyBin, canEdit, selectMode, isMultiSelected, bulkCount, onBulkDelete, onCopy: isFolder ? null : onCopy, onCut: isFolder ? null : onCut, onToggleScanTag, onIncoming, incomingCount }),
+    hoverContent: item.incoming ? `${item.name} — from your phone. Click to add it` : tab === 'trash' && !item.binEntry ? trashHoverContent(item) : item.name,
+    menuItems: itemMenuItems(item, { tab, onOpen, onOpenContent, onRename, onProperties, onOpenLocation, onDelete, onRestore, onEmptyBin, canEdit, selectMode, isMultiSelected, bulkCount, onBulkDelete, onCopy: isFolder ? null : onCopy, onCut: isFolder ? null : onCut, onIncoming, incomingCount }),
     // WhatsApp exports get a "recognised as WhatsApp convo" header; folders get
     // a colour-swatch row atop their menu (both shown if it's a WhatsApp folder).
     menuHeader: whatsappMenuHeader(item, isFolder, canEdit, folderColor, onSetColor),
@@ -874,7 +769,7 @@ ${item.tie.why}` : item.name,
         <span ref={aspect.ref} className="fx-tile-thumb" data-office={officeStripe(item) ? "" : undefined} style={aspect.style ? { ...(officeStripe(item) || {}), ...aspect.style } : officeStripe(item)}>
           {isFolder ? <FolderOrBinGlyph item={item} color={folderColor} /> : <ItemThumbnail item={item} />}
           {item.hasText && <TextMark />}
-          {item.scanTagged && <ScanMark />}
+          {item.aiBusy && <AiBusyMark />}
           {item.incoming && <IncomingMark />}
         </span>
         <span>
@@ -909,7 +804,7 @@ function NewFolderTile({ onCommit, onCancel }) {
 function NewFileTile({ onCommit, onCancel }) {
   return (
     <div className="fx-tile is-renaming">
-      <span className="fx-tile-thumb"><GenericFileGlyph /></span>
+      <span className="fx-tile-thumb"><ExtGlyph ext="" /></span>
       <span>
         <InlineNameInput className="fx-tile-name" initial="Untitled" selectBaseName placeholder="new file" onCommit={onCommit} onCancel={onCancel} />
       </span>
@@ -918,7 +813,7 @@ function NewFileTile({ onCommit, onCancel }) {
 }
 
 // ── List row ──────────────────────────────────────────────────────────
-const Row = React.memo(function Row({ item, tab, selected, onSelect, onOpen, onOpenContent, onRename, onProperties, onOpenLocation, onDelete, onRestore, onEmptyBin, canEdit, selectMode, isMultiSelected, bulkCount, onBulkDelete, onCopy, onCut, onToggleScanTag, onIncoming, incomingCount, renaming, onCommitName, onCancelName, draggable, beginItemDrag, endItemDrag, onFolderDragOver, onFolderDragLeave, onFolderDrop, dropFolderId, cutPaths, folderColors, onSetColor }) {
+const Row = React.memo(function Row({ item, tab, selected, onSelect, onOpen, onOpenContent, onRename, onProperties, onOpenLocation, onDelete, onRestore, onEmptyBin, canEdit, selectMode, isMultiSelected, bulkCount, onBulkDelete, onCopy, onCut, onIncoming, incomingCount, renaming, onCommitName, onCancelName, draggable, beginItemDrag, endItemDrag, onFolderDragOver, onFolderDragLeave, onFolderDrop, dropFolderId, cutPaths, folderColors, onSetColor }) {
   const isFolder = item.kind === 'folder';
   const status = item.status || 'synced';
   const isBin = tab === 'trash';
@@ -929,7 +824,7 @@ const Row = React.memo(function Row({ item, tab, selected, onSelect, onOpen, onO
   const morph = useMorphPill({
     // WhatsApp files use the SAME plain name pill as every other file.
     hoverContent: item.incoming ? `${item.name} — from your phone. Click to add it` : isBin && !item.binEntry ? trashHoverContent(item) : item.name,
-    menuItems: itemMenuItems(item, { tab, onOpen, onOpenContent, onRename, onProperties, onOpenLocation, onDelete, onRestore, onEmptyBin, canEdit, selectMode, isMultiSelected, bulkCount, onBulkDelete, onCopy: isFolder ? null : onCopy, onCut: isFolder ? null : onCut, onToggleScanTag, onIncoming, incomingCount }),
+    menuItems: itemMenuItems(item, { tab, onOpen, onOpenContent, onRename, onProperties, onOpenLocation, onDelete, onRestore, onEmptyBin, canEdit, selectMode, isMultiSelected, bulkCount, onBulkDelete, onCopy: isFolder ? null : onCopy, onCut: isFolder ? null : onCut, onIncoming, incomingCount }),
     menuHeader: whatsappMenuHeader(item, isFolder, canEdit, folderColor, onSetColor),
   });
   if (renaming) {
@@ -969,8 +864,8 @@ const Row = React.memo(function Row({ item, tab, selected, onSelect, onOpen, onO
           <span className="fx-list-thumb" data-office={officeStripe(item) ? "" : undefined} style={officeStripe(item)}>
             {isFolder ? <FolderOrBinGlyph item={item} size={20} color={folderColor} /> : <ItemThumbnail item={item} />}
             {item.hasText && <TextMark />}
-            {item.scanTagged && <ScanMark />}
-            {item.incoming && <IncomingMark />}
+            {item.aiBusy && <AiBusyMark />}
+              {item.incoming && <IncomingMark />}
           </span>
           <span className="fx-name">
             <DisplayName item={item} />
@@ -1008,7 +903,7 @@ function NewFileRow({ onCommit, onCancel }) {
   return (
     <div className="fx-list-row is-renaming">
       <span className="fx-list-name">
-        <span className="fx-list-thumb"><GenericFileGlyph size={20} /></span>
+        <span className="fx-list-thumb"><ExtGlyph ext="" /></span>
         <InlineNameInput className="fx-name" initial="Untitled" selectBaseName placeholder="new file" onCommit={onCommit} onCancel={onCancel} />
       </span>
       <span /><span /><span />
@@ -1351,15 +1246,6 @@ export default function FilesWorkspace({
   // (items) => void. One batch, one notification; falls back to onDelete /
   // onRestore per item when not given.
   onDeleteMany, onRestoreMany, onNewFile, onCreateTypedFile, onAddHighlightsSample, onUpload, onUploadFolder, onOpenLocation,
-  // The AI scan (lib/dataCollections): read + understand every file, connect
-  // them into Data collections. `scanState` = { stage, index, total } while it
-  // runs; pressing the button again stops it.
-  onScanFiles, scanState,
-  // Tag / untag items for the scan: (items, on) => void; how many are tagged.
-  onToggleScanTag, onEraseScanMemory, scanTaggedCount = 0, scanDir = null,
-  // The Graph view: the project folder + id (lib/dataCollections loadScanGraph)
-  // and how to open a file of it by its path.
-  graphSource = null, onOpenPath,
   // A waiting phone file (item.incoming): (item, 'accept' | 'reject').
   onIncoming,
   onEmptyBin,
@@ -1374,13 +1260,6 @@ export default function FilesWorkspace({
   onMoveToCrumb,     // (crumb, items) => void — drag files onto a breadcrumb folder to move
   // undo / redo (footer)
   onUndo, onRedo, canUndo, canRedo, undoLabel, redoLabel,
-  // COLLECTIONS (lib/fileGroups): the footer's Collect button — (selected
-  // items) => void; `collectBusy` while the neural network is grouping; an open
-  // collection's page (`collectionPane`) takes the grid's place.
-  onCollect, collectBusy = false,
-  // An OPEN collection, drawn by this grid: { id, name, sub, sections: [{ key,
-  // label, icon, boxed, groups: [[item id]] }] } — the items are `items`.
-  collectionLayout = null, onRemoveFromCollection,
 }) {
   useMiniGlowSpot(); // the .mini-glow bar's spotlight (lib/pointerSpots)
   const isBin = tab === 'trash';
@@ -1388,7 +1267,6 @@ export default function FilesWorkspace({
   // and the grid collapses into the list view; zoom back in and the tiles
   // return. The INITIAL view honors Settings → "Default file view": 'list'
   // seeds the zoomed-out (list) size, 'grid' the default tile size.
-  const { prefs: appPrefs } = useAppPrefs();
   // Per-user persistence of the view controls (icon-size slider + categorize
   // toggle) so they survive leaving and re-entering the Files tab. Falls back to
   // the Settings "Default file view" for the size, ungrouped for categorize.
@@ -1402,7 +1280,7 @@ export default function FilesWorkspace({
   const [tileSize, setTileSize] = useState(() => (
     typeof savedViewPrefs.tileSize === 'number'
       ? Math.max(FX_MIN_TILE, Math.min(FX_MAX_TILE, savedViewPrefs.tileSize))
-      : (appPrefs.fileView === 'list' ? FX_MIN_TILE : FX_LIST_THRESHOLD)
+      : FX_LIST_THRESHOLD
   ));
   const view = tileSize < FX_LIST_THRESHOLD ? 'list' : 'tiles';
   // List-view row density follows the slider. The standard range grows gently;
@@ -1728,7 +1606,6 @@ export default function FilesWorkspace({
     if (f.binEntry) return 'trash';
     if (f.kind === 'folder') return 'folders';
     const c = extCategory(f.ext);
-    if (c === 'collection') return 'collections';
     if (c === 'zip') return 'folders';
     if (c === 'img' || c === 'vid' || c === 'aud' || c === 'psd' || c === 'ai') return 'media';
     if (c === 'doc' || c === 'xls' || c === 'ppt' || c === 'pdf') return 'office';
@@ -1980,12 +1857,42 @@ export default function FilesWorkspace({
     () => [...multiSel].map((id) => itemById.get(id)).filter(Boolean),
     [multiSel, itemById],
   );
-  collectionRemoveBulk = onRemoveFromCollection
-    ? (item, multi) => onRemoveFromCollection(multi && multiSelItems.length ? multiSelItems : [item])
-    : null;
 
   // A single selection drives the Open / Rename / Properties affordances.
   const selectedItem = multiSel.size === 1 ? (itemById.get([...multiSel][0]) || null) : null;
+
+  // PRELOADING: a file that is pointed at (held for a moment) or selected is
+  // handed to the Doc Viewer to get ready (lib/platform prepareDocViewerFile →
+  // main → the viewer's prepareViewerFile), so the double-click that follows
+  // opens a prepared file. Plain files of the project only — not folders, the
+  // Trash, or files still waiting to be accepted from a phone.
+  const prepareItem = useCallback((item) => {
+    if (!item || item.kind === 'folder' || item.binEntry || item.incoming || item.isWhatsApp) return;
+    if (tab === 'trash') return;
+    const raw = item._raw;
+    if (!raw?.path) return;
+    prepareDocViewerFile({ path: raw.path, name: raw.name || item.name, mime: raw.mimeType || '' });
+  }, [tab]);
+  useEffect(() => { if (selectedItem) prepareItem(selectedItem); }, [selectedItem, prepareItem]);
+  const prepRef = useRef({ itemById, prepareItem, timer: 0, id: null });
+  prepRef.current.itemById = itemById;
+  prepRef.current.prepareItem = prepareItem;
+  useEffect(() => {
+    const st = prepRef.current;
+    // Delegated, so the memoised tiles and rows need nothing new. A pointer
+    // passing over the grid prepares nothing: only one that rests 250ms.
+    const onOver = (e) => {
+      const el = e.target?.closest?.('[data-fx-id]');
+      const id = el && canvasRef.current?.contains(el) ? el.getAttribute('data-fx-id') : null;
+      if (id === st.id) return;
+      st.id = id;
+      clearTimeout(st.timer);
+      if (!id) return;
+      st.timer = setTimeout(() => st.prepareItem(st.itemById.get(id)), 250);
+    };
+    document.addEventListener('mouseover', onOver);
+    return () => { document.removeEventListener('mouseover', onOver); clearTimeout(st.timer); };
+  }, []);
 
   // Visible order — the axis for Shift-range selection. In the categorize view
   // it follows the section layout so a range drag tracks what the eye sees;
@@ -2128,10 +2035,6 @@ export default function FilesWorkspace({
   };
   const onCanvasMouseDown = (e) => {
     if (e.button !== 0 || bgMorph.isMenuOpen) return;
-    // Only in the FILE EXPLORER view: the Graph and Insights views have no
-    // files to select (their presses are their own — dragging the graph,
-    // selecting text in a finding).
-    if (graphOn) return;
     const t = e.target;
     if (!t || typeof t.closest !== 'function') return;
     if (t.closest('.fx-tile, .fx-list-row, .fx-list-head, button, a, input, textarea, select, label, [role="menuitem"], [role="menu"], [role="dialog"], [contenteditable="true"], .fx-drop-overlay, .sidebar, .tb-bar, .tooltip, .lg-menu, .sd-drawer')) return;
@@ -2620,13 +2523,6 @@ export default function FilesWorkspace({
     onBulkDelete: bulkDelete,
     onCopy: copyItem,
     onCut: cutItem,
-    // Acts on the right-clicked file — or the whole selection when that file is
-    // part of it, the same rule Copy and Cut follow.
-    // Folders included (a folder is tagged with everything under it).
-    onToggleScanTag: (item, on) => {
-      const picked = multiSel.has(item.id) && multiSelItems.length > 1 ? multiSelItems : [item];
-      onToggleScanTag?.(picked.filter((i) => !i.binEntry), on);
-    },
     beginItemDrag,
     endItemDrag,
     onFolderDragOver,
@@ -2651,7 +2547,6 @@ export default function FilesWorkspace({
       onBulkDelete: via('onBulkDelete'),
       onCopy: via('onCopy'),
       onCut: via('onCut'),
-      onToggleScanTag: via('onToggleScanTag'),
       beginItemDrag: via('beginItemDrag'),
       endItemDrag: via('endItemDrag'),
       onFolderDragOver: via('onFolderDragOver'),
@@ -2686,7 +2581,6 @@ export default function FilesWorkspace({
     onBulkDelete: itemFns.onBulkDelete,
     onCopy: onPasteItems ? itemFns.onCopy : null,
     onCut: onMoveItems ? itemFns.onCut : null,
-    onToggleScanTag: onToggleScanTag ? itemFns.onToggleScanTag : null,
     // Drag-to-move: file items are draggable; non-bin folders accept drops.
     draggable: menuEditable,
     beginItemDrag: itemFns.beginItemDrag,
@@ -2772,15 +2666,14 @@ export default function FilesWorkspace({
   // as the search), aligned with the full-bleed rows below — so it renders only
   // when the list is actually populated.
   // Graph and Insights take the canvas's place (both read the AI scan).
-  const graphOn = false; // the Graph lives in the Neural network tab now
-  const showListHead = !graphOn && view === 'list' && hasLocalFolder && !loading && (totalShown > 0 || creatingFolder || creatingFile);
+  const showListHead = view === 'list' && hasLocalFolder && !loading && (totalShown > 0 || creatingFolder || creatingFile);
 
   // Folder toolbar — nav + breadcrumb + search (+ the list column header in
   // list view). Rendered INTO the window chrome's row-2 slot when available
   // (one merged bar); falls back to an in-page pathbar row if there's no chrome.
   const toolbar = (
     <>
-      <div className={`fx-chrome-tools${graphOn ? ' is-graph' : ''}`}>
+      <div className={"fx-chrome-tools"}>
         <div className="fx-pathbar-nav">
           {onRefresh && (
             <Tooltip content="Refresh"><button onClick={() => onRefresh()}><Icon name="refresh" size={14} /></button></Tooltip>
@@ -2903,14 +2796,6 @@ export default function FilesWorkspace({
             </span>
           )}
         </div>
-        {onScanFiles && (
-          // The AI scan: hover = what it does (while scanning, the gauge
-          // cluster); click = the scan CARD (components/ScanGauges ScanButton) —
-          // a switch per feature, Scan / Stop, Erase memory.
-          <ScanButton scan={scanState} taggedCount={scanTaggedCount} onScan={onScanFiles} onErase={onEraseScanMemory} dir={scanDir}>
-            <Icon name="sparkles" size={14} filled={!!scanState && !scanState.finished} />
-          </ScanButton>
-        )}
       </div>
       {showListHead && (
         <div className="fx-list-head fx-list-head--chrome">
@@ -2978,46 +2863,7 @@ export default function FilesWorkspace({
               </div>
             </div>
           )}
-          {collectionLayout ? (
-            // AN OPEN COLLECTION (lib/fileGroups): the grid's own cells, in
-            // the category view's sections — each group of duplicates /
-            // linked files on its own ground (.fgv-cluster).
-            <div className="fgv">
-              {!collectionLayout.sections.length ? (
-                <p className="fgv-note">This collection is empty — none of its files are in the project any more.</p>
-              ) : null}
-              <div className="fx-cat-groups fgv-sections">
-                {collectionLayout.sections.map((sec) => {
-                  const cellsOf = (ids) => ids.map((id) => itemById.get(id)).filter(Boolean);
-                  const count = sec.groups.reduce((n, g) => n + g.length, 0);
-                  return (
-                    <section className="fx-cat-section" key={sec.key}>
-                      <div className="fx-cat-head">
-                        <Icon name={sec.icon} className="fx-cat-head-ico" size={13} />
-                        <span className="fx-cat-head-label">{sec.label}</span>
-                        <span className="fx-cat-head-count">{count}</span>
-                        {/* What ties the files in, IN LINE with the section's
-                            divider (not on every tile). */}
-                        {sec.tie ? <span className="fgv-tie" style={{ '--fgv-tone': sec.tie.tone }}>{sec.tie.label}</span> : null}
-                      </div>
-                      {sec.boxed ? (
-                        <div className="fgv-groups">
-                          {sec.groups.map((g, i) => (
-                            // eslint-disable-next-line react/no-array-index-key
-                            <div key={`${sec.key}:${i}`} className="fgv-cluster">
-                              <VirtualCells key={`coll:${sec.key}:${i}:${view}`} blockKey={`coll:${sec.key}:${i}`} cells={cellsOf(g)} {...vProps} />
-                            </div>
-                          ))}
-                        </div>
-                      ) : (
-                        <VirtualCells key={`coll:${sec.key}:${view}`} blockKey={`coll:${sec.key}`} cells={cellsOf(sec.groups[0] || [])} {...vProps} />
-                      )}
-                    </section>
-                  );
-                })}
-              </div>
-            </div>
-          ) : !hasLocalFolder ? (
+          {!hasLocalFolder ? (
             onPickFolder ? (
               // The project's folder is found by its project file; this asks
               // for it only when it isn't where this machine last had it.
@@ -3237,21 +3083,6 @@ export default function FilesWorkspace({
             )}
             {!isBin ? (
               <>
-                {onCollect && (
-                  <Tooltip content={multiSelItems.length
-                    ? `Make a collection of the ${multiSelItems.length} selected item${multiSelItems.length === 1 ? '' : 's'}`
-                    : 'Group the project’s files into collections — linked files and duplicates, found by the neural network'}
-                  >
-                    <button
-                      className={`fx-tb-btn${collectBusy ? ' is-busy' : ''}`}
-                      disabled={!canEdit || collectBusy}
-                      onClick={() => onCollect(multiSelItems)}
-                    >
-                      <CollectionGlyph size={15} />
-                      <span>{collectBusy ? 'Collecting…' : multiSelItems.length ? 'Collect selected' : 'Collect'}</span>
-                    </button>
-                  </Tooltip>
-                )}
                 {/* Single "Create" button — New folder, Identity, Document. */}
                 <div className="fx-menu-wrap" ref={createMenuRef}>
                   <Tooltip content="Create a folder or a new document">

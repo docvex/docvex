@@ -38,6 +38,44 @@ function windowAuthLock(name, _acquireTimeout, fn) {
   return run;
 }
 
+// WHERE THE SESSION IS KEPT (security audit 2026-10-01): not localStorage (a
+// plain LevelDB on disk) but main's safeStorage-sealed file (main.js
+// auth-store:*). A session still in localStorage from an older build is moved
+// over on its first read and removed from there. Where main says the OS key
+// store is weak (`fallback`) — or there is no bridge — localStorage as before.
+const bridge = typeof window !== 'undefined' ? window.electronAPI : null;
+const local = {
+  get: (k) => { try { return localStorage.getItem(k); } catch { return null; } },
+  set: (k, v) => { try { localStorage.setItem(k, v); } catch { /* full */ } },
+  remove: (k) => { try { localStorage.removeItem(k); } catch { /* ignore */ } },
+};
+const sessionStorageAdapter = bridge?.authStoreGet ? {
+  async getItem(key) {
+    let res;
+    try { res = await bridge.authStoreGet(key); } catch { res = { fallback: true }; }
+    if (res?.fallback) return local.get(key);
+    if (res?.value != null) return res.value;
+    const old = local.get(key);
+    if (old != null) {
+      try {
+        const put = await bridge.authStoreSet(key, old);
+        if (put?.ok) local.remove(key);
+      } catch { /* keep it where it was */ }
+    }
+    return old;
+  },
+  async setItem(key, value) {
+    let res;
+    try { res = await bridge.authStoreSet(key, value); } catch { res = { fallback: true }; }
+    if (res?.fallback || !res?.ok) { local.set(key, value); return; }
+    local.remove(key);
+  },
+  async removeItem(key) {
+    try { await bridge.authStoreRemove(key); } catch { /* also cleared below */ }
+    local.remove(key);
+  },
+} : undefined;
+
 export const supabase = createClient(
   import.meta.env.VITE_SUPABASE_URL,
   import.meta.env.VITE_SUPABASE_ANON_KEY,
@@ -53,6 +91,7 @@ export const supabase = createClient(
       detectSessionInUrl: false,
       // See windowAuthLock above — must not be the cross-window Web Lock.
       lock: windowAuthLock,
+      ...(sessionStorageAdapter ? { storage: sessionStorageAdapter } : {}),
     },
   }
 );

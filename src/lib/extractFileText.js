@@ -25,7 +25,7 @@ function isTexty(name, mime) {
 async function extractPdfText(blob) {
   const pdfjs = await loadPdfModule();
   const data = new Uint8Array(await blob.arrayBuffer());
-  const doc = await pdfjs.getDocument({ data }).promise;
+  const doc = await pdfjs.getDocument({ data, isEvalSupported: false }).promise;
   try {
     const maxPages = Math.min(doc.numPages, 60);
     let out = '';

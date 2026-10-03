@@ -6,14 +6,16 @@ const UpdatesContext = createContext(null);
 
 // The public releases repo (release-repo.json), not the source repo.
 const REPO = `${releaseRepo.owner}/${releaseRepo.name}`;
-const RELEASES_URL = `https://api.github.com/repos/${REPO}/releases`;
+// per_page=100: the default page is 30, and the releases copied over from the
+// source repo (scripts/migrate-releases.mjs) took the count past it.
+const RELEASES_URL = `https://api.github.com/repos/${REPO}/releases?per_page=100`;
 
 // sessionStorage cache for the GitHub /releases response. Keyed by version so a
 // schema change to the cached shape is a free invalidation (bump :v1 → :v2).
 // sessionStorage (not localStorage) intentionally: cache survives in-window
 // navigation but evicts on app quit, which lines up with the auto-updater
 // possibly having installed a newer build by the next launch.
-const CACHE_KEY = 'docvex:releases-cache:v1';
+const CACHE_KEY = 'docvex:releases-cache:v2';
 const CACHE_TTL_MS = 60 * 60 * 1000; // 1 hour
 
 function readReleasesCache() {
@@ -279,7 +281,7 @@ export function UpdatesProvider({ children }) {
       setInstallerState(payload);
     });
 
-    // Aux windows (Doc Viewer, snip) surface no release notes or update
+    // Aux windows (Doc Viewer, tray drop) surface no release notes or update
     // banner — skip the GitHub API call so N open viewers don't burn N
     // requests of the unauthenticated 60/hour rate limit at every boot.
     // The main window owns update checking.

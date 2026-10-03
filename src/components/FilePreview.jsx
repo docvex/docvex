@@ -6,6 +6,7 @@ import { getCachedPdf } from '../lib/pdfCache';
 import { loadPdfModule } from '../lib/pdfWorker';
 import Tooltip from './Tooltip';
 import { alignWithSidePanel, docInset } from '../lib/sidePanelEdges';
+import { beginPanShield } from '../lib/panShield';
 import { toLayoutPx, createWheelZoom, ZOOM_SETTLE_MS } from '../lib/appZoom';
 
 // Preview renderer for the FileDetailModal's preview pane.
@@ -125,6 +126,12 @@ const PDF_PAGE_GUTTER = 16;
 // A fitted page doesn't touch the pane: this much air above and under it (the
 // page column is padded by the same, so the first page can sit that far down).
 const PDF_FIT_GAP = 12;
+// The height a page can use: the scroller's, less its own padding (the viewer
+// reserves room at the foot for its files strip — DocViewer.css).
+const innerHeight = (el) => {
+  const cs = getComputedStyle(el);
+  return el.clientHeight - (parseFloat(cs.paddingTop) || 0) - (parseFloat(cs.paddingBottom) || 0);
+};
 // Text layers are light (spans, no pixels). For a document of ordinary length
 // they are all laid at once, so the Doc Viewer's find bar reaches every page,
 // not only the ones scrolled past; a very long one gets them page by page.
@@ -380,7 +387,8 @@ function PdfPreview({ signedUrl, file, onOpen, pdfView = null, onPdfZoom = null,
   // does it. Until that first zoom has been worked out nothing is laid out, so
   // the file never shows at one size and then jumps to another.
   const [fitReady, setFitReady] = useState(false);
-  const zoom = Math.max(0.1, Math.min(5, Number(pdfView?.zoom) || 1));
+  // The viewer clamps the user's zoom (15% of the fit); this only guards the maths.
+  const zoom = Math.max(0.02, Math.min(5, Number(pdfView?.zoom) || 1));
   const showRail = !!pdfView?.rail;
   // "Page 3 of 12" — the Counters quick action, the same switch a Word file
   // has. Absent (an older caller, or a preview outside the viewer) it shows, as
@@ -586,7 +594,7 @@ function PdfPreview({ signedUrl, file, onOpen, pdfView = null, onPdfZoom = null,
   useEffect(() => {
     if (fitReady || !pdf || !pageWidth) return;
     const el = containerRef.current;
-    if (el && onPdfZoom) onPdfZoom(Math.min(1, (el.clientHeight - PDF_FIT_GAP * 2) / (pageWidth * firstRatio)));
+    if (el && onPdfZoom) onPdfZoom(Math.min(1, (innerHeight(el) - PDF_FIT_GAP * 2) / (pageWidth * firstRatio)));
     setFitReady(true);
   }, [fitReady, pdf, pageWidth, firstRatio, onPdfZoom]);
 
@@ -611,7 +619,7 @@ function PdfPreview({ signedUrl, file, onOpen, pdfView = null, onPdfZoom = null,
     if (!el || !pageWidth) return 1;
     const node = el.querySelector('.file-preview-pdf-page');
     const ratio = node && node.offsetWidth ? node.offsetHeight / node.offsetWidth : firstRatio;
-    return Math.min(1, (el.clientHeight - PDF_FIT_GAP * 2) / (pageWidth * ratio));
+    return Math.min(1, (innerHeight(el) - PDF_FIT_GAP * 2) / (pageWidth * ratio));
   }, [pageWidth, firstRatio]);
   // …and publishes it, because only the preview can measure it: it is the FLOOR
   // the zoom is clamped to and the 100% the pill reads against for a one-page
@@ -644,7 +652,7 @@ function PdfPreview({ signedUrl, file, onOpen, pdfView = null, onPdfZoom = null,
     if (!el || !pageWidth || !onPdfZoom) return;
     const node = el.querySelector(`.file-preview-pdf-page[data-page="${current}"]`);
     const ratio = node && node.offsetWidth ? node.offsetHeight / node.offsetWidth : firstRatio;
-    const z = Math.min(1, (el.clientHeight - PDF_FIT_GAP * 2) / (pageWidth * ratio));
+    const z = Math.min(1, (innerHeight(el) - PDF_FIT_GAP * 2) / (pageWidth * ratio));
     onPdfZoom(z);
     setPan({ x: 0, y: 0 });               // fitting re-centres a one-page stage
     // …and that page squarely in view once the glide has settled.
@@ -680,9 +688,10 @@ function PdfPreview({ signedUrl, file, onOpen, pdfView = null, onPdfZoom = null,
     const x0 = e.clientX; const y0 = e.clientY;
     const from = panRef.current;
     let moved = false;
+    let endShield = null;
     const onMove = (ev) => {
       if (!moved && Math.abs(ev.clientX - x0) + Math.abs(ev.clientY - y0) < 4) return;
-      if (!moved) { moved = true; setDragging(true); document.body.classList.add('dv-media-panning'); }
+      if (!moved) { moved = true; setDragging(true); endShield = beginPanShield(); }
       // Layout px, not viewport px: the pan is a CSS transform, and under a
       // display-scale the two differ — the page would trail the cursor.
       setPan({ x: from.x + toLayoutPx(ev.clientX - x0), y: from.y + toLayoutPx(ev.clientY - y0) });
@@ -690,7 +699,7 @@ function PdfPreview({ signedUrl, file, onOpen, pdfView = null, onPdfZoom = null,
     const onUp = () => {
       window.removeEventListener('mousemove', onMove);
       window.removeEventListener('mouseup', onUp);
-      document.body.classList.remove('dv-media-panning');
+      endShield?.(); endShield = null;
       setDragging(false);
     };
     window.addEventListener('mousemove', onMove);

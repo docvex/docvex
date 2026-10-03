@@ -206,3 +206,6 @@
 .rs-page.ai-chat-page .aichat-thread-col,
 .rs-page.ai-chat-page .aichat-debug.aichat-fill,
 .rs-page.ai-chat-page .aichat-empty.aichat-fill { min-height: var(--aifit-h, 60vh); }
+
+/* The footer's Import (the Files tab's import window): the composer's round
+   button widened to carry its word. */

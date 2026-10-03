@@ -108,25 +108,6 @@ function withText(p, text) {
   return `${open}${pPr}${keep.join('')}<w:r>${rPr}${runs}</w:r></w:p>`;
 }
 
-// The document's paragraphs, in order, one string each — the body only, since
-// that is what the preview shows and what a person picks. This is the SOURCE a
-// file DocVex did not write is given: the paragraph tools split a source into
-// one piece per LINE, so the lines have to be the document's real paragraphs.
-// Reading `textContent` off a rendered copy (what this used to do) is not that
-// — block elements contribute no line break, so the whole document arrived as a
-// single line and every paragraph matched the one enormous piece it made.
-// Reading `<w:p>` also means the pieces are exactly the units rewriteDocxParagraphs
-// can find again, and there is no second render to pay for.
-export async function readDocxParagraphs(blob) {
-  if (!blob) return [];
-  const zip = await JSZip.loadAsync(await blob.arrayBuffer(), { createFolders: false });
-  const part = zip.file('word/document.xml');
-  if (!part) return [];
-  const xml = await part.async('string');
-  // A paragraph's own newlines (a <w:br/>) would split it into pieces that no
-  // longer match anything in the file, so they are kept as spaces.
-  return paragraphSpans(xml).map(([from, to]) => paraText(xml.slice(from, to)).replace(/\s+/g, ' ').trim());
-}
 
 // Rewrite the paragraphs of `blob` (a .docx) named by `edits`, an array of
 // `{ before, after }` — the paragraph as it reads now and as it should read.
